@@ -2,9 +2,8 @@ import streamlit as st
 from datetime import date, timedelta
 
 def render_calendar(is_admin):
-    """日历模块：展示和管理活动日程"""
-    st.subheader("📅 日历管理")
-    st.write("查看和管理学生会活动安排")
+    st.subheader("📅 Calendar")
+    st.write("View and manage student council events")
     st.divider()
     
     # 月份导航状态
@@ -17,7 +16,7 @@ def render_calendar(is_admin):
     # 上月/下月导航
     col_prev, col_title, col_next = st.columns([1, 3, 1])
     with col_prev:
-        if st.button("◀ 上月"):
+        if st.button("◀ Previous Month"):
             new_month = current_month - 1
             new_year = current_year
             if new_month < 1:
@@ -26,11 +25,11 @@ def render_calendar(is_admin):
             st.session_state.current_month = (new_year, new_month)
     
     with col_title:
-        month_name = date(current_year, current_month, 1).strftime("%Y年%m月")
+        month_name = date(current_year, current_month, 1).strftime("%B %Y")
         st.write(f"### {month_name}")
     
     with col_next:
-        if st.button("下月 ▶"):
+        if st.button("Next Month ▶"):
             new_month = current_month + 1
             new_year = current_year
             if new_month > 12:
@@ -48,7 +47,7 @@ def render_calendar(is_admin):
     calendar_days, current_month_num = get_month_days(current_year, current_month)
     
     # 日历表头
-    headers = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    headers = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     for col, header in zip(st.columns(7), headers):
         col.markdown(f"**{header}**")
     
@@ -75,20 +74,20 @@ def render_calendar(is_admin):
     
     # 管理员操作
     if is_admin:
-        with st.expander("🔧 管理活动", expanded=False):
-            event_date = st.date_input("活动日期", date.today())
+        with st.expander("🔧 Manage Events (Admin Only)", expanded=False):
+            event_date = st.date_input("Event Date", date.today())
             event_date_str = event_date.strftime("%Y-%m-%d")
             event_desc = st.text_input(
-                "活动描述",
+                "Event Description",
                 st.session_state.calendar_events.get(event_date_str, "")
             )
             
             col_save, col_del = st.columns(2)
             with col_save:
-                if st.button("保存活动"):
+                if st.button("Save Event"):
                     st.session_state.calendar_events[event_date_str] = event_desc
-                    st.success("活动已保存")
+                    st.success("Event saved successfully")
             with col_del:
-                if st.button("删除活动", type="secondary") and event_date_str in st.session_state.calendar_events:
+                if st.button("Delete Event", type="secondary") and event_date_str in st.session_state.calendar_events:
                     del st.session_state.calendar_events[event_date_str]
-                    st.success("活动已删除")
+                    st.success("Event deleted successfully")
