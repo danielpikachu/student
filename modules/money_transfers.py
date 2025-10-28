@@ -1,153 +1,97 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
-import uuid
+from datetime import datetime
 
-def render_money_transfers(is_admin):
-    st.subheader("💸 资金交易管理")
-    st.write("记录和查看学生会财务交易")
-    st.divider()
-
-    # 确保交易记录有唯一ID
-    if st.session_state.transactions:
-        for t in st.session_state.transactions:
-            if "id" not in t:
-                t["id"] = str(uuid.uuid4())
-
-    # 显示交易记录
-    st.subheader("交易历史")
-    if st.session_state.transactions:
-        df = pd.DataFrame(st.session_state.transactions)
-        df["date"] = pd.to_datetime(df["date"])
-        df = df.sort_values("date", ascending=False).reset_index(drop=True)
-
-        # 筛选功能
-        col_filter1, col_filter2 = st.columns(2)
-        with col_filter1:
-            date_range = st.date_input(
-                "筛选日期范围",
-                value=[df["date"].min().date(), df["date"].max().date()],
-                min_value=df["date"].min().date(),
-                max_value=df["date"].max().date()
-            )
-        with col_filter2:
-            trans_type = st.selectbox("筛选交易类型", ["全部", "收入", "支出"])
-
-        # 应用筛选
-        mask = (df["date"].dt.date >= date_range[0]) & (df["date"].dt.date <= date_range[1])
-        if trans_type == "收入":
-            mask &= df["amount"] > 0
-        elif trans_type == "支出":
-            mask &= df["amount"] < 0
-        filtered_df = df[mask]
-
-        # 显示表格
-        st.dataframe(
-            filtered_df.drop(columns=["id"]),
-            use_container_width=True,
-            column_config={
-                "date": st.column_config.DateColumn("日期"),
-                "amount": st.column_config.NumberColumn(
-                    "金额 (¥)",
-                    format="¥%.2f",
-                    cell_style=lambda x: {"color": "green" if x > 0 else "red"}
-                ),
-                "desc": "描述",
-                "handler": "经手人"
-            },
-            hide_index=True
-        )
-
-        # 财务汇总
-        income = sum(filtered_df[filtered_df["amount"] > 0]["amount"])
-        expense = sum(filtered_df[filtered_df["amount"] < 0]["amount"])
-        balance = income + expense
-        col1, col2, col3 = st.columns(3)
-        col1.metric("总收入", f"¥{income:.2f}")
-        col2.metric("总支出", f"¥{expense:.2f}")
-        col3.metric("当前余额", f"¥{balance:.2f}")
-    else:
-        st.info("暂无交易记录")
-
-    # 管理员操作
-    if is_admin:
-        with st.expander("🔧 记录新交易（仅管理员）", expanded=False):
-            trans_type = st.radio("交易类型", ["收入", "支出"], horizontal=True)
+def render_money_transfers():
+    # 功能选项卡
+    tab1, tab2, tab3 = st.tabs(["Transfer Records", "Financial Stats", "Add Transfer"])
+    
+    with tab1:
+        st.subheader("Money Transfer Records")
+        if st.session_state.money_transfers:
+            # 筛选功能（使用标准化字段）
             col1, col2 = st.columns(2)
             with col1:
-                default_amount = 100.0 if trans_type == "收入" else -100.0
-                amount = st.number_input("金额 (¥)", value=default_amount, step=10.0)
-                if trans_type == "收入" and amount < 0:
-                    amount = abs(amount)
-                elif trans_type == "支出" and amount > 0:
-                    amount = -abs(amount)
+                start_date = st.date_input("Start Date", datetime(2020, 1, 1))
             with col2:
-                trans_date = st.date_input("交易日期", date.today())
-                if trans_date > date.today():
-                    st.warning("交易日期不能晚于今天")
-
-            desc = st.text_input("交易描述", "例如：筹款活动、购买办公用品")
-            handler = st.text_input("经手人", st.session_state.user)
-
-            if st.button("记录交易"):
-                if not desc.strip():
-                    st.error("请输入交易描述")
-                elif trans_date > date.today():
-                    st.error("交易日期不能晚于今天")
-                elif amount == 0:
-                    st.error("交易金额不能为0")
+                end_date = st.date_input("End Date", datetime.today())
+            
+            type_filter = st.selectbox("Transfer Type", ["All", "Income", "Expense"])
+            
+            # 筛选逻辑
+            filtered = [
+                t for t in st.session_state.money_transfers
+                if start_date <= t["Date"] <= end_date
+                and (type_filter == "All" or t["Type"] == type_filter)
+            ]
+            
+            # 显示记录（字段与 Google Sheet 对应）
+            for i, trans in enumerate(filtered):
+                cols = st.columns([1, 1, 2, 1, 2, 1])
+                cols[0].write(trans["Date"].strftime("%Y-%m-%d"))
+                cols[1].write(trans["Type"])
+                cols[2].write(f"¥ {trans['Amount']:.2f}")
+                cols[3].write(trans["Group"] or "N/A")
+                cols[4].write(trans["Description"])
+                if cols[5].button("Delete", key=f"trans_del_{i}"):
+                    st.session_state.money_transfers.remove(trans)
+                    st.success("Transfer record deleted")
+                    st.experimental_rerun()
+        else:
+            st.info("No transfer records yet. Add a new record.")
+    
+    with tab2:
+        st.subheader("Financial Statistics")
+        if st.session_state.money_transfers:
+            # 计算收支（使用标准化字段 "Type" 和 "Amount"）
+            total_income = sum(t["Amount"] for t in st.session_state.money_transfers 
+                             if t["Type"] == "Income")
+            total_expense = sum(t["Amount"] for t in st.session_state.money_transfers 
+                              if t["Type"] == "Expense")
+            balance = total_income - total_expense
+            
+            # 显示指标
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Income", f"¥ {total_income:.2f}")
+            col2.metric("Total Expense", f"¥ {total_expense:.2f}")
+            col3.metric("Current Balance", f"¥ {balance:.2f}")
+            
+            # 图表（数据结构适配 Google Sheet 导出）
+            st.subheader("Income vs Expense")
+            st.bar_chart(pd.DataFrame({
+                "Category": ["Income", "Expense"],
+                "Amount": [total_income, total_expense]
+            }).set_index("Category"))
+        else:
+            st.info("No financial data. Add transfer records first.")
+    
+    with tab3:
+        st.subheader("Add New Transfer")
+        with st.form("new_transfer"):
+            col1, col2 = st.columns(2)
+            with col1:
+                trans_type = st.radio("Transfer Type*", ["Income", "Expense"])
+                amount = st.number_input("Amount (¥)*", min_value=0.01, step=0.01)
+                date = st.date_input("Date*", datetime.today())
+            
+            with col2:
+                group = st.text_input("Related Group (Optional)")
+                handler = st.text_input("Handler*")
+                description = st.text_area("Description*")
+            
+            submit = st.form_submit_button("Save Transfer")
+            
+            if submit:
+                if not all([amount, handler, description]):
+                    st.error("Fields marked with * are required")
                 else:
-                    st.session_state.transactions.append({
-                        "id": str(uuid.uuid4()),
-                        "date": trans_date.strftime("%Y-%m-%d"),
-                        "amount": amount,
-                        "desc": desc,
-                        "handler": handler
+                    # 新增交易记录（字段名与 Google Sheet 严格一致）
+                    st.session_state.money_transfers.append({
+                        "Date": date,
+                        "Type": trans_type,
+                        "Amount": amount,
+                        "Group": group,
+                        "Handler": handler,
+                        "Description": description
                     })
-                    st.success("交易记录成功！")
-
-        # 编辑/删除交易
-        if st.session_state.transactions:
-            with st.expander("🔧 管理交易记录（仅管理员）", expanded=False):
-                trans_options = {
-                    f"{t['date']} - {t['desc']} (¥{t['amount']:.2f})": t["id"]
-                    for t in st.session_state.transactions
-                }
-                selected_id = st.selectbox("选择交易", trans_options.values(),
-                                         format_func=lambda x: [k for k, v in trans_options.items() if v == x][0])
-                selected_trans = next(t for t in st.session_state.transactions if t["id"] == selected_id)
-
-                # 编辑
-                st.subheader("编辑交易")
-                col1, col2 = st.columns(2)
-                with col1:
-                    edit_amount = st.number_input("金额 (¥)", value=float(selected_trans["amount"]), step=10.0)
-                with col2:
-                    edit_date = st.date_input("交易日期", datetime.strptime(selected_trans["date"], "%Y-%m-%d").date())
-                edit_desc = st.text_input("描述", selected_trans["desc"])
-                edit_handler = st.text_input("经手人", selected_trans["handler"])
-
-                col_edit, col_del = st.columns(2)
-                with col_edit:
-                    if st.button("保存修改"):
-                        if not edit_desc.strip():
-                            st.error("请输入描述")
-                        elif edit_date > date.today():
-                            st.error("日期无效")
-                        elif edit_amount == 0:
-                            st.error("金额不能为0")
-                        else:
-                            for t in st.session_state.transactions:
-                                if t["id"] == selected_id:
-                                    t.update({
-                                        "date": edit_date.strftime("%Y-%m-%d"),
-                                        "amount": edit_amount,
-                                        "desc": edit_desc,
-                                        "handler": edit_handler
-                                    })
-                            st.success("交易已更新")
-                with col_del:
-                    if st.button("删除交易", type="secondary"):
-                        if st.checkbox("确认删除（不可恢复）"):
-                            st.session_state.transactions = [t for t in st.session_state.transactions if t["id"] != selected_id]
-                            st.success("交易已删除")
+                    st.success("Transfer record added!")
