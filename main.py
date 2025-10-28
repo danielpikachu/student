@@ -1,10 +1,8 @@
 import streamlit as st
-# 关键调整：从 modules 文件夹导入模块（使用相对路径）
+# 从 modules 文件夹导入模块
 from modules.calendar import render_calendar
 from modules.groups import render_groups
 from modules.money_transfers import render_money_transfers
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
 # 页面配置
 st.set_page_config(
@@ -13,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 初始化会话状态（数据结构保持不变）
+# 初始化会话状态（存储所有模块数据）
 if 'initialized' not in st.session_state:
     # Calendar 模块数据
     st.session_state.calendar_events = []
@@ -27,46 +25,22 @@ if 'initialized' not in st.session_state:
     
     st.session_state.initialized = True
 
-# Google Sheet 同步函数（预留接口）
-def init_google_sheet():
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        credentials = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
-        client = gspread.authorize(credentials)
-        sheet = client.open("StudentCouncilData")
-        return {
-            "calendar": sheet.worksheet("Calendar"),
-            "groups": sheet.worksheet("Groups"),
-            "money_transfers": sheet.worksheet("MoneyTransfers")
-        }
-    except Exception as e:
-        st.sidebar.warning(f"Google Sheet 连接未初始化：{str(e)}")
-        return None
-
-# 侧边栏导航
-st.sidebar.title("Navigation")
-module = st.sidebar.radio(
-    "Select Module",
-    ("Calendar", "Groups", "MoneyTransfers"),
-    index=0
-)
-
 # 主标题
-st.title(f"Student Council Management System - {module}")
+st.title("Student Council Management System")
 
-# 加载对应模块（调用方式不变，导入路径已调整）
-if module == "Calendar":
+# 创建三个选项卡，对应三个模块（核心设计）
+tab1, tab2, tab3 = st.tabs(["📅 Calendar", "👥 Groups", "💸 Money Transfers"])
+
+# 在每个选项卡中渲染对应模块
+with tab1:
     render_calendar()
-elif module == "Groups":
+
+with tab2:
     render_groups()
-elif module == "MoneyTransfers":
+
+with tab3:
     render_money_transfers()
 
-# Google Sheet 同步按钮
+# 页脚
 st.sidebar.markdown("---")
-if st.sidebar.button("Sync to Google Sheet"):
-    sheets = init_google_sheet()
-    if sheets:
-        st.sidebar.success("Data synced successfully!")
-    else:
-        st.sidebar.error("Failed to sync. Check credentials.")
+st.sidebar.info("© 2025 Student Council Management System")
