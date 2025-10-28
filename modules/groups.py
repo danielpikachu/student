@@ -1,73 +1,122 @@
 import streamlit as st
 
-def render_groups(is_admin, user_groups):
-    # 确保用户群组为列表格式
-    if not isinstance(user_groups, list):
-        user_groups = [user_groups] if user_groups else ["未分配"]
-
-    st.subheader("👥 群组管理")
-    st.write("管理学生会群组及成员分配")
-    st.divider()
-
-    # 显示用户所属群组
-    if user_groups and user_groups != ["未分配"]:
-        st.info(f"你所属的群组: {', '.join(user_groups)}")
-    else:
-        st.warning("你尚未分配到任何群组")
-
-    # 显示所有群组
-    st.subheader("所有群组")
-    if st.session_state.groups:
-        st.dataframe(
-            {"群组名称": st.session_state.groups},
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("暂无创建的群组，请管理员添加群组")
-
-    # 管理员查看成员分配
-    if is_admin:
-        st.subheader("成员-群组分配")
-        if st.session_state.member_groups:
-            member_data = [{"成员": m, "所属群组": g} for m, g in st.session_state.member_groups.items()]
-            st.dataframe(member_data, use_container_width=True, hide_index=True)
+def render_groups():
+    # 功能选项卡
+    tab1, tab2, tab3 = st.tabs(["View Groups", "View Members", "Add Data"])
+    
+    with tab1:
+        st.subheader("Groups List")
+        if st.session_state.groups:
+            for i, group in enumerate(st.session_state.groups):
+                cols = st.columns([2, 1, 1, 1])
+                cols[0].write(group["GroupName"])
+                cols[1].write(group["Leader"])
+                cols[2].write(f"Members: {group['MemberCount']}")
+                if cols[3].button("Delete", key=f"group_del_{i}"):
+                    # 删除社团及关联成员（使用 GroupID 关联）
+                    group_id = group["GroupID"]
+                    st.session_state.groups.pop(i)
+                    st.session_state.group_members = [
+                        m for m in st.session_state.group_members 
+                        if m["GroupID"] != group_id
+                    ]
+                    st.success("Group deleted")
+                    st.experimental_rerun()
         else:
-            st.info("暂无成员分配记录")
-
-    # 管理员操作
-    if is_admin:
-        with st.expander("🔧 管理群组（仅管理员）", expanded=False):
-            # 添加群组
-            new_group = st.text_input("新群组名称")
-            if st.button("添加群组"):
-                if new_group and new_group not in st.session_state.groups:
-                    st.session_state.groups.append(new_group)
-                    st.success(f"群组 '{new_group}' 添加成功")
-                elif not new_group:
-                    st.error("请输入群组名称")
-                else:
-                    st.error("该群组已存在")
-
-            # 删除群组
-            if st.session_state.groups:
-                del_group = st.selectbox("选择要删除的群组", st.session_state.groups)
-                if st.button("删除群组", type="secondary"):
-                    st.session_state.groups.remove(del_group)
-                    # 同步删除成员关联
-                    st.session_state.member_groups = {
-                        k: v for k, v in st.session_state.member_groups.items() if v != del_group
-                    }
-                    st.success(f"群组 '{del_group}' 已删除")
-
-            # 分配成员
-            if st.session_state.groups:
-                st.subheader("分配成员到群组")
-                member = st.text_input("成员姓名")
-                target_group = st.selectbox("目标群组", st.session_state.groups)
-                if st.button("保存分配"):
-                    if member:
-                        st.session_state.member_groups[member] = target_group
-                        st.success(f"成员 '{member}' 已分配到 '{target_group}'")
+            st.info("No groups yet. Add a new group.")
+    
+    with tab2:
+        st.subheader("Group Members")
+        if st.session_state.groups:
+            # 选择社团（显示 GroupName）
+            group_names = [g["GroupName"] for g in st.session_state.groups]
+            selected_group = st.selectbox("Select Group", group_names)
+            
+            # 通过 GroupID 关联成员（标准化关联字段）
+            group_id = next(g["GroupID"] for g in st.session_state.groups 
+                          if g["GroupName"] == selected_group)
+            members = [m for m in st.session_state.group_members 
+                      if m["GroupID"] == group_id]
+            
+            if members:
+                for i, member in enumerate(members):
+                    cols = st.columns([2, 1, 1, 2, 1])
+                    cols[0].write(member["Name"])
+                    cols[1].write(member["StudentID"])
+                    cols[2].write(member["Position"])
+                    cols[3].write(member["Contact"])
+                    if cols[4].button("Delete", key=f"mem_del_{i}"):
+                        st.session_state.group_members.pop(i)
+                        # 更新成员计数（通过 GroupID 定位）
+                        for g in st.session_state.groups:
+                            if g["GroupID"] == group_id:
+                                g["MemberCount"] -= 1
+                        st.success("Member deleted")
+                        st.experimental_rerun()
+            else:
+                st.info(f"No members in {selected_group}. Add members.")
+        else:
+            st.info("Create a group first to add members.")
+    
+    with tab3:
+        option = st.radio("Select Action", ["Add Group", "Add Member"])
+        
+        if option == "Add Group":
+            with st.form("new_group"):
+                group_name = st.text_input("Group Name*")
+                leader = st.text_input("Leader*")
+                description = st.text_area("Description")
+                
+                submit = st.form_submit_button("Create Group")
+                
+                if submit:
+                    if not all([group_name, leader]):
+                        st.error("Fields marked with * are required")
                     else:
-                        st.error("请输入成员姓名")
+                        # 生成唯一 GroupID（为同步到 Google Sheet 做准备）
+                        group_id = f"G{len(st.session_state.groups) + 1:03d}"
+                        st.session_state.groups.append({
+                            "GroupID": group_id,
+                            "GroupName": group_name,
+                            "Leader": leader,
+                            "Description": description,
+                            "MemberCount": 0
+                        })
+                        st.success(f"Group {group_name} created!")
+        
+        else:  # Add Member
+            if st.session_state.groups:
+                with st.form("new_member"):
+                    group_names = [g["GroupName"] for g in st.session_state.groups]
+                    selected_group = st.selectbox("Belong to Group*", group_names)
+                    name = st.text_input("Member Name*")
+                    student_id = st.text_input("Student ID*")
+                    position = st.text_input("Position*")
+                    contact = st.text_input("Contact")
+                    
+                    submit = st.form_submit_button("Add Member")
+                    
+                    if submit:
+                        if not all([selected_group, name, student_id, position]):
+                            st.error("Fields marked with * are required")
+                        else:
+                            # 获取关联的 GroupID
+                            group_id = next(g["GroupID"] for g in st.session_state.groups 
+                                          if g["GroupName"] == selected_group)
+                            # 生成唯一 MemberID
+                            member_id = f"M{len(st.session_state.group_members) + 1:03d}"
+                            st.session_state.group_members.append({
+                                "MemberID": member_id,
+                                "GroupID": group_id,
+                                "Name": name,
+                                "StudentID": student_id,
+                                "Position": position,
+                                "Contact": contact
+                            })
+                            # 更新社团成员计数
+                            for g in st.session_state.groups:
+                                if g["GroupID"] == group_id:
+                                    g["MemberCount"] += 1
+                            st.success(f"Member {name} added!")
+            else:
+                st.info("Create a group first to add members.")
