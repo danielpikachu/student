@@ -180,7 +180,7 @@ def render_calendar():
                     st.success("✅ Event saved successfully!")
         
         with col_delete:
-            if st.button("🗑️ DELETE EVENT", use_container_width=True, type="destructive"):
+            if st.button("🗑️ DELETE EVENT", use_container_width=True):
                 if 'calendar_events' in st.session_state:
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
