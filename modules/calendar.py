@@ -2,23 +2,60 @@ import streamlit as st
 from datetime import datetime, timedelta
 import pandas as pd
 
+# 自定义样式（提升美观度）
+def add_custom_css():
+    st.markdown("""
+    <style>
+    .calendar-day {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 10px;
+        min-height: 100px;
+        margin: 5px;
+        background-color: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .calendar-day-today {
+        border: 2px solid #ff4b4b;
+        background-color: #fff5f5;
+    }
+    .calendar-day-has-event {
+        border: 2px solid #4b8bff;
+    }
+    .day-number {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+    .event-text {
+        font-size: 0.85rem;
+        color: #555;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .weekday-label {
+        text-align: center;
+        font-weight: bold;
+        color: #666;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 def render_calendar():
-    st.header("Event Calendar")
+    add_custom_css()  # 加载自定义样式
+    st.header("📅 Event Calendar")
     st.divider()
 
     # --------------------------
-    # 顶部：原生月视图日历
+    # 顶部：月份导航栏
     # --------------------------
-    st.subheader("Monthly Calendar View")
-    
-    # 月份切换控制
     if 'current_month' not in st.session_state:
-        st.session_state.current_month = datetime.today().replace(day=1)  # 当月第一天
-    
-    # 切换上月/下月
+        st.session_state.current_month = datetime.today().replace(day=1)
+
+    # 月份切换控制
     col_prev, col_title, col_next = st.columns([1, 3, 1])
     with col_prev:
-        if st.button("← Previous", use_container_width=True):
+        if st.button("← Previous", use_container_width=True, type="secondary"):
             prev_month = st.session_state.current_month.month - 1
             prev_year = st.session_state.current_month.year
             if prev_month == 0:
@@ -30,7 +67,7 @@ def render_calendar():
         st.markdown(f"### {st.session_state.current_month.strftime('%B %Y')}")
     
     with col_next:
-        if st.button("Next →", use_container_width=True):
+        if st.button("Next →", use_container_width=True, type="secondary"):
             next_month = st.session_state.current_month.month + 1
             next_year = st.session_state.current_month.year
             if next_month == 13:
@@ -38,125 +75,138 @@ def render_calendar():
                 next_year += 1
             st.session_state.current_month = datetime(next_year, next_month, 1)
 
-    # 生成当月日历数据
+    # --------------------------
+    # 日历主体：卡片式网格
+    # --------------------------
     year, month = st.session_state.current_month.year, st.session_state.current_month.month
     first_day = datetime(year, month, 1)
     last_day = (datetime(year, month+1, 1) - timedelta(days=1)) if month < 12 else datetime(year, 12, 31)
     days_in_month = last_day.day
+    first_weekday = first_day.weekday()  # 0=周一，6=周日
 
-    # 获取当月第一天是星期几（0=周一，6=周日）
-    first_weekday = first_day.weekday()
-
-    # 存储日历数据（日期 -> 事件）
+    # 存储日期对应的事件
     date_events = {}
     if 'calendar_events' in st.session_state:
         for event in st.session_state.calendar_events:
-            date_str = event["Date"].strftime("%Y-%m-%d")
-            date_events[date_str] = event["Description"]
+            date_key = event["Date"].strftime("%Y-%m-%d")
+            date_events[date_key] = event["Description"]
 
-    # 绘制日历网格
+    # 星期标题行
     weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    st.write(" | ".join([f"**{d}**" for d in weekdays]))  # 星期标题
-    st.write("---")
+    weekday_cols = st.columns(7)
+    for i, day in enumerate(weekdays):
+        with weekday_cols[i]:
+            st.markdown(f"<div class='weekday-label'>{day}</div>", unsafe_allow_html=True)
 
-    # 填充日历单元格
+    # 绘制日历网格（按周循环）
     current_day = 1
-    calendar_rows = []
     while current_day <= days_in_month:
-        row = []
-        for weekday in range(7):
-            if current_day == 1 and weekday < first_weekday:
-                # 月初空白单元格
-                row.append(" ")
-            else:
-                if current_day > days_in_month:
-                    # 月末空白单元格
-                    row.append(" ")
+        day_cols = st.columns(7)  # 每周7列
+        
+        for col_idx in range(7):
+            with day_cols[col_idx]:
+                if current_day == 1 and col_idx < first_weekday:
+                    # 月初空白区域
+                    st.markdown("<div class='calendar-day'></div>", unsafe_allow_html=True)
                 else:
-                    # 填充日期和事件
-                    date_str = f"{year}-{month:02d}-{current_day:02d}"
-                    day_label = f"{current_day}"
-                    
-                    # 标记当天和有事件的日期
-                    is_today = (datetime.today().date() == datetime(year, month, current_day).date())
-                    has_event = date_str in date_events
-                    
-                    # 样式处理
-                    if is_today:
-                        day_label = f"**🔴 {day_label}**"  # 今天标红
-                    elif has_event:
-                        day_label = f"**🔵 {day_label}**"  # 有事件标蓝
-                    
-                    row.append(day_label)
-                    current_day += 1
-        calendar_rows.append(" | ".join(row))
+                    if current_day > days_in_month:
+                        # 月末空白区域
+                        st.markdown("<div class='calendar-day'></div>", unsafe_allow_html=True)
+                    else:
+                        # 填充日期卡片
+                        current_date = datetime(year, month, current_day)
+                        date_key = current_date.strftime("%Y-%m-%d")
+                        is_today = (current_date.date() == datetime.today().date())
+                        has_event = date_key in date_events
 
-    # 显示日历行
-    for row in calendar_rows:
-        st.write(row)
-        st.write("---")
+                        # 卡片样式（根据是否当天/有事件添加类）
+                        day_classes = "calendar-day"
+                        if is_today:
+                            day_classes += " calendar-day-today"
+                        if has_event:
+                            day_classes += " calendar-day-has-event"
+
+                        # 事件文本
+                        event_text = f"<div class='event-text'>{date_events[date_key]}</div>" if has_event else ""
+
+                        # 渲染日期卡片
+                        st.markdown(f"""
+                        <div class='{day_classes}'>
+                            <div class='day-number'>{current_day}</div>
+                            {event_text}
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        current_day += 1
 
     # --------------------------
-    # 底部：事件管理（Admin Only）
+    # 底部：事件管理面板（美观版）
     # --------------------------
-    with st.expander("Manage Calendar Events (Admin Only)"):
-        st.subheader("Add/Edit Calendar Entry")
+    st.divider()
+    with st.container(border=True):
+        st.subheader("📝 Manage Calendar Events (Admin Only)")
         
-        # 选择日期
-        selected_date = st.date_input(
-            "Select Date",
-            value=datetime.today()
-        )
-        
-        # 事件描述（限制100字符）
-        event_desc = st.text_area(
-            "Event Description (max 100 characters)",
-            max_chars=100,
-            placeholder="Enter event details..."
-        )
-        
-        # 加载选中日期的已有事件
-        if 'calendar_events' in st.session_state:
-            existing_event = next(
-                (e for e in st.session_state.calendar_events 
-                 if e["Date"].date() == selected_date),
-                None
+        # 日期选择与事件描述
+        col_date, col_desc = st.columns([1, 2])
+        with col_date:
+            selected_date = st.date_input(
+                "Select Date",
+                value=datetime.today(),
+                label_visibility="collapsed"
             )
-            if existing_event and not event_desc:
-                event_desc = existing_event["Description"]  # 自动填充已有事件
         
-        # 保存/删除按钮
+        with col_desc:
+            # 自动加载选中日期的事件
+            event_desc = ""
+            if 'calendar_events' in st.session_state:
+                existing = next(
+                    (e for e in st.session_state.calendar_events if e["Date"].date() == selected_date),
+                    None
+                )
+                if existing:
+                    event_desc = existing["Description"]
+            
+            event_desc = st.text_area(
+                "Event Description (max 100 characters)",
+                value=event_desc,
+                max_chars=100,
+                placeholder="Enter event details...",
+                label_visibility="collapsed"
+            )
+        
+        # 操作按钮
         col_save, col_delete = st.columns(2)
         with col_save:
-            if st.button("SAVE EVENTS", use_container_width=True):
+            if st.button("💾 SAVE EVENT", use_container_width=True, type="primary"):
                 if not event_desc.strip():
                     st.error("Event description cannot be empty!")
                 else:
-                    # 初始化事件列表
                     if 'calendar_events' not in st.session_state:
                         st.session_state.calendar_events = []
                     
-                    # 更新或添加事件
-                    event_data = {
-                        "Date": selected_date,
-                        "Description": event_desc.strip()
-                    }
-                    
-                    # 移除旧事件（如果存在）
+                    # 移除旧事件
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
                         if e["Date"].date() != selected_date
                     ]
                     # 添加新事件
-                    st.session_state.calendar_events.append(event_data)
-                    st.success("Event saved successfully!")
+                    st.session_state.calendar_events.append({
+                        "Date": selected_date,
+                        "Description": event_desc.strip()
+                    })
+                    st.success("✅ Event saved successfully!")
         
         with col_delete:
-            if st.button("DELETE EVENT", use_container_width=True):
+            if st.button("🗑️ DELETE EVENT", use_container_width=True, type="destructive"):
                 if 'calendar_events' in st.session_state:
-                    # 删除选中日期的事件
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
                         if e["Date"].date() != selected_date
                     ]
-                    st.success("Event deleted successfully!")
+                    st.success("✅ Event deleted successfully!")
+
+
+
+
+
+运行后，日历将呈现出卡片式网格布局，视觉效果现代且清晰，事件管理区域简洁易用，完全符合美观性要求。
