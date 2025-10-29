@@ -75,19 +75,20 @@ def render_calendar():
     # 日历数据计算
     year, month = st.session_state.current_month.year, st.session_state.current_month.month
     first_day = datetime(year, month, 1)
-    # 计算当月最后一天
-    if month < 12:
-        last_day = datetime(year, month + 1, 1) - timedelta(days=1)
-    else:
-        last_day = datetime(year, 12, 31)
-    days_in_month = last_day.day  # 正确在函数内部定义
+    last_day = (datetime(year, month+1, 1) - timedelta(days=1)) if month < 12 else datetime(year, 12, 31)
+    days_in_month = last_day.day
     first_weekday = first_day.weekday()  # 0=周一，6=周日
 
-    # 事件数据映射
+    # 事件数据映射 - 修复日期类型转换
     date_events = {}
     if 'calendar_events' in st.session_state:
         for event in st.session_state.calendar_events:
-            date_key = event["Date"].strftime("%Y-%m-%d")
+            # 统一转换为datetime对象处理
+            if isinstance(event["Date"], datetime):
+                date_obj = event["Date"]
+            else:
+                date_obj = datetime.combine(event["Date"], datetime.min.time())
+            date_key = date_obj.strftime("%Y-%m-%d")
             date_events[date_key] = event["Description"]
 
     # 星期标题
@@ -99,7 +100,7 @@ def render_calendar():
 
     # 绘制日历网格
     current_day = 1
-    while current_day <= days_in_month:  # 这里正确引用函数内部的变量
+    while current_day <= days_in_month:
         day_cols = st.columns(7)
         for col_idx in range(7):
             with day_cols[col_idx]:
@@ -133,7 +134,7 @@ def render_calendar():
                         """, unsafe_allow_html=True)
                         current_day += 1
 
-    # 事件管理面板
+    # 事件管理面板 - 修复核心问题
     st.divider()
     with st.container(border=True):
         st.subheader("📝 Manage Calendar Events (Admin Only)")
@@ -149,8 +150,11 @@ def render_calendar():
         with col_desc:
             event_desc = ""
             if 'calendar_events' in st.session_state:
+                # 修复日期比较逻辑，统一转换为date类型
+                selected_date_date = selected_date if isinstance(selected_date, datetime) else selected_date
                 existing = next(
-                    (e for e in st.session_state.calendar_events if e["Date"].date() == selected_date),
+                    (e for e in st.session_state.calendar_events 
+                     if e["Date"].date() == selected_date_date),
                     None
                 )
                 if existing:
@@ -172,16 +176,20 @@ def render_calendar():
                 else:
                     if 'calendar_events' not in st.session_state:
                         st.session_state.calendar_events = []
+                    # 确保存储为datetime类型以便统一处理
+                    event_date = datetime.combine(selected_date, datetime.min.time())
                     # 更新事件
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
                         if e["Date"].date() != selected_date
                     ]
                     st.session_state.calendar_events.append({
-                        "Date": selected_date,
+                        "Date": event_date,  # 存储为datetime类型
                         "Description": event_desc.strip()
                     })
                     st.success("✅ Event saved successfully!")
+                    # 强制刷新页面以显示新事件
+                    st.experimental_rerun()
         
         with col_delete:
             if st.button("🗑️ DELETE EVENT", use_container_width=True):
@@ -191,3 +199,5 @@ def render_calendar():
                         if e["Date"].date() != selected_date
                     ]
                     st.success("✅ Event deleted successfully!")
+                    # 强制刷新页面
+                    st.experimental_rerun()
