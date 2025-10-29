@@ -1,12 +1,15 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import uuid  # 生成唯一ID，避免删除按钮key重复
+import uuid  # 生成唯一ID，避免删除操作冲突
 
 def render_money_transfers():
     # -------------------------- 1. 会话状态初始化（确保首次运行不报错）--------------------------
     if "money_transfers" not in st.session_state:
         st.session_state.money_transfers = []
+    # 用于标记待删除的交易ID（避免表格渲染时直接修改列表）
+    if "to_delete_uuid" not in st.session_state:
+        st.session_state.to_delete_uuid = None
     
     # 页面标题与分割线
     st.header("Financial Transactions")
@@ -17,53 +20,60 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 步骤1：处理交易数据，添加「金额显示（带正负/颜色）」和「删除按钮列」
-        table_data = []
+        # 步骤1：处理交易数据，生成表格所需格式（不含直接嵌入的按钮）
+        table_rows = []
         for trans in st.session_state.money_transfers:
-            # 金额处理：支出显示负号+红色，收入显示正号+绿色（表格中用Markdown渲染颜色）
+            # 金额处理：支出标红带负号，收入标绿带正号（用Markdown格式）
             if trans["Type"] == "Expense":
-                amount_display = f"-¥{trans['Amount']:.2f}"
-                amount_markdown = f"<span style='color:red'>{amount_display}</span>"
+                amount_text = f"-¥{trans['Amount']:.2f}"
+                amount_display = f"<span style='color:red'>{amount_text}</span>"
             else:
-                amount_display = f"¥{trans['Amount']:.2f}"
-                amount_markdown = f"<span style='color:green'>{amount_display}</span>"
+                amount_text = f"¥{trans['Amount']:.2f}"
+                amount_display = f"<span style='color:green'>{amount_text}</span>"
             
-            # 为每笔交易生成唯一删除按钮key（用uuid确保不重复）
-            delete_btn_key = f"trans_del_{trans['uuid']}"
-            
-            # 构造表格行数据：包含所有需展示字段+删除按钮
-            table_data.append({
-                "Date": trans["Date"].strftime("%Y/%m/%d"),  # 日期格式化
-                "Amount": amount_markdown,  # 带颜色的金额
+            # 构造表格行（包含唯一uuid，用于后续删除定位）
+            table_rows.append({
+                "UUID": trans["uuid"],  # 隐藏列，用于定位删除的交易
+                "Date": trans["Date"].strftime("%Y/%m/%d"),
+                "Amount": amount_display,
                 "Description": trans["Description"],
                 "Handled By": trans["Handler"],
-                "Action": st.button("Delete", key=delete_btn_key, type="primary", use_container_width=True)
+                "Delete": False  # 复选框列，用于标记是否删除（替代直接按钮）
             })
         
-        # 步骤2：用Streamlit的dataframe渲染表格（开启HTML支持以显示颜色）
-        # 关键：设置escape=False，允许渲染Markdown格式的金额（颜色+正负号）
-        st.dataframe(
-            pd.DataFrame(table_data),
+        # 步骤2：用 st.data_editor 渲染表格（支持复选框列，避免组件嵌入错误）
+        edited_df = st.data_editor(
+            pd.DataFrame(table_rows),
+            # 配置列属性：隐藏UUID列，设置复选框列
             column_config={
-                # 配置列宽和对齐方式，优化表格视觉效果
+                "UUID": st.column_config.HiddenColumn(),  # 隐藏唯一标识列，不显示给用户
                 "Date": st.column_config.TextColumn("Date", width="small"),
-                "Amount": st.column_config.TextColumn("Amount", width="small"),
+                "Amount": st.column_config.MarkdownColumn("Amount", width="small"),  # 支持Markdown渲染颜色
                 "Description": st.column_config.TextColumn("Description", width="medium"),
                 "Handled By": st.column_config.TextColumn("Handled By", width="small"),
-                "Action": st.column_config.TextColumn("Action", width="small")
+                "Delete": st.column_config.CheckboxColumn("Delete", width="small")  # 复选框列，用于标记删除
             },
-            index=False,  # 隐藏默认索引列
-            escape=False,  # 允许渲染HTML（颜色金额）
-            use_container_width=True  # 表格宽度适应页面
+            disabled=["UUID", "Date", "Amount", "Description", "Handled By"],  # 仅开放Delete列编辑
+            index=False,  # 隐藏默认索引
+            use_container_width=True,
+            num_rows="fixed"  # 固定行数，不允许用户新增行
         )
         
-        # 步骤3：检查删除按钮点击事件，执行删除逻辑
-        for trans in st.session_state.money_transfers:
-            delete_btn_key = f"trans_del_{trans['uuid']}"
-            if st.session_state.get(delete_btn_key, False):  # 检测按钮是否被点击
-                st.session_state.money_transfers.remove(trans)
-                st.success(f"Transaction on {trans['Date'].strftime('%Y/%m/%d')} deleted successfully!")
-                st.rerun()  # 实时刷新表格，移除已删除记录
+        # 步骤3：处理删除逻辑（检测复选框选中状态，执行删除）
+        # 筛选出被标记为"Delete=True"的行
+        deleted_rows = edited_df[edited_df["Delete"] == True]
+        if not deleted_rows.empty:
+            # 遍历待删除行，根据UUID从会话状态中移除对应交易
+            for _, row in deleted_rows.iterrows():
+                trans_to_delete = next(
+                    (t for t in st.session_state.money_transfers if t["uuid"] == row["UUID"]),
+                    None
+                )
+                if trans_to_delete:
+                    st.session_state.money_transfers.remove(trans_to_delete)
+            # 显示删除成功提示并刷新页面
+            st.success(f"Successfully deleted {len(deleted_rows)} transaction(s)!")
+            st.rerun()
     
     st.divider()
     
@@ -115,13 +125,13 @@ def render_money_transfers():
             type="primary"
         )
         
-        # 表单验证与新增逻辑（添加uuid确保删除按钮key唯一）
+        # 表单验证与新增逻辑（添加uuid确保删除定位准确）
         if submit_btn:
             if not (amount and description and handler):
                 st.error("Please fill in all required fields (Amount, Description, Handled By)!")
             else:
                 new_transaction = {
-                    "uuid": str(uuid.uuid4()),  # 唯一ID，用于删除按钮key
+                    "uuid": str(uuid.uuid4()),  # 唯一ID，用于删除定位
                     "Date": date,
                     "Type": trans_type,
                     "Amount": round(amount, 2),
