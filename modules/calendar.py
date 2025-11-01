@@ -1,9 +1,14 @@
 import streamlit as st
 from datetime import datetime, timedelta
-# 新增Google Sheets相关导入
+# 新增：解决根目录模块导入问题
+import sys
+import os
+# 将根目录（modules的父目录）添加到系统路径
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# 现在可以正确导入根目录的google_sheet_utils
 import gspread
 from google.oauth2.service_account import Credentials
-from google_sheet_utils import get_worksheet  # 导入工作表工具类
+from google_sheet_utils import get_worksheet  # 修正导入路径后
 
 # 自定义样式
 def add_custom_css():
@@ -49,18 +54,18 @@ def render_calendar():
     st.header("📅 Event Calendar")
     st.divider()
 
-    # 新增：Google Sheets初始化
+    # Google Sheets初始化
     SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
     sheet = None  # 初始化工作表对象
     try:
-        # 加载凭证（根目录下的credentials.json）
+        # 加载根目录下的credentials.json
         creds = Credentials.from_service_account_file(
-            "credentials.json",
+            "credentials.json",  # 根目录路径正确（已添加到系统路径）
             scopes=SCOPE
         )
         client = gspread.authorize(creds)
         
-        # 通过工具类获取工作表（假设表格名为"StudentCouncilData"，工作表名为"Calendar"）
+        # 通过工具类获取工作表（表格名"StudentCouncilData"，工作表名"Calendar"）
         sheet = get_worksheet(client, "StudentCouncilData", "Calendar")
         
         # 从Google Sheets同步数据到本地会话状态
@@ -202,7 +207,6 @@ def render_calendar():
         
         col_save, col_delete = st.columns(2)
         with col_save:
-            # 使用键确保按钮状态正确刷新
             if st.button("💾 SAVE EVENT", use_container_width=True, type="primary", key="save_event"):
                 if not event_desc.strip():
                     st.error("Event description cannot be empty!")
@@ -220,7 +224,7 @@ def render_calendar():
                         "Description": event_desc.strip()
                     })
 
-                    # 新增：同步到Google Sheets
+                    # 同步到Google Sheets
                     if sheet:
                         try:
                             # 清除现有相同日期的记录
@@ -248,7 +252,7 @@ def render_calendar():
                         if (e["Date"].date() if isinstance(e["Date"], datetime) else e["Date"]) != selected_date
                     ]
 
-                    # 新增：从Google Sheets删除对应记录
+                    # 从Google Sheets删除对应记录
                     if sheet:
                         try:
                             cell = sheet.find(str(deleted_date))
