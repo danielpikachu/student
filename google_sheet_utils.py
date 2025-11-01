@@ -1,5 +1,6 @@
 import gspread
 from google.oauth2.service_account import Credentials
+import streamlit as st 
 
 class GoogleSheetHandler:
     """Google Sheets 操作工具类，封装认证和工作表操作"""
@@ -13,18 +14,17 @@ class GoogleSheetHandler:
         self.client = self._authorize()  # 初始化时完成授权
 
     def _authorize(self):
-        """通过凭证认文件获取授权客户端"""
+        """仅从Streamlit Secrets读取凭证（完全云端运行）"""
         try:
-            # 从根目录凭证文件加载权限
-            creds = Credentials.from_service_account_file(
-                self.credentials_path,
-                scopes=self.scope
-            )
+            # 直接从Streamlit Secrets获取配置
+            creds_dict = st.secrets["google_credentials"]
+            creds = Credentials.from_service_account_info(creds_dict, scopes=self.scope)
+                
             return gspread.authorize(creds)
-        except FileNotFoundError:
-            raise Exception(f"凭证文件未找到: {self.credentials_path}")
+        
         except Exception as e:
-            raise Exception(f"授权失败: {str(e)}")
+            st.error(f"密钥配置错误：{str(e)}。请检查Streamlit Secrets")
+            raise
 
     def get_worksheet(self, spreadsheet_name, worksheet_name):
         """获取指定表格中的指定工作表"""
