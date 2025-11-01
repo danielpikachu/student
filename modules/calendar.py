@@ -65,9 +65,9 @@ def render_calendar():
         creds_path = os.path.join(ROOT_DIR, "credentials.json")
         # 初始化Google Sheets处理器
         sheet_handler = GoogleSheetHandler(credentials_path=creds_path)
-        # 获取指定工作表（表格名：StudentCouncilData，工作表名：Calendar）
+        # 获取指定工作表（表格名：Student，工作表名：Calendar）
         calendar_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="StudentCouncilData",
+            spreadsheet_name="Student",
             worksheet_name="Calendar"
         )
     except Exception as e:
