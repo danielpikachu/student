@@ -1,5 +1,10 @@
 import streamlit as st
 from datetime import datetime, timedelta
+import json
+from pathlib import Path
+
+# 数据文件路径
+EVENTS_FILE = "calendar_events.json"
 
 # 自定义样式
 def add_custom_css():
@@ -40,6 +45,43 @@ def add_custom_css():
     </style>
     """, unsafe_allow_html=True)
 
+def load_events():
+    """从JSON文件加载事件数据"""
+    if Path(EVENTS_FILE).exists():
+        try:
+            with open(EVENTS_FILE, "r") as f:
+                data = json.load(f)
+                # 将字符串日期转换为datetime对象
+                return [
+                    {
+                        "Date": datetime.strptime(item["Date"], "%Y-%m-%d").date(),
+                        "Description": item["Description"]
+                    } 
+                    for item in data
+                ]
+        except (json.JSONDecodeError, KeyError):
+            st.warning("Failed to load events, starting with empty calendar")
+            return []
+    return []
+
+def save_events(events):
+    """将事件数据保存到JSON文件"""
+    try:
+        # 将datetime对象转换为字符串
+        data = [
+            {
+                "Date": item["Date"].strftime("%Y-%m-%d"),
+                "Description": item["Description"]
+            } 
+            for item in events
+        ]
+        with open(EVENTS_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+        return True
+    except Exception as e:
+        st.error(f"Failed to save events: {str(e)}")
+        return False
+
 def render_calendar():
     add_custom_css()
     st.header("📅 Event Calendar")
@@ -48,6 +90,10 @@ def render_calendar():
     # 月份初始化
     if 'current_month' not in st.session_state:
         st.session_state.current_month = datetime.today().replace(day=1)
+
+    # 加载事件数据（优先从文件加载）
+    if 'calendar_events' not in st.session_state:
+        st.session_state.calendar_events = load_events()
 
     # 月份切换
     col_prev, col_title, col_next = st.columns([1, 3, 1])
@@ -79,16 +125,11 @@ def render_calendar():
     days_in_month = last_day.day
     first_weekday = first_day.weekday()  # 0=周一，6=周日
 
-    # 事件数据映射 - 确保日期类型统一
+    # 事件数据映射
     date_events = {}
     if 'calendar_events' in st.session_state:
         for event in st.session_state.calendar_events:
-            # 处理date和datetime两种可能的类型
-            if isinstance(event["Date"], datetime):
-                date_obj = event["Date"]
-            else:
-                date_obj = datetime.combine(event["Date"], datetime.min.time())
-            date_key = date_obj.strftime("%Y-%m-%d")
+            date_key = event["Date"].strftime("%Y-%m-%d")
             date_events[date_key] = event["Description"]
 
     # 星期标题
@@ -150,11 +191,8 @@ def render_calendar():
         with col_desc:
             event_desc = ""
             if 'calendar_events' in st.session_state:
-                # 统一日期比较方式
-                selected_date_obj = selected_date if isinstance(selected_date, datetime) else datetime.combine(selected_date, datetime.min.time())
                 existing = next(
-                    (e for e in st.session_state.calendar_events 
-                     if (e["Date"].date() if isinstance(e["Date"], datetime) else e["Date"]) == selected_date),
+                    (e for e in st.session_state.calendar_events if e["Date"] == selected_date),
                     None
                 )
                 if existing:
@@ -170,34 +208,35 @@ def render_calendar():
         
         col_save, col_delete = st.columns(2)
         with col_save:
-            # 使用键确保按钮状态正确刷新
-            if st.button("💾 SAVE EVENT", use_container_width=True, type="primary", key="save_event"):
+            if st.button("💾 SAVE EVENT", use_container_width=True, type="primary"):
                 if not event_desc.strip():
                     st.error("Event description cannot be empty!")
                 else:
                     if 'calendar_events' not in st.session_state:
                         st.session_state.calendar_events = []
-                    # 先移除相同日期的事件
+                    # 更新事件
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
-                        if (e["Date"].date() if isinstance(e["Date"], datetime) else e["Date"]) != selected_date
+                        if e["Date"] != selected_date
                     ]
-                    # 添加新事件，统一存储为date类型
                     st.session_state.calendar_events.append({
                         "Date": selected_date,
                         "Description": event_desc.strip()
                     })
-                    st.success("✅ Event saved successfully!")
-                    # 使用最新的刷新方式
-                    st.rerun()
+                    # 保存到文件
+                    if save_events(st.session_state.calendar_events):
+                        st.success("✅ Event saved successfully!")
         
         with col_delete:
-            if st.button("🗑️ DELETE EVENT", use_container_width=True, key="delete_event"):
+            if st.button("🗑️ DELETE EVENT", use_container_width=True):
                 if 'calendar_events' in st.session_state:
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
-                        if (e["Date"].date() if isinstance(e["Date"], datetime) else e["Date"]) != selected_date
+                        if e["Date"] != selected_date
                     ]
-                    st.success("✅ Event deleted successfully!")
-                    # 使用最新的刷新方式
-                    st.rerun()
+                    # 保存到文件
+                    if save_events(st.session_state.calendar_events):
+                        st.success("✅ Event deleted successfully!")
+
+if __name__ == "__main__":
+    render_calendar()
