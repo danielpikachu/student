@@ -2,17 +2,27 @@ import streamlit as st
 from datetime import datetime, timedelta
 import sys
 import os
+import importlib.util  # 用于手动导入模块
 
-# 更可靠的路径配置：获取根目录绝对路径
+# 手动导入根目录的google_sheet_utils.py
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-# 确保根目录只被添加一次
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)  # 插入到路径列表最前面，优先搜索
+google_sheet_utils_path = os.path.join(ROOT_DIR, "google_sheet_utils.py")
 
-# 现在可以安全导入
+# 检查文件是否存在
+if not os.path.exists(google_sheet_utils_path):
+    st.error(f"找不到google_sheet_utils.py，路径：{google_sheet_utils_path}")
+else:
+    # 手动加载模块
+    spec = importlib.util.spec_from_file_location("google_sheet_utils", google_sheet_utils_path)
+    google_sheet_utils = importlib.util.module_from_spec(spec)
+    sys.modules["google_sheet_utils"] = google_sheet_utils
+    spec.loader.exec_module(google_sheet_utils)
+    # 从手动加载的模块中获取函数
+    get_worksheet = google_sheet_utils.get_worksheet
+
+# Google Sheets相关导入
 import gspread
 from google.oauth2.service_account import Credentials
-from google_sheet_utils import get_worksheet  # 根目录模块
 
 # 自定义样式
 def add_custom_css():
@@ -62,14 +72,19 @@ def render_calendar():
     SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
     sheet = None
     try:
-        # 明确指定credentials.json的根目录路径
+        # 明确指定credentials.json的路径
         creds_path = os.path.join(ROOT_DIR, "credentials.json")
+        if not os.path.exists(creds_path):
+            st.error(f"找不到credentials.json，路径：{creds_path}")
+            return
+
         creds = Credentials.from_service_account_file(
             creds_path,
             scopes=SCOPE
         )
         client = gspread.authorize(creds)
         
+        # 使用手动导入的get_worksheet函数
         sheet = get_worksheet(client, "StudentCouncilData", "Calendar")
         
         if 'calendar_events' not in st.session_state or not st.session_state.calendar_events:
