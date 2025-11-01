@@ -1,4 +1,3 @@
-# modules/calendar.py
 import streamlit as st
 
 def render_calendar(gsheet_handler, sheet_name, data_key):
@@ -25,12 +24,12 @@ def render_calendar(gsheet_handler, sheet_name, data_key):
     with st.form(key="calendar_form"):
         date = st.date_input("日期")
         event = st.text_input("事件名称")
-       负责人 = st.text_input("负责人")
+        person_in_charge = st.text_input("负责人")  # 修正变量名
         submit = st.form_submit_button("保存")
         
         if submit:
             # 新增数据到本地会话状态
-            new_event = [str(date), event, 负责人]
+            new_event = [str(date), event, person_in_charge]  # 同步修正
             st.session_state[data_key].append(new_event)
             
             # 同步到Google Sheet
