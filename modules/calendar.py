@@ -1,14 +1,18 @@
 import streamlit as st
 from datetime import datetime, timedelta
-# 新增：解决根目录模块导入问题
 import sys
 import os
-# 将根目录（modules的父目录）添加到系统路径
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-# 现在可以正确导入根目录的google_sheet_utils
+
+# 更可靠的路径配置：获取根目录绝对路径
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# 确保根目录只被添加一次
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)  # 插入到路径列表最前面，优先搜索
+
+# 现在可以安全导入
 import gspread
 from google.oauth2.service_account import Credentials
-from google_sheet_utils import get_worksheet  # 修正导入路径后
+from google_sheet_utils import get_worksheet  # 根目录模块
 
 # 自定义样式
 def add_custom_css():
@@ -56,19 +60,18 @@ def render_calendar():
 
     # Google Sheets初始化
     SCOPE = ["https://www.googleapis.com/auth/spreadsheets"]
-    sheet = None  # 初始化工作表对象
+    sheet = None
     try:
-        # 加载根目录下的credentials.json
+        # 明确指定credentials.json的根目录路径
+        creds_path = os.path.join(ROOT_DIR, "credentials.json")
         creds = Credentials.from_service_account_file(
-            "credentials.json",  # 根目录路径正确（已添加到系统路径）
+            creds_path,
             scopes=SCOPE
         )
         client = gspread.authorize(creds)
         
-        # 通过工具类获取工作表（表格名"StudentCouncilData"，工作表名"Calendar"）
         sheet = get_worksheet(client, "StudentCouncilData", "Calendar")
         
-        # 从Google Sheets同步数据到本地会话状态
         if 'calendar_events' not in st.session_state or not st.session_state.calendar_events:
             records = sheet.get_all_records()
             st.session_state.calendar_events = [
@@ -77,7 +80,7 @@ def render_calendar():
                     "Description": record["Description"]
                 } 
                 for record in records 
-                if record["Date"] and record["Description"]  # 过滤空记录
+                if record["Date"] and record["Description"]
             ]
     except Exception as e:
         st.error(f"Google Sheets连接错误: {str(e)}")
@@ -114,13 +117,12 @@ def render_calendar():
     first_day = datetime(year, month, 1)
     last_day = (datetime(year, month+1, 1) - timedelta(days=1)) if month < 12 else datetime(year, 12, 31)
     days_in_month = last_day.day
-    first_weekday = first_day.weekday()  # 0=周一，6=周日
+    first_weekday = first_day.weekday()
 
-    # 事件数据映射 - 确保日期类型统一
+    # 事件数据映射
     date_events = {}
     if 'calendar_events' in st.session_state:
         for event in st.session_state.calendar_events:
-            # 处理date和datetime两种可能的类型
             if isinstance(event["Date"], datetime):
                 date_obj = event["Date"]
             else:
@@ -152,17 +154,14 @@ def render_calendar():
                         is_today = (current_date.date() == datetime.today().date())
                         has_event = date_key in date_events
 
-                        # 卡片样式
                         day_classes = "calendar-day"
                         if is_today:
                             day_classes += " calendar-day-today"
                         if has_event:
                             day_classes += " calendar-day-has-event"
 
-                        # 事件文本
                         event_text = f"<div class='event-text'>{date_events[date_key]}</div>" if has_event else ""
 
-                        # 渲染卡片
                         st.markdown(f"""
                         <div class='{day_classes}'>
                             <div class='day-number'>{current_day}</div>
@@ -187,7 +186,6 @@ def render_calendar():
         with col_desc:
             event_desc = ""
             if 'calendar_events' in st.session_state:
-                # 统一日期比较方式
                 selected_date_obj = selected_date if isinstance(selected_date, datetime) else datetime.combine(selected_date, datetime.min.time())
                 existing = next(
                     (e for e in st.session_state.calendar_events 
@@ -213,28 +211,22 @@ def render_calendar():
                 else:
                     if 'calendar_events' not in st.session_state:
                         st.session_state.calendar_events = []
-                    # 先移除相同日期的事件
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
                         if (e["Date"].date() if isinstance(e["Date"], datetime) else e["Date"]) != selected_date
                     ]
-                    # 添加新事件，统一存储为date类型
                     st.session_state.calendar_events.append({
                         "Date": selected_date,
                         "Description": event_desc.strip()
                     })
 
-                    # 同步到Google Sheets
                     if sheet:
                         try:
-                            # 清除现有相同日期的记录
                             cell = sheet.find(str(selected_date))
                             if cell:
                                 sheet.delete_rows(cell.row)
-                            # 添加新记录
                             sheet.append_row([str(selected_date), event_desc.strip()])
                         except gspread.exceptions.CellNotFound:
-                            # 没有找到相同日期的记录，直接添加
                             sheet.append_row([str(selected_date), event_desc.strip()])
                         except Exception as e:
                             st.warning(f"同步到Google Sheets失败: {str(e)}")
@@ -245,14 +237,12 @@ def render_calendar():
         with col_delete:
             if st.button("🗑️ DELETE EVENT", use_container_width=True, key="delete_event"):
                 if 'calendar_events' in st.session_state:
-                    # 保存要删除的日期用于同步
                     deleted_date = selected_date
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
                         if (e["Date"].date() if isinstance(e["Date"], datetime) else e["Date"]) != selected_date
                     ]
 
-                    # 从Google Sheets删除对应记录
                     if sheet:
                         try:
                             cell = sheet.find(str(deleted_date))
