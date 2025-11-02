@@ -10,10 +10,10 @@ def render_money_transfers():
     st.header("Financial Transactions")
     st.write("=" * 50)
 
-    # 处理删除操作 - 只删除最后一行
-    if st.button("Delete Last Transaction", key="del_last", use_container_width=True):
+    # 处理删除操作
+    if st.button("Delete Last Transaction", key="mt_del_last", use_container_width=True):
         if st.session_state.money_transfers:
-            st.session_state.money_transfers.pop()  # 删除最后一个元素
+            st.session_state.money_transfers.pop()
             st.success("Last transaction deleted successfully!")
             st.rerun()
         else:
@@ -21,108 +21,93 @@ def render_money_transfers():
 
     st.subheader("Transaction History")
         
-    # 表格样式 - 确保边框完整闭合
+    # 表格样式优化
     st.markdown("""
     <style>
     .transaction-table {
         width: 100%;
         border-collapse: collapse;
-        border: 1px solid #ccc;
+        border: 1px solid #ddd;
         margin: 1rem 0;
     }
     .transaction-table th, .transaction-table td {
-        border: 1px solid #ccc;
-        padding: 8px 12px;
+        border: 1px solid #ddd;
+        padding: 10px;
         text-align: left;
     }
     .transaction-table th {
-        background-color: #f0f0f0;
+        background-color: #f5f5f5;
         font-weight: bold;
     }
-    .income {
-        color: green;
+    .column-names {
+        background-color: #e8f4f8; /* 列名行背景色 */
+        font-weight: 600;
     }
-    .expense {
-        color: red;
-    }
+    .income { color: green; }
+    .expense { color: red; }
+    .amount-col { text-align: right !important; }
     </style>
     """, unsafe_allow_html=True)
     
     if not st.session_state.money_transfers:
-        st.info("No financial transactions recorded yet")
+        st.info("No transactions recorded yet")
     else:
-        # 创建表格数据
-        table_data = []
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            seq = idx
-            date = trans["Date"].strftime("%Y-%m-%d")
-            amount = f"${trans['Amount']:.2f}"
-            amount_class = "income" if trans["Type"] == "Income" else "expense"
-            
-            # 构建行数据
-            table_data.append({
-                "No.": seq,
-                "Date": date,
-                "Amount ($)": f'<span class="{amount_class}" style="text-align: right;">{amount}</span>',
-                "Category": "None",
-                "Description": trans["Description"],
-                "Handled By": trans["Handler"]
-            })
-        
-        # 先渲染完整的表格框架和表头
+        # 构建表格HTML
         table_html = """
         <table class="transaction-table">
-            <thead>
-                <tr>
-                    <th>No.</th>
-                    <th>Date</th>
-                    <th>Amount ($)</th>
-                    <th>Category</th>
-                    <th>Description</th>
-                    <th>Handled By</th>
-                </tr>
-            </thead>
             <tbody>
         """
         
-        # 添加表格内容行
-        for row in table_data:
+        # 添加列名行（第一行固定为列名）
+        table_html += """
+            <tr class="column-names">
+                <td>Date</td>
+                <td class="amount-col">Amount ($)</td>
+                <td>Category</td>
+                <td>Description</td>
+                <td>Handled By</td>
+            </tr>
+        """
+        
+        # 添加实际数据行（从第二行开始）
+        for trans in st.session_state.money_transfers:
             table_html += f"""
             <tr>
-                <td>{row['No.']}</td>
-                <td>{row['Date']}</td>
-                <td style="text-align: right;">{row['Amount ($)']}</td>
-                <td>{row['Category']}</td>
-                <td>{row['Description']}</td>
-                <td>{row['Handled By']}</td>
+                <td>{trans['Date'].strftime('%Y-%m-%d')}</td>
+                <td class="amount-col { 'income' if trans['Type'] == 'Income' else 'expense' }">
+                    ${trans['Amount']:.2f}
+                </td>
+                <td>None</td>
+                <td>{trans['Description']}</td>
+                <td>{trans['Handler']}</td>
             </tr>
             """
         
-        # 闭合表格
         table_html += """
             </tbody>
         </table>
         """
-        
-        # 一次性渲染整个表格
         st.markdown(table_html, unsafe_allow_html=True)
 
     st.write("=" * 50)
 
-    # 新增交易区域
+    # 新增交易区域（与表格列对应）
     st.subheader("Record New Transaction")
-    col1, col2 = st.columns(2)
-    with col1:
-        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="date_input")
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="amount_input")
-        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="type_radio")
-    with col2:
-        desc = st.text_input("Description", value="Fundraiser proceeds", key="desc_input").strip()
-        handler = st.text_input("Handled By", value="Pikachu Da Best", key="handler_input").strip()
+    cols = st.columns(5)  # 5列对应表格的5个字段
+    with cols[0]:
+        trans_date = st.date_input("Date", datetime.today(), key="mt_date")
+    with cols[1]:
+        amount = st.number_input("Amount ($)", 0.01, step=0.01, key="mt_amount")
+    with cols[2]:
+        trans_type = st.radio("Type", ["Income", "Expense"], key="mt_type", horizontal=True)
+    with cols[3]:
+        desc = st.text_input("Description", key="mt_desc").strip()
+    with cols[4]:
+        handler = st.text_input("Handled By", key="mt_handler").strip()
 
-    if st.button("Record Transaction", key="add_btn", use_container_width=True, type="primary"):
+    if st.button("Record Transaction", key="mt_add", use_container_width=True, type="primary"):
         if not (amount and desc and handler):
-            st.error("Required fields: Amount, Description, Handled By!")
+            st.error("Please fill in all required fields!")
         else:
             st.session_state.money_transfers.append({
                 "uuid": str(uuid.uuid4()),
@@ -132,8 +117,7 @@ def render_money_transfers():
                 "Description": desc,
                 "Handler": handler
             })
-            st.success("Transaction recorded successfully!")
+            st.success("Transaction recorded!")
             st.rerun()
 
-# 执行函数
 render_money_transfers()
