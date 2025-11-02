@@ -69,9 +69,8 @@ def render_money_transfers():
                 "Handled By": trans["Handler"]
             })
         
-        # 渲染表格（使用Markdown表格）
-        # 表头
-        st.markdown("""
+        # 先渲染完整的表格框架和表头
+        table_html = """
         <table class="transaction-table">
             <thead>
                 <tr>
@@ -84,11 +83,11 @@ def render_money_transfers():
                 </tr>
             </thead>
             <tbody>
-        """, unsafe_allow_html=True)
+        """
         
-        # 表格内容
+        # 添加表格内容行
         for row in table_data:
-            st.markdown(f"""
+            table_html += f"""
             <tr>
                 <td>{row['No.']}</td>
                 <td>{row['Date']}</td>
@@ -97,13 +96,16 @@ def render_money_transfers():
                 <td>{row['Description']}</td>
                 <td>{row['Handled By']}</td>
             </tr>
-            """, unsafe_allow_html=True)
+            """
         
         # 闭合表格
-        st.markdown("""
+        table_html += """
             </tbody>
         </table>
-        """, unsafe_allow_html=True)
+        """
+        
+        # 一次性渲染整个表格
+        st.markdown(table_html, unsafe_allow_html=True)
 
     st.write("=" * 50)
 
