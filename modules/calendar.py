@@ -4,9 +4,7 @@ import sys
 import os
 
 # 解决根目录模块导入问题
-# 获取当前文件（calendar.py）所在目录的父目录（即根目录）
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-# 将根目录添加到系统路径
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
@@ -61,11 +59,8 @@ def render_calendar():
     sheet_handler = None
     calendar_sheet = None
     try:
-        # 凭证文件路径（根目录下的credentials.json）
         creds_path = os.path.join(ROOT_DIR, "credentials.json")
-        # 初始化Google Sheets处理器
         sheet_handler = GoogleSheetHandler(credentials_path=creds_path)
-        # 获取指定工作表（表格名：Student，工作表名：Calendar）
         calendar_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
             worksheet_name="Calendar"
@@ -73,72 +68,78 @@ def render_calendar():
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据到本地会话状态
+    # 从Google Sheets同步数据到本地会话状态（从第二行开始读取）
     if calendar_sheet and ('calendar_events' not in st.session_state or not st.session_state.calendar_events):
         try:
-            # 读取工作表所有记录
-            records = sheet_handler.get_all_records(calendar_sheet)
-            # 转换为本地事件格式（日期+描述）
+            # 获取所有数据（包含表头）
+            all_data = calendar_sheet.get_all_values()
+            
+            # 检查是否有表头，没有则创建表头
+            if not all_data or all_data[0] != ["date", "event"]:
+                # 清除现有数据并设置表头
+                calendar_sheet.clear()
+                calendar_sheet.append_row(["date", "event"])
+                records = []
+            else:
+                # 跳过表头，处理从第二行开始的数据
+                records = [{"Date": row[0], "Description": row[1]} for row in all_data[1:] if row[0] and row[1]]
+            
+            # 转换为本地事件格式
             st.session_state.calendar_events = [
                 {
                     "Date": datetime.strptime(record["Date"], "%Y-%m-%d").date(),
                     "Description": record["Description"]
                 } 
                 for record in records 
-                if record.get("Date") and record.get("Description")  # 过滤空记录
             ]
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
     # 月份导航逻辑
     if 'current_month' not in st.session_state:
-        st.session_state.current_month = datetime.today().replace(day=1)  # 默认为当前月1号
+        st.session_state.current_month = datetime.today().replace(day=1)
 
     # 月份切换按钮
     col_prev, col_title, col_next = st.columns([1, 3, 1])
     with col_prev:
         if st.button("← Previous", use_container_width=True, type="secondary"):
-            # 计算上一个月
             prev_month = st.session_state.current_month.month - 1
             prev_year = st.session_state.current_month.year
-            if prev_month == 0:  # 1月的上一个月是12月
+            if prev_month == 0:
                 prev_month = 12
                 prev_year -= 1
             st.session_state.current_month = datetime(prev_year, prev_month, 1)
     
     with col_title:
-        st.markdown(f"### {st.session_state.current_month.strftime('%B %Y')}")  # 显示"Month Year"
+        st.markdown(f"### {st.session_state.current_month.strftime('%B %Y')}")
     
     with col_next:
         if st.button("Next →", use_container_width=True, type="secondary"):
-            # 计算下一个月
             next_month = st.session_state.current_month.month + 1
             next_year = st.session_state.current_month.year
-            if next_month == 13:  # 12月的下一个月是1月
+            if next_month == 13:
                 next_month = 1
                 next_year += 1
             st.session_state.current_month = datetime(next_year, next_month, 1)
 
     # 计算日历网格数据
     year, month = st.session_state.current_month.year, st.session_state.current_month.month
-    first_day = datetime(year, month, 1)  # 当月第一天
-    # 计算当月最后一天（下个月第一天减1天）
+    first_day = datetime(year, month, 1)
     if month < 12:
         last_day = datetime(year, month + 1, 1) - timedelta(days=1)
     else:
         last_day = datetime(year, 12, 31)
-    days_in_month = last_day.day  # 当月总天数
-    first_weekday = first_day.weekday()  # 当月第一天是星期几（0=周一，6=周日）
+    days_in_month = last_day.day
+    first_weekday = first_day.weekday()
 
-    # 映射日期到事件（便于日历渲染）
+    # 映射日期到事件
     date_events = {}
     if 'calendar_events' in st.session_state:
         for event in st.session_state.calendar_events:
-            # 统一日期格式为字符串（YYYY-MM-DD）
             date_key = event["Date"].strftime("%Y-%m-%d")
             date_events[date_key] = event["Description"]
 
-    # 渲染星期标题（周一到周日）
+    # 渲染星期标题
     weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     weekday_cols = st.columns(7)
     for i, day in enumerate(weekdays):
@@ -146,52 +147,43 @@ def render_calendar():
             st.markdown(f"<div class='weekday-label'>{day}</div>", unsafe_allow_html=True)
 
     # 渲染日历网格
-    current_day = 1  # 从1号开始
+    current_day = 1
     while current_day <= days_in_month:
-        day_cols = st.columns(7)  # 每周7列
+        day_cols = st.columns(7)
         for col_idx in range(7):
             with day_cols[col_idx]:
-                # 处理月初前的空白格子
                 if current_day == 1 and col_idx < first_weekday:
                     st.markdown("<div class='calendar-day'></div>", unsafe_allow_html=True)
                 else:
-                    # 处理月末后的空白格子
                     if current_day > days_in_month:
                         st.markdown("<div class='calendar-day'></div>", unsafe_allow_html=True)
                     else:
-                        # 当前日期对象
                         current_date = datetime(year, month, current_day)
                         date_key = current_date.strftime("%Y-%m-%d")
-                        # 判断是否为今天
                         is_today = (current_date.date() == datetime.today().date())
-                        # 判断是否有事件
                         has_event = date_key in date_events
 
-                        # 构建样式类名
                         day_classes = "calendar-day"
                         if is_today:
                             day_classes += " calendar-day-today"
                         if has_event:
                             day_classes += " calendar-day-has-event"
 
-                        # 事件文本（有事件则显示，否则为空）
                         event_text = f"<div class='event-text'>{date_events[date_key]}</div>" if has_event else ""
 
-                        # 渲染日历格子
                         st.markdown(f"""
                         <div class='{day_classes}'>
                             <div class='day-number'>{current_day}</div>
                             {event_text}
                         </div>
                         """, unsafe_allow_html=True)
-                        current_day += 1  # 移动到下一天
+                        current_day += 1
 
-    # 事件管理面板（添加/编辑/删除事件）
+    # 事件管理面板
     st.divider()
     with st.container(border=True):
         st.subheader("📝 Manage Calendar Events (Admin Only)")
         
-        # 日期选择和事件描述输入
         col_date, col_desc = st.columns([1, 2])
         with col_date:
             selected_date = st.date_input(
@@ -201,10 +193,8 @@ def render_calendar():
             )
         
         with col_desc:
-            # 自动填充已有事件（如果存在）
             event_desc = ""
             if 'calendar_events' in st.session_state:
-                # 查找选中日期的事件
                 existing_event = next(
                     (e for e in st.session_state.calendar_events 
                      if e["Date"] == selected_date),
@@ -213,7 +203,6 @@ def render_calendar():
                 if existing_event:
                     event_desc = existing_event["Description"]
             
-            # 事件描述输入框
             event_desc = st.text_area(
                 "Event Description (max 100 characters)",
                 value=event_desc,
@@ -222,66 +211,60 @@ def render_calendar():
                 label_visibility="collapsed"
             )
         
-        # 保存和删除按钮
         col_save, col_delete = st.columns(2)
         with col_save:
             if st.button("💾 SAVE EVENT", use_container_width=True, type="primary", key="save_event"):
                 if not event_desc.strip():
                     st.error("Event description cannot be empty!")
                 else:
-                    # 初始化本地事件列表（如果不存在）
                     if 'calendar_events' not in st.session_state:
                         st.session_state.calendar_events = []
-                    # 移除同日期的旧事件（避免重复）
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
                         if e["Date"] != selected_date
                     ]
-                    # 添加新事件
                     st.session_state.calendar_events.append({
                         "Date": selected_date,
                         "Description": event_desc.strip()
                     })
 
-                    # 同步到Google Sheets
                     if calendar_sheet and sheet_handler:
                         try:
-                            # 先删除同日期的旧记录
-                            sheet_handler.delete_record_by_value(
-                                worksheet=calendar_sheet,
-                                value=str(selected_date)  # 日期格式：YYYY-MM-DD
-                            )
-                            # 追加新记录（[日期, 描述]）
-                            sheet_handler.append_record(
-                                worksheet=calendar_sheet,
-                                data=[str(selected_date), event_desc.strip()]
-                            )
+                            # 删除同日期的旧记录（从第二行开始搜索）
+                            all_rows = calendar_sheet.get_all_values()
+                            for i, row in enumerate(all_rows[1:], start=2):  # 行索引从2开始（跳过表头）
+                                if row[0] == str(selected_date):
+                                    calendar_sheet.delete_rows(i)
+                            
+                            # 追加新记录（会自动添加到最后一行）
+                            calendar_sheet.append_row([str(selected_date), event_desc.strip()])
                         except Exception as e:
                             st.warning(f"同步到Google Sheets失败: {str(e)}")
 
                     st.success("✅ Event saved successfully!")
-                    st.rerun()  # 刷新页面显示最新状态
+                    st.rerun()
         
         with col_delete:
             if st.button("🗑️ DELETE EVENT", use_container_width=True, key="delete_event"):
                 if 'calendar_events' in st.session_state:
-                    # 保存要删除的日期（用于同步）
                     deleted_date = selected_date
-                    # 从本地事件列表中删除
                     st.session_state.calendar_events = [
                         e for e in st.session_state.calendar_events 
                         if e["Date"] != deleted_date
                     ]
 
-                    # 同步到Google Sheets（删除对应记录）
                     if calendar_sheet and sheet_handler:
                         try:
-                            sheet_handler.delete_record_by_value(
-                                worksheet=calendar_sheet,
-                                value=str(deleted_date)
-                            )
+                            # 从第二行开始删除
+                            all_rows = calendar_sheet.get_all_values()
+                            for i, row in enumerate(all_rows[1:], start=2):
+                                if row[0] == str(deleted_date):
+                                    calendar_sheet.delete_rows(i)
                         except Exception as e:
                             st.warning(f"从Google Sheets删除失败: {str(e)}")
 
                     st.success("✅ Event deleted successfully!")
-                    st.rerun()  # 刷新页面显示最新状态
+                    st.rerun()
+
+if __name__ == "__main__":
+    render_calendar()
