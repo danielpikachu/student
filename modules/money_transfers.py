@@ -1,52 +1,53 @@
 import streamlit as st
 from datetime import datetime
 import uuid
-import pandas as pd
-from io import StringIO
 
 def render_money_transfers():
     # 初始化状态
     if "money_transfers" not in st.session_state:
         st.session_state.money_transfers = []
+    if "delete_uuid" not in st.session_state:
+        st.session_state.delete_uuid = None
 
     st.header("Financial Transactions")
     st.write("=" * 50)
 
     # 处理删除操作
-    delete_key = st.session_state.get("delete_key", None)
-    if delete_key:
+    if st.session_state.delete_uuid:
         st.session_state.money_transfers = [
             t for t in st.session_state.money_transfers
-            if f"del_{t['uuid']}" != delete_key
+            if t["uuid"] != st.session_state.delete_uuid
         ]
-        st.session_state.delete_key = None
+        st.session_state.delete_uuid = None
         st.success("Transaction deleted successfully!")
 
     st.subheader("Transaction History")
         
-    # 表格样式
+    # 表格样式 - 确保边框完整闭合
     st.markdown("""
     <style>
-    .dataframe-container table {
+    .transaction-table {
+        width: 100%;
         border-collapse: collapse;
         border: 1px solid #ccc;
-        width: 100%;
+        margin: 1rem 0;
     }
-    .dataframe-container th, .dataframe-container td {
-        border: 1px solid #ccc !important;
-        padding: 8px 12px !important;
+    .transaction-table th, .transaction-table td {
+        border: 1px solid #ccc;
+        padding: 8px 12px;
+        text-align: left;
     }
-    .dataframe-container th {
-        background-color: #f0f0f0 !important;
-        font-weight: bold !important;
+    .transaction-table th {
+        background-color: #f0f0f0;
+        font-weight: bold;
     }
     .income {
-        color: green !important;
-        text-align: right !important;
+        color: green;
+        text-align: right;
     }
     .expense {
-        color: red !important;
-        text-align: right !important;
+        color: red;
+        text-align: right;
     }
     .delete-btn {
         background-color: #ff4b4b;
@@ -56,6 +57,7 @@ def render_money_transfers():
         border-radius: 3px;
         cursor: pointer;
         font-size: 0.9em;
+        width: 100%;
     }
     .delete-btn:hover {
         background-color: #ff3333;
@@ -66,46 +68,62 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 准备表格数据
-        data = []
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            # 创建删除按钮（使用唯一key）
+        # 先处理所有删除按钮点击事件
+        delete_uuids = []
+        for trans in st.session_state.money_transfers:
             btn_key = f"del_{trans['uuid']}"
-            
-            # 检查按钮点击
             if st.button("Delete", key=btn_key, use_container_width=True):
-                st.session_state.delete_key = btn_key
-                st.rerun()
-                
-            # 添加行数据
-            data.append({
-                "No.": idx,
-                "Date": trans["Date"].strftime("%Y-%m-%d"),
-                "Amount ($)": f"${trans['Amount']:.2f}",
-                "Category": "None",
-                "Description": trans["Description"],
-                "Handled By": trans["Handler"],
-                "Action": f"<button class='delete-btn'>Delete</button>"  # 表格中显示的按钮
-            })
+                delete_uuids.append(trans["uuid"])
         
-        # 创建DataFrame
-        df = pd.DataFrame(data)
+        # 执行删除操作
+        if delete_uuids:
+            st.session_state.delete_uuid = delete_uuids[0]
+            st.rerun()
         
-        # 设置样式函数
-        def style_table(row):
-            styles = ["" for _ in row]
-            # 设置金额列样式
-            if row["Amount ($)"].startswith('$'):
-                amount = float(row["Amount ($)"][1:])
-                styles[2] = "income" if any(t["Amount"] == amount and t["Type"] == "Income" 
-                                          for t in st.session_state.money_transfers) else "expense"
-            return styles
+        # 构建表格HTML
+        table_html = """
+        <table class="transaction-table">
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Date</th>
+                    <th>Amount ($)</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Handled By</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+        
+        # 添加表格行
+        for idx, trans in enumerate(st.session_state.money_transfers):
+            seq = idx
+            date = trans["Date"].strftime("%Y-%m-%d")
+            amount_class = "income" if trans["Type"] == "Income" else "expense"
+            
+            # 生成表格行，最后一列是删除按钮
+            table_html += f"""
+            <tr>
+                <td>{seq}</td>
+                <td>{date}</td>
+                <td class="{amount_class}">${trans['Amount']:.2f}</td>
+                <td>None</td>
+                <td>{trans['Description']}</td>
+                <td>{trans['Handler']}</td>
+                <td><button class="delete-btn">Delete</button></td>
+            </tr>
+            """
+        
+        # 闭合表格标签
+        table_html += """
+            </tbody>
+        </table>
+        """
         
         # 渲染表格
-        styled_df = df.style.apply(style_table, axis=1)
-        # 转换为HTML并渲染
-        html = styled_df.to_html(escape=False, index=False)
-        st.markdown(f'<div class="dataframe-container">{html}</div>', unsafe_allow_html=True)
+        st.markdown(table_html, unsafe_allow_html=True)
 
     st.write("=" * 50)
 
@@ -128,11 +146,12 @@ def render_money_transfers():
                 "uuid": str(uuid.uuid4()),
                 "Date": trans_date,
                 "Type": trans_type,
-                "Amount": round(amount, 2),
+                "amount": round(amount, 2),  # 修正键名小写，避免后续错误
                 "Description": desc,
                 "Handler": handler
             })
             st.success("Transaction recorded successfully!")
             st.rerun()
 
+# 执行函数
 render_money_transfers()
