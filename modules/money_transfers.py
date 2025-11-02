@@ -10,8 +10,8 @@ def render_money_transfers():
     st.header("Financial Transactions")
     st.write("=" * 50)
 
-    # 处理删除操作 - 只删除最后一行
-    if st.button("Delete Last Transaction", key="del_last", use_container_width=True):
+    # 处理删除操作 - 只删除最后一行（使用唯一key）
+    if st.button("Delete Last Transaction", key="mt_del_last", use_container_width=True):
         if st.session_state.money_transfers:
             st.session_state.money_transfers.pop()  # 删除最后一个元素
             st.success("Last transaction deleted successfully!")
@@ -135,21 +135,21 @@ def render_money_transfers():
 
     # 新增交易区域 - 使用与表格相同的列比例
     st.subheader("Record New Transaction")
-    cols = st.columns([5, 12, 12, 12, 35, 24])  # 与表格列宽度比例一致
+    cols = st.columns([5, 12, 12, 12, 35, 24])  # 与表格列宽比例一致
     with cols[0]:
         st.text("No. (Auto)")  # 提示序号自动生成
     with cols[1]:
-        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="date_input")
+        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="mt_date_input")
     with cols[2]:
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="amount_input")
+        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="mt_amount_input")
     with cols[3]:
-        trans_type = st.radio("Type", ["Income", "Expense"], index=0, key="type_radio", horizontal=True)
+        trans_type = st.radio("Type", ["Income", "Expense"], index=0, key="mt_type_radio", horizontal=True)
     with cols[4]:
-        desc = st.text_input("Description", value="Fundraiser proceeds", key="desc_input").strip()
+        desc = st.text_input("Description", value="Fundraiser proceeds", key="mt_desc_input").strip()
     with cols[5]:
-        handler = st.text_input("Handled By", value="Pikachu Da Best", key="handler_input").strip()
+        handler = st.text_input("Handled By", value="Pikachu Da Best", key="mt_handler_input").strip()
 
-    if st.button("Record Transaction", key="add_btn", use_container_width=True, type="primary"):
+    if st.button("Record Transaction", key="mt_add_btn", use_container_width=True, type="primary"):
         if not (amount and desc and handler):
             st.error("Required fields: Amount, Description, Handled By!")
         else:
