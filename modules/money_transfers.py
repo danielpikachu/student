@@ -4,50 +4,25 @@ import uuid
 
 def render_money_transfers():
     # 初始化状态
-    if "money_transfers" not in st.session_state:
-        st.session_state.money_transfers = []
-    if "delete_trigger" not in st.session_state:
-        st.session_state.delete_trigger = 0
+    if "transactions" not in st.session_state:
+        st.session_state.transactions = []
 
-    st.header("Financial Transactions")
-    st.write("=" * 50)
-
-    # 处理删除操作
-    if st.session_state.delete_trigger > 0:
-        # 找到要删除的交易
-        target_uuid = None
-        for i, trans in enumerate(st.session_state.money_transfers):
-            if st.session_state.delete_trigger == i + 1:  # 匹配触发的索引
-                target_uuid = trans["uuid"]
-                break
-        
-        if target_uuid:
-            st.session_state.money_transfers = [
-                t for t in st.session_state.money_transfers
-                if t["uuid"] != target_uuid
-            ]
-            st.success("Transaction deleted successfully!")
-            st.session_state.delete_trigger = 0  # 重置触发器
-
-    st.subheader("Transaction History")
-        
-    # 表格样式 - 确保边框完整闭合
+    st.header("Transaction History")
+    
+    # 表格样式
     st.markdown("""
     <style>
     .transaction-table {
         width: 100%;
-        border-collapse: collapse;
         border: 1px solid #ccc;
-        margin: 1rem 0;
+        border-collapse: collapse;
     }
     .transaction-table th, .transaction-table td {
         border: 1px solid #ccc;
         padding: 8px 12px;
-        text-align: left;
     }
     .transaction-table th {
         background-color: #f0f0f0;
-        font-weight: bold;
     }
     .income {
         color: green;
@@ -58,114 +33,63 @@ def render_money_transfers():
         text-align: right;
     }
     .delete-btn {
-        background-color: #ff4b4b;
+        background: #ff4b4b;
         color: white;
         border: none;
         padding: 5px 10px;
         border-radius: 3px;
         cursor: pointer;
-        font-size: 0.9em;
         width: 100%;
-    }
-    .delete-btn:hover {
-        background-color: #ff3333;
-    }
-    /* 隐藏原始按钮 */
-    .hidden-buttons {
-        display: none;
     }
     </style>
     """, unsafe_allow_html=True)
-    
-    if not st.session_state.money_transfers:
-        st.info("No financial transactions recorded yet")
+
+    # 处理删除
+    for i in range(len(st.session_state.transactions)):
+        if st.button("Delete", key=f"del_{i}"):
+            del st.session_state.transactions[i]
+            st.experimental_rerun()
+
+    # 显示表格
+    if not st.session_state.transactions:
+        st.info("No transactions yet")
     else:
-        # 创建隐藏的按钮区域用于处理删除逻辑
-        st.markdown('<div class="hidden-buttons">', unsafe_allow_html=True)
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            if st.button(
-                "Delete", 
-                key=f"hidden_del_{idx}", 
-                use_container_width=True
-            ):
-                st.session_state.delete_trigger = idx + 1  # 用索引作为触发器
-                st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        table = "<table class='transaction-table'><thead><tr>"
+        table += "<th>No.</th><th>Date</th><th>Amount ($)</th><th>Category</th>"
+        table += "<th>Description</th><th>Handled By</th><th>Action</th></tr></thead><tbody>"
         
-        # 构建表格HTML，完全匹配您提供的格式
-        table_html = """
-        <table class="transaction-table">
-            <thead>
-                <tr>
-                    <th>No.</th>
-                    <th>Date</th>
-                    <th>Amount ($)</th>
-                    <th>Category</th>
-                    <th>Description</th>
-                    <th>Handled By</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
+        for idx, t in enumerate(st.session_state.transactions):
+            table += f"<tr><td>{idx}</td>"
+            table += f"<td>{t['date']}</td>"
+            table += f"<td class='{t['class']}'>${t['amount']:.2f}</td>"
+            table += f"<td>None</td>"
+            table += f"<td>{t['desc']}</td>"
+            table += f"<td>{t['handler']}</td>"
+            table += f"<td><button class='delete-btn'>Delete</button></td></tr>"
         
-        # 添加表格行，完全匹配您需要的HTML结构
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            seq = idx
-            date = trans["Date"].strftime("%Y-%m-%d")
-            amount_class = "income" if trans["Type"] == "Income" else "expense"
-            amount = f"${trans['Amount']:.2f}"  # 修复键名，使用大写Amount
-            
-            # 生成与您提供的完全一致的表格行
-            table_html += f"""
-            <tr>
-                <td>{seq}</td>
-                <td>{date}</td>
-                <td class="{amount_class}">{amount}</td>
-                <td>None</td>
-                <td>{trans['Description']}</td>
-                <td>{trans['Handler']}</td>
-                <td><button class="delete-btn">Delete</button></td>
-            </tr>
-            """
-        
-        # 闭合表格标签
-        table_html += """
-            </tbody>
-        </table>
-        """
-        
-        # 渲染表格
-        st.markdown(table_html, unsafe_allow_html=True)
+        table += "</tbody></table>"
+        st.markdown(table, unsafe_allow_html=True)
 
-    st.write("=" * 50)
-
-    # 新增交易区域
-    st.subheader("Record New Transaction")
+    # 添加新交易
+    st.subheader("Add New Transaction")
     col1, col2 = st.columns(2)
     with col1:
-        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="date_input")
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.01, key="amount_input")
-        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="type_radio")
+        date = st.date_input("Date", datetime.today()).strftime("%Y-%m-%d")
+        amount = st.number_input("Amount", 0.01, step=0.01)
+        t_type = st.radio("Type", ["Income", "Expense"])
     with col2:
-        desc = st.text_input("Description", value="Fundraiser proceeds", key="desc_input").strip()
-        handler = st.text_input("Handled By", value="Pikachu Da Best", key="handler_input").strip()
+        desc = st.text_input("Description", "Fundraiser proceeds")
+        handler = st.text_input("Handled By", "Pikachu Da Best")
 
-    if st.button("Record Transaction", key="add_btn", use_container_width=True, type="primary"):
-        if not (amount and desc and handler):
-            st.error("Required fields: Amount, Description, Handled By!")
-        else:
-            st.session_state.money_transfers.append({
-                "uuid": str(uuid.uuid4()),
-                "Date": trans_date,
-                "Type": trans_type,
-                "Amount": round(amount, 2),  # 保持键名大写一致性
-                "Description": desc,
-                "Handler": handler
-            })
-            st.success("Transaction recorded successfully!")
-            st.rerun()
+    if st.button("Add Transaction"):
+        st.session_state.transactions.append({
+            "date": date,
+            "amount": amount,
+            "class": "income" if t_type == "Income" else "expense",
+            "desc": desc,
+            "handler": handler
+        })
+        st.success("Added successfully!")
 
-# 执行函数
 if __name__ == "__main__":
     render_money_transfers()
