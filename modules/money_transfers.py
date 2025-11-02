@@ -10,10 +10,10 @@ def render_money_transfers():
     st.header("Financial Transactions")
     st.write("=" * 50)
 
-    # 处理删除操作 - 只删除最后一行（使用唯一key）
+    # 处理删除操作
     if st.button("Delete Last Transaction", key="mt_del_last", use_container_width=True):
         if st.session_state.money_transfers:
-            st.session_state.money_transfers.pop()  # 删除最后一个元素
+            st.session_state.money_transfers.pop()
             st.success("Last transaction deleted successfully!")
             st.rerun()
         else:
@@ -21,7 +21,7 @@ def render_money_transfers():
 
     st.subheader("Transaction History")
         
-    # 表格样式 - 确保边框完整闭合且列对齐
+    # 优化表格样式 - 确保列对齐
     st.markdown("""
     <style>
     .transaction-table {
@@ -33,33 +33,42 @@ def render_money_transfers():
     .transaction-table th, .transaction-table td {
         border: 1px solid #ccc;
         padding: 8px 12px;
-        text-align: left;
     }
-    .transaction-table th:nth-child(1), 
+    /* 第一列：序号 */
+    .transaction-table th:nth-child(1),
     .transaction-table td:nth-child(1) {
-        width: 5%;  /* 序号列宽度 */
+        width: 5%;
         text-align: center;
     }
-    .transaction-table th:nth-child(2), 
+    /* 第二列：日期 */
+    .transaction-table th:nth-child(2),
     .transaction-table td:nth-child(2) {
-        width: 12%; /* 日期列宽度 */
+        width: 15%;
+        text-align: left;
     }
-    .transaction-table th:nth-child(3), 
+    /* 第三列：金额 */
+    .transaction-table th:nth-child(3),
     .transaction-table td:nth-child(3) {
-        width: 12%; /* 金额列宽度 */
+        width: 15%;
         text-align: right;
     }
-    .transaction-table th:nth-child(4), 
+    /* 第四列：类别 */
+    .transaction-table th:nth-child(4),
     .transaction-table td:nth-child(4) {
-        width: 12%; /* 类别列宽度 */
+        width: 10%;
+        text-align: left;
     }
-    .transaction-table th:nth-child(5), 
+    /* 第五列：描述 */
+    .transaction-table th:nth-child(5),
     .transaction-table td:nth-child(5) {
-        width: 35%; /* 描述列宽度 */
+        width: 30%;
+        text-align: left;
     }
-    .transaction-table th:nth-child(6), 
+    /* 第六列：处理人 */
+    .transaction-table th:nth-child(6),
     .transaction-table td:nth-child(6) {
-        width: 24%; /* 处理人列宽度 */
+        width: 25%;
+        text-align: left;
     }
     .transaction-table th {
         background-color: #f0f0f0;
@@ -77,27 +86,8 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 创建表格数据（序号从1开始）
-        table_data = []
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            seq = idx + 1  # 序号从1开始
-            date = trans["Date"].strftime("%Y-%m-%d")
-            amount = f"${trans['Amount']:.2f}"
-            amount_class = "income" if trans["Type"] == "Income" else "expense"
-            
-            # 构建行数据
-            table_data.append({
-                "No.": seq,
-                "Date": date,
-                "Amount ($)": f'<span class="{amount_class}">{amount}</span>',
-                "Category": "None",
-                "Description": trans["Description"],
-                "Handled By": trans["Handler"]
-            })
-        
-        # 渲染表格（使用Markdown表格）
-        # 表头
-        st.markdown("""
+        # 构建表格（确保列顺序与表头完全一致）
+        table_html = """
         <table class="transaction-table">
             <thead>
                 <tr>
@@ -110,48 +100,50 @@ def render_money_transfers():
                 </tr>
             </thead>
             <tbody>
-        """, unsafe_allow_html=True)
+        """
         
-        # 表格内容
-        for row in table_data:
-            st.markdown(f"""
+        # 按顺序添加每一行数据（与表头列顺序严格对应）
+        for idx, trans in enumerate(st.session_state.money_transfers, 1):  # 从1开始编号
+            table_html += f"""
             <tr>
-                <td>{row['No.']}</td>
-                <td>{row['Date']}</td>
-                <td>{row['Amount ($)']}</td>
-                <td>{row['Category']}</td>
-                <td>{row['Description']}</td>
-                <td>{row['Handled By']}</td>
+                <td>{idx}</td>
+                <td>{trans['Date'].strftime('%Y-%m-%d')}</td>
+                <td class="{ 'income' if trans['Type'] == 'Income' else 'expense' }">
+                    ${trans['Amount']:.2f}
+                </td>
+                <td>None</td>  <!-- 类别列 -->
+                <td>{trans['Description']}</td>
+                <td>{trans['Handler']}</td>
             </tr>
-            """, unsafe_allow_html=True)
+            """
         
-        # 闭合表格
-        st.markdown("""
+        table_html += """
             </tbody>
         </table>
-        """, unsafe_allow_html=True)
+        """
+        st.markdown(table_html, unsafe_allow_html=True)
 
     st.write("=" * 50)
 
-    # 新增交易区域 - 使用与表格相同的列比例
+    # 新增交易区域（与表格列宽比例一致）
     st.subheader("Record New Transaction")
-    cols = st.columns([5, 12, 12, 12, 35, 24])  # 与表格列宽比例一致
+    cols = st.columns([5, 15, 15, 10, 30, 25])  # 与表格列宽百分比严格对应
     with cols[0]:
-        st.text("No. (Auto)")  # 提示序号自动生成
+        st.text("No. (Auto)")
     with cols[1]:
-        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="mt_date_input")
+        trans_date = st.date_input("Date", datetime.today(), key="mt_date")
     with cols[2]:
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="mt_amount_input")
+        amount = st.number_input("Amount", 0.01, step=0.01, key="mt_amount")
     with cols[3]:
-        trans_type = st.radio("Type", ["Income", "Expense"], index=0, key="mt_type_radio", horizontal=True)
+        trans_type = st.radio("Type", ["Income", "Expense"], key="mt_type", horizontal=True)
     with cols[4]:
-        desc = st.text_input("Description", value="Fundraiser proceeds", key="mt_desc_input").strip()
+        desc = st.text_input("Description", key="mt_desc").strip()
     with cols[5]:
-        handler = st.text_input("Handled By", value="Pikachu Da Best", key="mt_handler_input").strip()
+        handler = st.text_input("Handled By", key="mt_handler").strip()
 
-    if st.button("Record Transaction", key="mt_add_btn", use_container_width=True, type="primary"):
+    if st.button("Record Transaction", key="mt_add", use_container_width=True, type="primary"):
         if not (amount and desc and handler):
-            st.error("Required fields: Amount, Description, Handled By!")
+            st.error("Please fill in all required fields!")
         else:
             st.session_state.money_transfers.append({
                 "uuid": str(uuid.uuid4()),
@@ -161,8 +153,7 @@ def render_money_transfers():
                 "Description": desc,
                 "Handler": handler
             })
-            st.success("Transaction recorded successfully!")
+            st.success("Transaction recorded!")
             st.rerun()
 
-# 执行函数
 render_money_transfers()
