@@ -38,7 +38,7 @@ def add_custom_css():
     </style>
     """, unsafe_allow_html=True)
 
-def render_money_transfer():
+def render_money_transfers():
     add_custom_css()
     st.header("💸 Money Transfer Records")
     st.divider()
