@@ -11,6 +11,7 @@ def render_money_transfers():
     st.header("Financial Transactions")
     st.write("=" * 50)
 
+    # 处理操作
     action_tip = None
     if st.session_state.action:
         if st.session_state.action["type"] == "add":
@@ -28,28 +29,46 @@ def render_money_transfers():
     if action_tip:
         st.success(action_tip)
         
-    # 匹配参考样式的表格CSS
+    # 表格样式优化
     st.markdown("""
     <style>
     .transaction-table {
         width: 100%;
         border-collapse: collapse;
-        border: 1px solid #e5e7eb;
+        border: 2px solid #d1d5db;
+        margin: 1rem 0;
     }
     .transaction-table th, .transaction-table td {
-        border: 1px solid #e5e7eb;
-        padding: 8px 12px;
+        border: 1px solid #d1d5db;
+        padding: 10px 12px;
         text-align: left;
     }
     .transaction-table th {
+        background-color: #f3f4f6;
+        font-weight: 600;
+    }
+    .transaction-table tr:nth-child(even) {
         background-color: #f9fafb;
-        font-weight: normal;
     }
     .income {
-        color: green;
+        color: #16a34a;
+        font-weight: 500;
     }
     .expense {
-        color: red;
+        color: #dc2626;
+        font-weight: 500;
+    }
+    .delete-btn {
+        background-color: #ef4444;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.85rem;
+    }
+    .delete-btn:hover {
+        background-color: #dc2626;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -57,11 +76,12 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
+        # 构建完整表格
         table_html = """
         <table class="transaction-table">
             <thead>
                 <tr>
-                    <th></th>
+                    <th>No.</th>
                     <th>Date</th>
                     <th>Amount ($)</th>
                     <th>Category</th>
@@ -74,11 +94,25 @@ def render_money_transfers():
         """
         
         for idx, trans in enumerate(st.session_state.money_transfers):
-            seq = idx
+            seq = idx  # 从0开始编号
             date = trans["Date"].strftime("%Y-%m-%d")
             amount_class = "income" if trans["Type"] == "Income" else "expense"
             del_key = f"del_{trans['uuid']}"
             
+            # 单独创建删除按钮（避免直接渲染到HTML中）
+            delete_button = st.button(
+                "Delete", 
+                key=del_key, 
+                use_container_width=True,
+                help="Delete this transaction"
+            )
+            
+            # 检查删除操作
+            if delete_button:
+                st.session_state.action = {"type": "del", "uuid": trans["uuid"]}
+                st.rerun()
+            
+            # 添加表格行（使用HTML按钮样式保持一致性）
             table_html += f"""
             <tr>
                 <td>{seq}</td>
@@ -87,17 +121,13 @@ def render_money_transfers():
                 <td>None</td>
                 <td>{trans['Description']}</td>
                 <td>{trans['Handler']}</td>
-                <td>{st.button("Delete", key=del_key, type="primary", use_container_width=True)}</td>
+                <td style="text-align: center;">
+                    <button class="delete-btn">{delete_button}</button>
+                </td>
             </tr>
             """
-            
-            if st.session_state.get(del_key, False):
-                st.session_state.action = {"type": "del", "uuid": trans["uuid"]}
-                if hasattr(st, "rerun"):
-                    st.rerun()
-                else:
-                    st.experimental_rerun()
         
+        # 闭合表格标签
         table_html += """
             </tbody>
         </table>
@@ -106,17 +136,18 @@ def render_money_transfers():
 
     st.write("=" * 50)
 
+    # 新增交易区域
     st.subheader("Record New Transaction")
     col1, col2 = st.columns(2)
     with col1:
-        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="date_input_new")
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="amount_input_new")
-        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="type_radio_new")
+        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="date_input")
+        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="amount_input")
+        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="type_radio")
     with col2:
-        desc = st.text_input("Description", value="Fundraiser proceeds", key="desc_input_new").strip()
-        handler = st.text_input("Handled By", value="Pikachu Da Best", key="handler_input_new").strip()
+        desc = st.text_input("Description", value="Fundraiser proceeds", key="desc_input").strip()
+        handler = st.text_input("Handled By", value="Pikachu Da Best", key="handler_input").strip()
 
-    if st.button("Record Transaction", key="add_btn_new", use_container_width=True, type="primary"):
+    if st.button("Record Transaction", key="add_btn", use_container_width=True, type="primary"):
         if not (amount and desc and handler):
             st.error("Required fields: Amount, Description, Handled By!")
         else:
@@ -131,7 +162,7 @@ def render_money_transfers():
                     "Handler": handler
                 }
             }
-            if hasattr(st, "rerun"):
-                st.rerun()
-            else:
-                st.experimental_rerun()
+            st.rerun()
+
+# 运行函数
+render_money_transfers()
