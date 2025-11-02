@@ -114,7 +114,7 @@ def render_money_transfers():
             seq = idx
             date = trans["Date"].strftime("%Y-%m-%d")
             amount_class = "income" if trans["Type"] == "Income" else "expense"
-            amount = f"${trans['amount']:.2f}"  # 使用正确的金额格式
+            amount = f"${trans['Amount']:.2f}"  # 修复键名，使用大写Amount
             
             # 生成与您提供的完全一致的表格行
             table_html += f"""
@@ -159,7 +159,7 @@ def render_money_transfers():
                 "uuid": str(uuid.uuid4()),
                 "Date": trans_date,
                 "Type": trans_type,
-                "amount": round(amount, 2),  # 保持键名小写一致性
+                "Amount": round(amount, 2),  # 保持键名大写一致性
                 "Description": desc,
                 "Handler": handler
             })
@@ -167,4 +167,5 @@ def render_money_transfers():
             st.rerun()
 
 # 执行函数
-render_money_transfers()
+if __name__ == "__main__":
+    render_money_transfers()
