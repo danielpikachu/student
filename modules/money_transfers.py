@@ -3,6 +3,7 @@ from datetime import datetime
 import uuid
 
 def render_money_transfers():
+    # 初始化状态
     if "money_transfers" not in st.session_state:
         st.session_state.money_transfers = []
     if "action" not in st.session_state:
@@ -29,7 +30,7 @@ def render_money_transfers():
     if action_tip:
         st.success(action_tip)
         
-    # 表格样式优化
+    # 表格样式
     st.markdown("""
     <style>
     .transaction-table {
@@ -76,7 +77,14 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 构建完整表格
+        # 先处理删除按钮事件（在渲染表格前）
+        for trans in st.session_state.money_transfers:
+            del_key = f"del_{trans['uuid']}"
+            if st.button("Delete", key=del_key, use_container_width=True):
+                st.session_state.action = {"type": "del", "uuid": trans["uuid"]}
+                st.rerun()
+        
+        # 构建表格（只渲染按钮外观，不包含状态值）
         table_html = """
         <table class="transaction-table">
             <thead>
@@ -94,25 +102,12 @@ def render_money_transfers():
         """
         
         for idx, trans in enumerate(st.session_state.money_transfers):
-            seq = idx  # 从0开始编号
+            seq = idx
             date = trans["Date"].strftime("%Y-%m-%d")
             amount_class = "income" if trans["Type"] == "Income" else "expense"
-            del_key = f"del_{trans['uuid']}"
+            del_key = f"del_{trans['uuid']}"  # 保持与按钮相同的key
             
-            # 单独创建删除按钮（避免直接渲染到HTML中）
-            delete_button = st.button(
-                "Delete", 
-                key=del_key, 
-                use_container_width=True,
-                help="Delete this transaction"
-            )
-            
-            # 检查删除操作
-            if delete_button:
-                st.session_state.action = {"type": "del", "uuid": trans["uuid"]}
-                st.rerun()
-            
-            # 添加表格行（使用HTML按钮样式保持一致性）
+            # 表格行只显示"Delete"文字，不包含状态
             table_html += f"""
             <tr>
                 <td>{seq}</td>
@@ -122,12 +117,11 @@ def render_money_transfers():
                 <td>{trans['Description']}</td>
                 <td>{trans['Handler']}</td>
                 <td style="text-align: center;">
-                    <button class="delete-btn">{delete_button}</button>
+                    <button class="delete-btn">Delete</button>
                 </td>
             </tr>
             """
         
-        # 闭合表格标签
         table_html += """
             </tbody>
         </table>
@@ -164,5 +158,4 @@ def render_money_transfers():
             }
             st.rerun()
 
-# 运行函数
 render_money_transfers()
