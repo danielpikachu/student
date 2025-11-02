@@ -10,7 +10,7 @@ def render_money_transfers():
     if "delete_uuid" not in st.session_state:
         st.session_state.delete_uuid = None
 
-    st.header("Financial Transactions")
+    st.header("Financial Financial Transactions")
     st.write("=" * 50)
 
     # 处理删除操作
@@ -60,14 +60,20 @@ def render_money_transfers():
     .delete-btn:hover {
         background-color: #ff3333;
     }
+    /* 用于隐藏元素的样式 */
+    .hidden {
+        display: none !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 创建一个隐藏的文本输入用于接收JS传递的UUID
-        delete_input = st.text_input("Delete UUID", key="delete_input", visible=False)
+        # 使用CSS隐藏输入框（兼容旧版本Streamlit）
+        st.markdown('<div class="hidden">', unsafe_allow_html=True)
+        delete_input = st.text_input("Delete UUID", key="delete_input")
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # 构建完整表格HTML
         table_html = """
@@ -86,7 +92,7 @@ def render_money_transfers():
             <tbody>
         """
         
-        # 生成删除按钮的JavaScript回调 - 使用Streamlit的widgets进行通信
+        # 生成删除按钮的JavaScript回调
         js_callback = """
         <script>
         function deleteTransaction(uuid) {
@@ -135,10 +141,9 @@ def render_money_transfers():
         html(full_html, height=300)
         
         # 检查是否有删除请求
-        if delete_input:
+        if delete_input and delete_input != st.session_state.get("last_deleted", ""):
             st.session_state.delete_uuid = delete_input
-            # 清除输入框值
-            st.session_state.delete_input = ""
+            st.session_state.last_deleted = delete_input  # 防止重复删除
             st.rerun()
 
     st.write("=" * 50)
