@@ -6,20 +6,28 @@ def render_money_transfers():
     # 初始化状态
     if "money_transfers" not in st.session_state:
         st.session_state.money_transfers = []
-    if "delete_uuid" not in st.session_state:
-        st.session_state.delete_uuid = None
+    if "delete_trigger" not in st.session_state:
+        st.session_state.delete_trigger = 0
 
     st.header("Financial Transactions")
     st.write("=" * 50)
 
     # 处理删除操作
-    if st.session_state.delete_uuid:
-        st.session_state.money_transfers = [
-            t for t in st.session_state.money_transfers
-            if t["uuid"] != st.session_state.delete_uuid
-        ]
-        st.session_state.delete_uuid = None
-        st.success("Transaction deleted successfully!")
+    if st.session_state.delete_trigger > 0:
+        # 找到要删除的交易
+        target_uuid = None
+        for i, trans in enumerate(st.session_state.money_transfers):
+            if st.session_state.delete_trigger == i + 1:  # 匹配触发的索引
+                target_uuid = trans["uuid"]
+                break
+        
+        if target_uuid:
+            st.session_state.money_transfers = [
+                t for t in st.session_state.money_transfers
+                if t["uuid"] != target_uuid
+            ]
+            st.success("Transaction deleted successfully!")
+            st.session_state.delete_trigger = 0  # 重置触发器
 
     st.subheader("Transaction History")
         
@@ -62,25 +70,29 @@ def render_money_transfers():
     .delete-btn:hover {
         background-color: #ff3333;
     }
+    /* 隐藏原始按钮 */
+    .hidden-buttons {
+        display: none;
+    }
     </style>
     """, unsafe_allow_html=True)
     
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 先处理所有删除按钮点击事件
-        delete_uuids = []
-        for trans in st.session_state.money_transfers:
-            btn_key = f"del_{trans['uuid']}"
-            if st.button("Delete", key=btn_key, use_container_width=True):
-                delete_uuids.append(trans["uuid"])
+        # 创建隐藏的按钮区域用于处理删除逻辑
+        st.markdown('<div class="hidden-buttons">', unsafe_allow_html=True)
+        for idx, trans in enumerate(st.session_state.money_transfers):
+            if st.button(
+                "Delete", 
+                key=f"hidden_del_{idx}", 
+                use_container_width=True
+            ):
+                st.session_state.delete_trigger = idx + 1  # 用索引作为触发器
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        # 执行删除操作
-        if delete_uuids:
-            st.session_state.delete_uuid = delete_uuids[0]
-            st.rerun()
-        
-        # 构建表格HTML
+        # 构建表格HTML，完全匹配您提供的格式
         table_html = """
         <table class="transaction-table">
             <thead>
@@ -97,18 +109,19 @@ def render_money_transfers():
             <tbody>
         """
         
-        # 添加表格行
+        # 添加表格行，完全匹配您需要的HTML结构
         for idx, trans in enumerate(st.session_state.money_transfers):
             seq = idx
             date = trans["Date"].strftime("%Y-%m-%d")
             amount_class = "income" if trans["Type"] == "Income" else "expense"
+            amount = f"${trans['amount']:.2f}"  # 使用正确的金额格式
             
-            # 生成表格行，最后一列是删除按钮
+            # 生成与您提供的完全一致的表格行
             table_html += f"""
             <tr>
                 <td>{seq}</td>
                 <td>{date}</td>
-                <td class="{amount_class}">${trans['Amount']:.2f}</td>
+                <td class="{amount_class}">{amount}</td>
                 <td>None</td>
                 <td>{trans['Description']}</td>
                 <td>{trans['Handler']}</td>
@@ -132,7 +145,7 @@ def render_money_transfers():
     col1, col2 = st.columns(2)
     with col1:
         trans_date = st.date_input("Transaction Date", value=datetime.today(), key="date_input")
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="amount_input")
+        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.01, key="amount_input")
         trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="type_radio")
     with col2:
         desc = st.text_input("Description", value="Fundraiser proceeds", key="desc_input").strip()
@@ -146,7 +159,7 @@ def render_money_transfers():
                 "uuid": str(uuid.uuid4()),
                 "Date": trans_date,
                 "Type": trans_type,
-                "amount": round(amount, 2),  # 修正键名小写，避免后续错误
+                "amount": round(amount, 2),  # 保持键名小写一致性
                 "Description": desc,
                 "Handler": handler
             })
