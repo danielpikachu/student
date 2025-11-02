@@ -21,7 +21,7 @@ def render_money_transfers():
 
     st.subheader("Transaction History")
         
-    # 表格样式优化
+    # 表格样式优化 - 确保列对齐
     st.markdown("""
     <style>
     .transaction-table {
@@ -30,56 +30,59 @@ def render_money_transfers():
         border: 1px solid #ddd;
         margin: 1rem 0;
     }
-    .transaction-table th, .transaction-table td {
+    .transaction-table td {
         border: 1px solid #ddd;
         padding: 10px;
         text-align: left;
     }
-    .transaction-table th {
-        background-color: #f5f5f5;
-        font-weight: bold;
-    }
     .column-names {
-        background-color: #e8f4f8; /* 列名行背景色 */
+        background-color: #e8f4f8;
         font-weight: 600;
     }
+    .amount-col {
+        text-align: right !important;
+        width: 15%;
+    }
+    .date-col { width: 15%; }
+    .category-col { width: 10%; }
+    .description-col { width: 35%; }
+    .handler-col { width: 25%; }
     .income { color: green; }
     .expense { color: red; }
-    .amount-col { text-align: right !important; }
     </style>
     """, unsafe_allow_html=True)
     
     if not st.session_state.money_transfers:
         st.info("No transactions recorded yet")
     else:
-        # 构建表格HTML
+        # 构建表格HTML（使用你提供的精确行结构）
         table_html = """
         <table class="transaction-table">
             <tbody>
         """
         
-        # 添加列名行（第一行固定为列名）
+        # 添加列名行（使用你提供的结构）
         table_html += """
             <tr class="column-names">
-                <td>Date</td>
+                <td class="date-col">Date</td>
                 <td class="amount-col">Amount ($)</td>
-                <td>Category</td>
-                <td>Description</td>
-                <td>Handled By</td>
+                <td class="category-col">Category</td>
+                <td class="description-col">Description</td>
+                <td class="handler-col">Handled By</td>
             </tr>
         """
         
-        # 添加实际数据行（从第二行开始）
+        # 添加数据行（使用你提供的结构风格）
         for trans in st.session_state.money_transfers:
             table_html += f"""
             <tr>
-                <td>{trans['Date'].strftime('%Y-%m-%d')}</td>
+                <td class="date-col">{trans['Date'].strftime('%Y-%m-%d')}</td>
                 <td class="amount-col { 'income' if trans['Type'] == 'Income' else 'expense' }">
                     ${trans['Amount']:.2f}
                 </td>
-                <td>None</td>
-                <td>{trans['Description']}</td>
-                <td>{trans['Handler']}</td>
+                <td class="category-col">None</td>
+                <td class="description-col">{trans['Description']}</td>
+                <td class="handler-col">{trans['Handler']}</td>
             </tr>
             """
         
@@ -91,9 +94,9 @@ def render_money_transfers():
 
     st.write("=" * 50)
 
-    # 新增交易区域（与表格列对应）
+    # 新增交易区域（与表格列宽对应）
     st.subheader("Record New Transaction")
-    cols = st.columns(5)  # 5列对应表格的5个字段
+    cols = st.columns([15, 15, 10, 35, 25])  # 与表格列宽比例一致
     with cols[0]:
         trans_date = st.date_input("Date", datetime.today(), key="mt_date")
     with cols[1]:
