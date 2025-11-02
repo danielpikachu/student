@@ -24,11 +24,11 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 整理表格数据
+        # 整理表格数据（序号从1开始：idx + 1）
         table_data = []
         for idx, trans in enumerate(st.session_state.money_transfers):
             table_data.append({
-                "": idx,  # 序号列
+                "No.": idx + 1,  # 关键修改：索引+1，实现从1开始编号
                 "Date": trans["Date"].strftime("%Y-%m-%d"),
                 "Amount ($)": trans["Amount"],
                 "Category": "None",
@@ -36,11 +36,10 @@ def render_money_transfers():
                 "Handled By": trans["Handler"]
             })
         
-        # 使用Streamlit原生dataframe渲染（自动实现你要的表格样式）
+        # 使用Streamlit原生dataframe渲染
         st.dataframe(
             table_data,
             column_config={
-                "": st.column_config.NumberColumn(label="", format="%d"),  # 序号列格式
                 "Amount ($)": st.column_config.NumberColumn(format="$%.2f")  # 金额列格式
             },
             hide_index=True,
