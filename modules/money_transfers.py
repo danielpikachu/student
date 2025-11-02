@@ -1,30 +1,22 @@
 import streamlit as st
 from datetime import datetime
 import uuid
-from streamlit.components.v1 import html
 
 def render_money_transfers():
     # 初始化状态
     if "money_transfers" not in st.session_state:
         st.session_state.money_transfers = []
-    if "delete_trigger" not in st.session_state:
-        st.session_state.delete_trigger = 0  # 用于触发删除的计数器
 
     st.header("Financial Transactions")
     st.write("=" * 50)
 
     # 处理删除操作
-    if "delete_uuid" in st.session_state and st.session_state.delete_uuid:
-        # 执行删除
-        st.session_state.money_transfers = [
-            t for t in st.session_state.money_transfers
-            if t["uuid"] != st.session_state.delete_uuid
-        ]
-        # 清除删除标记
-        del_uuid = st.session_state.delete_uuid
-        del st.session_state.delete_uuid
-        st.success(f"Transaction deleted successfully!")
-        st.rerun()
+    for trans in st.session_state.money_transfers[:]:  # 使用副本避免迭代中修改
+        del_key = f"del_{trans['uuid']}"
+        if st.session_state.get(del_key, False):
+            st.session_state.money_transfers.remove(trans)
+            st.success("Transaction deleted successfully!")
+            st.rerun()
 
     st.subheader("Transaction History")
         
@@ -52,7 +44,7 @@ def render_money_transfers():
     .expense {
         color: red;
     }
-    .delete-btn {
+    .stButton > button {
         background-color: #ff4b4b;
         color: white;
         border: none;
@@ -61,7 +53,7 @@ def render_money_transfers():
         cursor: pointer;
         font-size: 0.9em;
     }
-    .delete-btn:hover {
+    .stButton > button:hover {
         background-color: #ff3333;
     }
     </style>
@@ -70,8 +62,28 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 构建完整表格HTML
-        table_html = """
+        # 创建表格数据
+        table_data = []
+        for idx, trans in enumerate(st.session_state.money_transfers):
+            seq = idx
+            date = trans["Date"].strftime("%Y-%m-%d")
+            amount = f"${trans['Amount']:.2f}"
+            amount_class = "income" if trans["Type"] == "Income" else "expense"
+            
+            # 构建行数据（包含删除按钮）
+            table_data.append({
+                "No.": seq,
+                "Date": date,
+                "Amount ($)": f'<span class="{amount_class}" style="text-align: right;">{amount}</span>',
+                "Category": "None",
+                "Description": trans["Description"],
+                "Handled By": trans["Handler"],
+                "Action": st.button("Delete", key=f"del_{trans['uuid']}", use_container_width=True)
+            })
+        
+        # 渲染表格（使用Markdown表格）
+        # 表头
+        st.markdown("""
         <table class="transaction-table">
             <thead>
                 <tr>
@@ -85,52 +97,27 @@ def render_money_transfers():
                 </tr>
             </thead>
             <tbody>
-        """
+        """, unsafe_allow_html=True)
         
-        # 生成删除按钮的JavaScript回调 - 直接调用Streamlit的回调函数
-        js_code = f"""
-        <script>
-        function deleteTransaction(uuid) {{
-            // 调用Streamlit的setItem方法存储要删除的UUID
-            window.parent.Streamlit.setItem("delete_uuid", uuid);
-            // 更新触发器值以触发重新运行
-            window.parent.Streamlit.setItem("delete_trigger", {st.session_state.delete_trigger + 1});
-            // 触发重新运行
-            window.parent.Streamlit.rerun();
-        }}
-        </script>
-        """
-        
-        # 添加表格行
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            seq = idx
-            date = trans["Date"].strftime("%Y-%m-%d")
-            amount_class = "income" if trans["Type"] == "Income" else "expense"
-            
-            # 生成与需求完全一致的表格行HTML
-            table_html += f"""
+        # 表格内容
+        for row in table_data:
+            st.markdown(f"""
             <tr>
-                <td>{seq}</td>
-                <td>{date}</td>
-                <td class="{amount_class}" style="text-align: right;">${trans['Amount']:.2f}</td>
-                <td>None</td>
-                <td>{trans['Description']}</td>
-                <td>{trans['Handler']}</td>
-                <td style="text-align: center;">
-                    <button class="delete-btn" onclick="deleteTransaction('{trans['uuid']}')">Delete</button>
-                </td>
+                <td>{row['No.']}</td>
+                <td>{row['Date']}</td>
+                <td style="text-align: right;">{row['Amount ($)']}</td>
+                <td>{row['Category']}</td>
+                <td>{row['Description']}</td>
+                <td>{row['Handled By']}</td>
+                <td style="text-align: center;">{str(row['Action']).lower()}</td>
             </tr>
-            """
+            """, unsafe_allow_html=True)
         
-        # 闭合表格标签
-        table_html += """
+        # 闭合表格
+        st.markdown("""
             </tbody>
         </table>
-        """
-        
-        # 渲染表格和JavaScript代码
-        full_html = table_html + js_code
-        html(full_html, height=300)
+        """, unsafe_allow_html=True)
 
     st.write("=" * 50)
 
@@ -160,6 +147,5 @@ def render_money_transfers():
             st.success("Transaction recorded successfully!")
             st.rerun()
 
-# 只在直接运行该模块时执行
-if __name__ == "__main__":
-    render_money_transfers()
+# 执行函数
+render_money_transfers()
