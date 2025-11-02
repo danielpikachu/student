@@ -66,7 +66,10 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 构建完整表格HTML（完全匹配您需要的格式）
+        # 创建一个隐藏的文本输入用于接收JS传递的UUID
+        delete_input = st.text_input("Delete UUID", key="delete_input", visible=False)
+        
+        # 构建完整表格HTML
         table_html = """
         <table class="transaction-table">
             <thead>
@@ -83,13 +86,19 @@ def render_money_transfers():
             <tbody>
         """
         
-        # 生成删除按钮的JavaScript回调
+        # 生成删除按钮的JavaScript回调 - 使用Streamlit的widgets进行通信
         js_callback = """
         <script>
         function deleteTransaction(uuid) {
-            const element = window.parent.document.querySelector('[data-testid="stMarkdownContainer"]');
-            const event = new CustomEvent('delete-transaction', { detail: uuid });
-            element.dispatchEvent(event);
+            // 找到隐藏的输入框并设置其值
+            const input = window.parent.document.querySelector('input[aria-label="Delete UUID"]');
+            if (input) {
+                input.value = uuid;
+                
+                // 触发输入框的change事件以通知Streamlit
+                const event = new Event('input', { bubbles: true });
+                input.dispatchEvent(event);
+            }
         }
         </script>
         """
@@ -100,7 +109,7 @@ def render_money_transfers():
             date = trans["Date"].strftime("%Y-%m-%d")
             amount_class = "income" if trans["Type"] == "Income" else "expense"
             
-            # 生成与您提供的完全一致的表格行HTML
+            # 生成与您要求完全一致的表格行HTML
             table_html += f"""
             <tr>
                 <td>{seq}</td>
@@ -125,10 +134,11 @@ def render_money_transfers():
         full_html = table_html + js_callback
         html(full_html, height=300)
         
-        # 监听删除事件
-        delete_event = st.runtime.scriptrunner.add_script_run_ctx().widgets.get("delete-transaction")
-        if delete_event:
-            st.session_state.delete_uuid = delete_event
+        # 检查是否有删除请求
+        if delete_input:
+            st.session_state.delete_uuid = delete_input
+            # 清除输入框值
+            st.session_state.delete_input = ""
             st.rerun()
 
     st.write("=" * 50)
@@ -159,4 +169,6 @@ def render_money_transfers():
             st.success("Transaction recorded successfully!")
             st.rerun()
 
-render_money_transfers()
+# 只在直接运行该模块时执行
+if __name__ == "__main__":
+    render_money_transfers()
