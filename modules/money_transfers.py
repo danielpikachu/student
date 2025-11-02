@@ -3,17 +3,22 @@ from datetime import datetime
 import uuid
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import json
 
-# 初始化Google Sheet连接
+# 初始化Google Sheet连接（适配Streamlit Cloud密钥管理）
 def init_google_sheet():
-    # 配置认证范围
-    scope = ["https://spreadsheets.google.com/feeds", 
-             "https://www.googleapis.com/auth/drive"]
-    
-    # 加载认证密钥（确保密钥文件在指定路径）
+    # 从Streamlit Cloud密钥获取认证信息
     try:
-        credentials = ServiceAccountCredentials.from_json_keyfile_name(
-            "google_credentials.json",  # 替换为你的密钥文件路径
+        # 从st.secrets加载Google认证信息
+        credentials_dict = st.secrets["GOOGLE_SHEETS_CREDENTIALS"]
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # 使用字典创建认证对象（无需本地JSON文件）
+        credentials = ServiceAccountCredentials.from_json_keyfile_dict(
+            credentials_dict,
             scope
         )
         client = gspread.authorize(credentials)
@@ -21,7 +26,7 @@ def init_google_sheet():
         # 打开指定表格和工作表
         sheet = client.open("Student").worksheet("MoneyTransfer")
         
-        # 检查并创建表头
+        # 检查并创建表头（第一行）
         header = ["Date", "Amount ($)", "Category", "Description", "Handled By"]
         existing_header = sheet.row_values(1)
         if existing_header != header:
@@ -29,6 +34,9 @@ def init_google_sheet():
             sheet.append_row(header)  # 添加标准表头
             
         return sheet
+    except KeyError:
+        st.error("请在Streamlit Cloud中配置'GOOGLE_SHEETS_CREDENTIALS'密钥")
+        return None
     except Exception as e:
         st.error(f"Google Sheet连接失败: {str(e)}")
         return None
@@ -46,42 +54,47 @@ def render_money_transfers():
     st.header("Financial Transactions")
     st.write("=" * 50)
 
-    # 从Google Sheet加载数据
+    # 从Google Sheet加载数据（从第二行开始）
     def load_from_sheet():
         try:
-            # 从第二行开始读取数据（跳过表头）
+            # 从第二行读取所有记录（跳过表头）
             records = sheet.get_all_records(start_row=2)
             st.session_state.money_transfers = []
-            for idx, record in enumerate(records):
+            for record in records:
                 try:
+                    # 解析金额和类型（正数为收入，负数为支出）
+                    amount = float(record["Amount ($)"])
+                    trans_type = "Income" if amount >= 0 else "Expense"
+                    
                     st.session_state.money_transfers.append({
-                        "uuid": str(uuid.uuid4()),  # 本地生成UUID
+                        "uuid": str(uuid.uuid4()),
                         "Date": datetime.strptime(record["Date"], "%Y-%m-%d").date(),
-                        "Type": "Income" if float(record["Amount ($)"]) >= 0 else "Expense",
-                        "Amount": abs(float(record["Amount ($)"])),
+                        "Type": trans_type,
+                        "Amount": abs(amount),  # 存储绝对值，用Type区分正负
                         "Description": record["Description"],
                         "Handler": record["Handled By"]
                     })
-                except:
-                    continue  # 跳过格式错误的行
+                except Exception as e:
+                    st.warning(f"跳过格式错误的行: {str(e)}")
+                    continue
         except Exception as e:
             st.warning(f"加载数据失败: {str(e)}")
 
-    # 保存数据到Google Sheet
+    # 保存数据到Google Sheet（从第二行开始写入）
     def save_to_sheet():
         try:
-            # 清除现有数据（保留表头）
-            all_cells = sheet.range(2, 1, sheet.row_count, 5)
-            for cell in all_cells:
-                cell.value = ""
-            sheet.update_cells(all_cells)
+            # 清除现有数据（保留表头，从第二行开始清空）
+            if sheet.row_count > 1:
+                sheet.delete_rows(2, sheet.row_count)
             
-            # 写入新数据
+            # 写入所有数据（从第二行开始）
             for trans in st.session_state.money_transfers:
+                # 收入为正数，支出为负数
+                amount = trans["Amount"] if trans["Type"] == "Income" else -trans["Amount"]
                 row_data = [
                     trans["Date"].strftime("%Y-%m-%d"),
-                    trans["Amount"] if trans["Type"] == "Income" else -trans["Amount"],
-                    "None",
+                    round(amount, 2),
+                    "None",  # 类别暂为None
                     trans["Description"],
                     trans["Handler"]
                 ]
@@ -89,16 +102,16 @@ def render_money_transfers():
         except Exception as e:
             st.error(f"保存数据失败: {str(e)}")
 
-    # 页面加载时从Sheet加载数据
+    # 页面首次加载时从Sheet加载数据
     if "loaded" not in st.session_state:
         load_from_sheet()
         st.session_state.loaded = True
 
-    # 处理删除操作
+    # 处理删除操作（删除最后一行并同步到Sheet）
     if st.button("Delete Last Transaction", key="mt_del_last", use_container_width=True):
         if st.session_state.money_transfers:
             st.session_state.money_transfers.pop()
-            save_to_sheet()  # 同步删除到Sheet
+            save_to_sheet()  # 同步删除到Google Sheet
             st.success("Last transaction deleted successfully!")
             st.rerun()
         else:
@@ -106,7 +119,7 @@ def render_money_transfers():
 
     st.subheader("Transaction History")
         
-    # 表格样式优化
+    # 表格样式（保持列对齐）
     st.markdown("""
     <style>
     .transaction-table {
@@ -140,7 +153,7 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No transactions recorded yet")
     else:
-        # 构建表格HTML
+        # 构建表格HTML（第一行为表头，后续为数据）
         table_html = """
         <table class="transaction-table">
             <tbody>
@@ -175,9 +188,9 @@ def render_money_transfers():
 
     st.write("=" * 50)
 
-    # 新增交易区域
+    # 新增交易区域（与表格列对应）
     st.subheader("Record New Transaction")
-    cols = st.columns([15, 15, 10, 35, 25])
+    cols = st.columns([15, 15, 10, 35, 25])  # 与表格列宽比例一致
     with cols[0]:
         trans_date = st.date_input("Date", datetime.today(), key="mt_date")
     with cols[1]:
