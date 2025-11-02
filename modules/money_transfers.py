@@ -10,13 +10,14 @@ def render_money_transfers():
     st.header("Financial Transactions")
     st.write("=" * 50)
 
-    # 处理删除操作
-    for trans in st.session_state.money_transfers[:]:  # 使用副本避免迭代中修改
-        del_key = f"del_{trans['uuid']}"
-        if st.session_state.get(del_key, False):
-            st.session_state.money_transfers.remove(trans)
-            st.success("Transaction deleted successfully!")
+    # 处理删除操作 - 只删除最后一行
+    if st.button("Delete Last Transaction", key="del_last", use_container_width=True):
+        if st.session_state.money_transfers:
+            st.session_state.money_transfers.pop()  # 删除最后一个元素
+            st.success("Last transaction deleted successfully!")
             st.rerun()
+        else:
+            st.warning("No transactions to delete!")
 
     st.subheader("Transaction History")
         
@@ -44,18 +45,6 @@ def render_money_transfers():
     .expense {
         color: red;
     }
-    .stButton > button {
-        background-color: #ff4b4b;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 0.9em;
-    }
-    .stButton > button:hover {
-        background-color: #ff3333;
-    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -70,15 +59,14 @@ def render_money_transfers():
             amount = f"${trans['Amount']:.2f}"
             amount_class = "income" if trans["Type"] == "Income" else "expense"
             
-            # 构建行数据（包含删除按钮）
+            # 构建行数据
             table_data.append({
                 "No.": seq,
                 "Date": date,
                 "Amount ($)": f'<span class="{amount_class}" style="text-align: right;">{amount}</span>',
                 "Category": "None",
                 "Description": trans["Description"],
-                "Handled By": trans["Handler"],
-                "Action": st.button("Delete", key=f"del_{trans['uuid']}", use_container_width=True)
+                "Handled By": trans["Handler"]
             })
         
         # 渲染表格（使用Markdown表格）
@@ -93,7 +81,6 @@ def render_money_transfers():
                     <th>Category</th>
                     <th>Description</th>
                     <th>Handled By</th>
-                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -109,7 +96,6 @@ def render_money_transfers():
                 <td>{row['Category']}</td>
                 <td>{row['Description']}</td>
                 <td>{row['Handled By']}</td>
-                <td style="text-align: center;">{str(row['Action']).lower()}</td>
             </tr>
             """, unsafe_allow_html=True)
         
