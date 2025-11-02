@@ -7,23 +7,23 @@ def render_money_transfers():
     # 初始化状态
     if "money_transfers" not in st.session_state:
         st.session_state.money_transfers = []
-    if "delete_uuid" not in st.session_state:
-        st.session_state.delete_uuid = None
-    if "last_deleted" not in st.session_state:
-        st.session_state.last_deleted = ""
+    if "delete_trigger" not in st.session_state:
+        st.session_state.delete_trigger = 0  # 用于触发删除的计数器
 
     st.header("Financial Transactions")
     st.write("=" * 50)
 
     # 处理删除操作
-    if st.session_state.delete_uuid and st.session_state.delete_uuid != st.session_state.last_deleted:
+    if "delete_uuid" in st.session_state and st.session_state.delete_uuid:
+        # 执行删除
         st.session_state.money_transfers = [
             t for t in st.session_state.money_transfers
             if t["uuid"] != st.session_state.delete_uuid
         ]
-        st.session_state.last_deleted = st.session_state.delete_uuid
-        st.session_state.delete_uuid = None
-        st.success("Transaction deleted successfully!")
+        # 清除删除标记
+        del_uuid = st.session_state.delete_uuid
+        del st.session_state.delete_uuid
+        st.success(f"Transaction deleted successfully!")
         st.rerun()
 
     st.subheader("Transaction History")
@@ -64,26 +64,12 @@ def render_money_transfers():
     .delete-btn:hover {
         background-color: #ff3333;
     }
-    /* 完全隐藏元素 */
-    .hidden-element {
-        display: none !important;
-        height: 0;
-        width: 0;
-        margin: 0;
-        padding: 0;
-        border: none;
-    }
     </style>
     """, unsafe_allow_html=True)
     
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 完全隐藏的输入框，不占用任何空间
-        st.markdown('<div class="hidden-element">', unsafe_allow_html=True)
-        delete_input = st.text_input("Delete UUID", key="delete_input", label_visibility="hidden")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
         # 构建完整表格HTML
         table_html = """
         <table class="transaction-table">
@@ -101,17 +87,17 @@ def render_money_transfers():
             <tbody>
         """
         
-        # 生成删除按钮的JavaScript回调
-        js_callback = """
+        # 生成删除按钮的JavaScript回调 - 直接调用Streamlit的回调函数
+        js_code = f"""
         <script>
-        function deleteTransaction(uuid) {
-            const input = window.parent.document.querySelector('input[aria-label="Delete UUID"]');
-            if (input) {
-                input.value = uuid;
-                const event = new Event('input', { bubbles: true });
-                input.dispatchEvent(event);
-            }
-        }
+        function deleteTransaction(uuid) {{
+            // 调用Streamlit的setItem方法存储要删除的UUID
+            window.parent.Streamlit.setItem("delete_uuid", uuid);
+            // 更新触发器值以触发重新运行
+            window.parent.Streamlit.setItem("delete_trigger", {st.session_state.delete_trigger + 1});
+            // 触发重新运行
+            window.parent.Streamlit.rerun();
+        }}
         </script>
         """
         
@@ -142,8 +128,8 @@ def render_money_transfers():
         </table>
         """
         
-        # 结合JavaScript回调渲染完整表格
-        full_html = table_html + js_callback
+        # 渲染表格和JavaScript代码
+        full_html = table_html + js_code
         html(full_html, height=300)
 
     st.write("=" * 50)
