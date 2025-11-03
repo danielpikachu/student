@@ -1,6 +1,7 @@
 import streamlit as st
 import sys
 import os
+import pandas as pd  # 新增：用于处理Excel文件
 
 # 解决根目录模块导入问题
 # 获取当前文件（main.py）所在目录（即根目录）
@@ -36,6 +37,21 @@ if 'initialized' not in st.session_state:
     st.session_state.money_transfers = []
     st.session_state.groups = []
     st.session_state.group_members = []
+    # 新增：初始化成员列表
+    st.session_state.members = []
+    
+    # 启动时自动加载根目录的members.xlsx
+    member_file_path = os.path.join(ROOT_DIR, "members.xlsx")
+    if os.path.exists(member_file_path):
+        try:
+            df = pd.read_excel(member_file_path)
+            st.session_state.members = df.to_dict('records')
+            st.success(f"成功加载成员列表：共 {len(st.session_state.members)} 人")
+        except Exception as e:
+            st.warning(f"加载成员列表失败：{str(e)}")
+    else:
+        st.info("未找到members.xlsx文件，成员列表为空")
+    
     st.session_state.initialized = True  # 标记初始化完成
 
 # 主标题
