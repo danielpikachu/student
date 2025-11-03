@@ -1,25 +1,22 @@
 import streamlit as st
 import sys
 import os
-import pandas as pd  # 用于读取Excel文件处理
 
 # 解决根目录模块导入问题
-# 获取当前文件（main.py）所在目录（即根目录）
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
-# 将根目录添加到系统路径（确保能导入google_sheet_utils）
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# 导入Google Sheets工具类（根目录）
+# 导入Google Sheets工具类
 from google_sheet_utils import GoogleSheetHandler
 
-# 导入功能模块（新增Attendance模块）
+# 导入功能模块（新增attendance模块）
 from modules.calendar import render_calendar
 from modules.announcements import render_announcements
 from modules.financial_planning import render_financial_planning
+from modules.attendance import render_attendance  # 新增考勤模块
 from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
-from modules.attendance import render_attendance  # 新增考勤模块导入
 
 # 页面配置
 st.set_page_config(
@@ -28,7 +25,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 初始化会话状态（首次运行时）
+# 初始化会话状态（添加考勤相关状态）
 if 'initialized' not in st.session_state:
     st.session_state.calendar_events = []
     st.session_state.announcements = []
@@ -38,29 +35,15 @@ if 'initialized' not in st.session_state:
     st.session_state.money_transfers = []
     st.session_state.groups = []
     st.session_state.group_members = []
-    # 新增考勤相关会话状态
-    st.session_state.attendance_events = []
-    st.session_state.attendance_records = []
+    st.session_state.attendance_events = []  # 考勤事件
+    st.session_state.attendance_records = []  # 考勤记录
     st.session_state.members = []  # 成员列表
-    
-    # 启动时自动加载根目录的members.xlsx
-    member_file_path = os.path.join(ROOT_DIR, "members.xlsx")
-    if os.path.exists(member_file_path):
-        try:
-            df = pd.read_excel(member_file_path)
-            st.session_state.members = df.to_dict('records')
-            st.success(f"成功加载成员列表：共 {len(st.session_state.members)} 人")
-        except Exception as e:
-            st.warning(f"加载成员列表失败：{str(e)}")
-    else:
-        st.info("未找到members.xlsx文件，成员列表为空")
-    
-    st.session_state.initialized = True  # 标记初始化完成
+    st.session_state.initialized = True
 
 # 主标题
 st.title("Student Council Management System")
 
-# 功能选项卡（添加Attendance选项卡）
+# 功能选项卡（将Attendance放在Money Transfers左边）
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📅 Calendar",
     "📢 Announcements",
@@ -70,7 +53,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "👥 Groups"
 ])
 
-# 渲染各功能模块（添加考勤模块渲染）
+# 渲染各功能模块
 with tab1:
     render_calendar()
 with tab2:
