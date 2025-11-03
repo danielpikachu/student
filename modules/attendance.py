@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 def render_attendance():
-    # 标题区域
+    # 标题区域（严格控制顺序）
     st.header("Meeting Attendance Tracking")
     st.header("Meeting Attendance Records")
 
@@ -12,10 +12,11 @@ def render_attendance():
     if 'meetings' not in st.session_state:
         st.session_state.meetings = []
     if 'attendance' not in st.session_state:
-        st.session_state.attendance = {}  # 结构：{meeting_id: {member_id: bool}}
+        st.session_state.attendance = {}  # {meeting_id: {member_id: bool}}
 
     # 1. 数据管理：导入成员Excel
-    with st.expander("Data Management", expanded=True):
+    with st.container():
+        st.subheader("Data Management")
         if st.button("Import Members from Excel"):
             try:
                 df = pd.read_excel("members.xlsx")
@@ -33,30 +34,29 @@ def render_attendance():
                 st.error(f"Error: {str(e)}")
 
     # 2. 添加会议
-    with st.expander("Add Meeting", expanded=True):
+    with st.container():
+        st.subheader("Add Meeting")
         with st.form("add_meeting"):
             meeting_name = st.text_input("Meeting Name")
             if st.form_submit_button("Add Meeting") and meeting_name.strip():
                 meeting_id = len(st.session_state.meetings) + 1
                 st.session_state.meetings.append({"id": meeting_id, "name": meeting_name.strip()})
-                # 仅当有成员时初始化考勤记录
                 if st.session_state.members:
                     st.session_state.attendance[meeting_id] = {m["id"]: False for m in st.session_state.members}
                 st.success(f"Meeting '{meeting_name}' added!")
 
-    # 3. 考勤表格（严格在Meeting Attendance Records下方）
+    # 3. 考勤表格：仅当成员和会议都存在时渲染
     if st.session_state.members and st.session_state.meetings:
         table_rows = []
         for member in st.session_state.members:
             row = {"Member Name": member["name"]}
-            # 处理每个会议的考勤
             for meeting in st.session_state.meetings:
-                # 确保考勤记录存在
+                # 强制初始化考勤状态
                 if meeting["id"] not in st.session_state.attendance:
                     st.session_state.attendance[meeting["id"]] = {}
                 if member["id"] not in st.session_state.attendance[meeting["id"]]:
                     st.session_state.attendance[meeting["id"]][member["id"]] = False
-                # 渲染勾选框并绑定状态
+                # 渲染勾选框
                 row[meeting["name"]] = st.checkbox(
                     "", 
                     value=st.session_state.attendance[meeting["id"]][member["id"]],
