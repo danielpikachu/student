@@ -1,79 +1,74 @@
 import streamlit as st
 import pandas as pd
+import os
 
-def render_attendance():
-    # 标题区域（严格顺序）
-    st.header("Meeting Attendance Tracking")
-    st.header("Meeting Attendance Records")
-
-    # 初始化会话状态（显式赋值避免未定义）
-    st.session_state.members = st.session_state.get("members", [])
-    st.session_state.meetings = st.session_state.get("meetings", [])
-    st.session_state.attendance = st.session_state.get("attendance", {})  # {meeting_id: {member_id: bool}}
-
-    # ---------- 1. 数据管理：导入成员Excel ----------
-    with st.container(border=True):
-        st.subheader("Data Management")
-        if st.button("Import Members from Excel"):
-            try:
-                df = pd.read_excel("members.xlsx")
-                if "Member Name" in df.columns:
-                    new_members = df["Member Name"].dropna().str.strip().unique().tolist()
-                    added = 0
-                    for name in new_members:
-                        if name not in [m["name"] for m in st.session_state.members]:
-                            st.session_state.members.append({"id": len(st.session_state.members) + 1, "name": name})
-                            added += 1
-                    st.success(f"Imported {added} members!")
-                else:
-                    st.error("Excel must have 'Member Name' column!")
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-
-    # ---------- 2. 添加会议 ----------
-    with st.container(border=True):
+def attendance_module():
+    st.title("Attendance")
+    
+    # 分两部分布局：上部分表格，下部分管理工具
+    col1, col2 = st.columns([3, 2])  # 调整列宽比例，适配内容
+    
+    with col1:
+        st.header("Meeting Attendance Records")
+        
+        # 加载成员名单（从members.xlsx导入）
+        @st.cache_data
+        def load_members():
+            file_path = os.path.join(os.path.dirname(__file__), "members.xlsx")
+            if os.path.exists(file_path):
+                df_members = pd.read_excel(file_path)
+                df_members.columns = ["Member Name"]  # 统一列名
+                return df_members
+            else:
+                st.error("members.xlsx 文件不存在，请先准备该文件！")
+                return pd.DataFrame(columns=["Member Name"])
+        
+        df_members = load_members()
+        if df_members.empty:
+            st.stop()  # 无成员时停止后续渲染
+        
+        # 初始化会议出勤记录（若未在session_state中）
+        if "attendance_records" not in st.session_state:
+            st.session_state.attendance_records = df_members.copy()
+            # 初始会议列（示例，可根据实际需求调整）
+            initial_meetings = ["First Semester Meeting", "Event Planning Session", "Meeting 3", "Meeting 4"]
+            for meeting in initial_meetings:
+                st.session_state.attendance_records[meeting] = False  # 初始为未出勤
+        
+        # 计算出勤率：每一行的出勤次数 / 会议总数
+        meeting_cols = [col for col in st.session_state.attendance_records.columns if col not in ["Member Name"]]
+        if meeting_cols:
+            st.session_state.attendance_records["Attendance Rates"] = (
+                st.session_state.attendance_records[meeting_cols].sum(axis=1) / len(meeting_cols)
+            ).apply(lambda x: f"{x*100:.2f}%")
+        else:
+            st.session_state.attendance_records["Attendance Rates"] = "0.00%"
+        
+        # 显示出勤表格
+        st.dataframe(st.session_state.attendance_records, use_container_width=True)
+    
+    with col2:
+        st.header("Attendance Management Tools")
+        
+        # 1. Import members 功能
+        if st.button("Import members"):
+            df_members = load_members()
+            if not df_members.empty:
+                st.session_state.attendance_records = df_members.copy()
+                st.success("成员名单导入成功！")
+        
+        # 2. Add Meeting 功能
         st.subheader("Add Meeting")
-        with st.form("add_meeting"):
-            meeting_name = st.text_input("Meeting Name")
-            if st.form_submit_button("Add Meeting") and meeting_name.strip():
-                meeting_id = len(st.session_state.meetings) + 1
-                st.session_state.meetings.append({"id": meeting_id, "name": meeting_name.strip()})
-                # 强制初始化考勤记录（即使后续添加成员也能兼容）
-                st.session_state.attendance[meeting_id] = {m["id"]: False for m in st.session_state.members}
-                st.success(f"Meeting '{meeting_name}' added!")
+        meeting_name = st.text_input("Meeting Name")
+        if st.button("Add Meeting"):
+            if meeting_name and meeting_name not in st.session_state.attendance_records.columns:
+                st.session_state.attendance_records[meeting_name] = False
+                st.success(f"会议 '{meeting_name}' 添加成功！")
+            elif not meeting_name:
+                st.warning("请输入会议名称！")
+            else:
+                st.warning("该会议名称已存在！")
 
-    # ---------- 3. 考勤表格：仅当成员和会议都存在时渲染 ----------
-    if st.session_state.members and st.session_state.meetings:
-        table_data = []
-        for member in st.session_state.members:
-            row = {"Member Name": member["name"]}
-            for meeting in st.session_state.meetings:
-                # 强制校验考勤状态（防止未初始化）
-                if meeting["id"] not in st.session_state.attendance:
-                    st.session_state.attendance[meeting["id"]] = {}
-                if member["id"] not in st.session_state.attendance[meeting["id"]]:
-                    st.session_state.attendance[meeting["id"]][member["id"]] = False
-                # 渲染勾选框并实时绑定状态
-                row[meeting["name"]] = st.checkbox(
-                    "", 
-                    value=st.session_state.attendance[meeting["id"]][member["id"]],
-                    key=f"att_{meeting['id']}_{member['id']}"
-                )
-                st.session_state.attendance[meeting["id"]][member["id"]] = row[meeting["name"]]
-            # 计算考勤率
-            attended = sum(
-                1 for m in st.session_state.meetings 
-                if st.session_state.attendance[m["id"]].get(member["id"], False)
-            )
-            row["Attendance Rates"] = f"{(attended / len(st.session_state.meetings) * 100):.1f}%"
-            table_data.append(row)
-        st.dataframe(pd.DataFrame(table_data), use_container_width=True)
-    elif st.session_state.members:
-        st.info("Please add meetings to track attendance.")
-    elif st.session_state.meetings:
-        st.info("Please import members first.")
-    else:
-        st.info("Please import members and add meetings.")
-
+# 若直接运行该模块，用于测试
 if __name__ == "__main__":
-    render_attendance()
+    attendance_module()
