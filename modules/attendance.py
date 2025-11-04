@@ -60,44 +60,36 @@ def render_attendance():
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 创建一个临时容器显示表格和复选框
-            table_data = []
+            # 构建表格数据
+            data = []
+            
             for member in st.session_state.members:
                 row = [member["name"]]
-                attended_count = 0
+                attended_count = 0  # 记录当前成员出勤次数
                 
+                # 交叉单元格：显示可点击切换的✓或✗
                 for meeting in st.session_state.meetings:
-                    key = f"att_{member['id']}_{meeting['id']}"
-                    # 从状态中获取当前值，默认为False
-                    current_value = st.session_state.attendance.get((member['id'], meeting['id']), False)
+                    key = f"c_{member['id']}_{meeting['id']}"
+                    current_state = st.session_state.attendance.get((member["id"], meeting["id"]), False)
                     
-                    # 在表格外单独创建复选框，但通过CSS控制位置
-                    col = st.columns([1])[0]
-                    with col:
-                        # 使用明确的标签让复选框可见
-                        new_value = st.checkbox(
-                            f"{member['name']} - {meeting['name']}",
-                            value=current_value,
-                            key=key,
-                            label_visibility="collapsed"  # 隐藏文字标签但保留复选框
-                        )
-                        # 更新状态
-                        if new_value != current_value:
-                            st.session_state.attendance[(member['id'], meeting['id'])] = new_value
+                    # 显示可点击的状态标识
+                    if st.button("✓" if current_state else "✗", key=key, use_container_width=True):
+                        # 切换状态
+                        st.session_state.attendance[(member["id"], meeting["id"])] = not current_state
                     
-                    if new_value:
-                        attended_count += 1
-                    row.append("✓" if new_value else "✗")  # 在表格中显示状态标记
-                
-                # 计算出勤率
-                total = len(st.session_state.meetings)
-                rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
+                    if current_state:
+                        attended_count += 1  # 累加出勤次数
+                    row.append("✓" if current_state else "✗")  # 表格中显示当前状态
+            
+            # 计算出勤率
+                total_meetings = len(st.session_state.meetings)
+                rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
                 row.append(rate)
-                table_data.append(row)
+                data.append(row)
             
             # 显示表格
             columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
-            df = pd.DataFrame(table_data, columns=columns)
+            df = pd.DataFrame(data, columns=columns)
             st.dataframe(df, use_container_width=True)
         
         elif not st.session_state.members:
