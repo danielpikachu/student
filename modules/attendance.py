@@ -36,13 +36,20 @@ def render_attendance():
             }
             .stCheckbox {margin: 0 !important; padding: 0 !important;}
             .scrollable-table table {
-                border-collapse: collapse;  /* 合并边框 */
+                border-collapse: collapse;
                 width: 100%;
+                table-layout: fixed; /* 强制列宽均匀分配，解决对齐问题 */
             }
             .scrollable-table th,
             .scrollable-table td {
-                border: 1px solid #ddd;  /* 灰色细线边框 */
-                padding: 8px;  /* 单元格内边距 */
+                border: 1px solid #ddd !important; /* 强制显示边框 */
+                padding: 8px 12px;
+                text-align: left; /* 统一左对齐 */
+                word-wrap: break-word; /* 内容过长时自动换行 */
+            }
+            /* 解决可能的样式覆盖问题 */
+            .scrollable-table * {
+                box-sizing: border-box;
             }
         </style>
     """, unsafe_allow_html=True)
