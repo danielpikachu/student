@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 
 def render_attendance():
     st.set_page_config(layout="wide")
@@ -13,45 +12,52 @@ def render_attendance():
     if 'attendance' not in st.session_state:
         st.session_state.attendance = {}  # {(member_id, meeting_id): bool}
 
-    # ---------------------- 上部分：带滚动条的表格区域 ----------------------
+    # ---------------------- 上部分：带滚动条的表格 + 打勾功能 ----------------------
     st.header("Meeting Attendance Records")
 
-    # 滚动容器样式
+    # 滚动容器样式（同时支持水平和垂直滚动）
     st.markdown("""
         <style>
-            .table-container {
-                width: 100%;
-                max-height: 400px;
-                overflow: auto;
-                border: 1px solid #ddd;
+            .scrollable-table {
+                max-height: 400px;  /* 垂直滚动触发高度 */
+                overflow-y: auto;  /* 垂直滚动 */
+                overflow-x: auto;  /* 水平滚动 */
+                padding: 10px;
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+            }
+            .scrollable-table::-webkit-scrollbar {
+                width: 8px;  /* 垂直滚动条宽度 */
+                height: 8px; /* 水平滚动条高度 */
+            }
+            .scrollable-table::-webkit-scrollbar-thumb {
+                background: #ccc;
                 border-radius: 4px;
             }
-            .table-row {display: flex; width: fit-content; min-width: 100%; padding: 8px 0; border-bottom: 1px solid #eee;}
-            .table-cell {padding: 0 12px; min-width: 120px;}
-            .header-cell {font-weight: bold; background-color: #f5f5f5;}
-            .stCheckbox {margin: 0 !important;}
+            .stCheckbox {margin: 0 !important; padding: 0 !important;}
         </style>
     """, unsafe_allow_html=True)
 
-    # 表格渲染
-    with st.markdown('<div class="table-container">', unsafe_allow_html=True):
+    # 带滚动条的表格容器
+    with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
+            # 计算列数并设置布局（成员列 + 会议列 + 考勤率列）
+            col_count = len(st.session_state.meetings) + 2
+            cols = st.columns([3] + [1]*(col_count-2) + [2])  # 比例优化
+            
             # 表头
-            header = ['<div class="table-row">']
-            header.append(f'<div class="table-cell header-cell">Member Name</div>')
-            for meeting in st.session_state.meetings:
-                header.append(f'<div class="table-cell header-cell">{meeting["name"]}</div>')
-            header.append(f'<div class="table-cell header-cell">Attendance Rates</div>')
-            header.append('</div>')
-            st.markdown(''.join(header), unsafe_allow_html=True)
-
-            # 内容行
+            cols[0].write("**Member Name**")
+            for i, meeting in enumerate(st.session_state.meetings):
+                cols[i+1].write(f"**{meeting['name']}**")
+            cols[-1].write("**Attendance Rates**")
+            
+            # 表格内容（逐行渲染）
             for member in st.session_state.members:
-                with st.container():
-                    st.markdown(f'<div class="table-row">', unsafe_allow_html=True)
-                    st.markdown(f'<div class="table-cell">{member["name"]}</div>', unsafe_allow_html=True)
-                    
-                    for meeting in st.session_state.meetings:
+                cols[0].write(member["name"])
+                
+                # 会议勾选框
+                for i, meeting in enumerate(st.session_state.meetings):
+                    with cols[i+1]:
                         checked = st.checkbox(
                             "",
                             value=st.session_state.attendance.get((member["id"], meeting["id"]), False),
@@ -59,65 +65,38 @@ def render_attendance():
                             label_visibility="collapsed"
                         )
                         st.session_state.attendance[(member["id"], meeting["id"])] = checked
-                        st.markdown(f'<div class="table-cell"></div>', unsafe_allow_html=True)
-                    
-                    attended = sum(1 for m in st.session_state.meetings if st.session_state.attendance.get((member["id"], m["id"]), False))
-                    rate = f"{(attended / len(st.session_state.meetings) * 100):.1f}%"
-                    st.markdown(f'<div class="table-cell">{rate}</div>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                
+                # 考勤率
+                attended = sum(1 for m in st.session_state.meetings if st.session_state.attendance.get((member["id"], m["id"]), False))
+                rate = f"{(attended / len(st.session_state.meetings) * 100):.1f}%"
+                cols[-1].write(rate)
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)  # 关闭滚动容器
+
+    # 分隔线
     st.markdown("---")
 
     # ---------------------- 下部分：管理功能 ----------------------
     st.header("Attendance Management Tools")
 
-    # 1. 导入成员（修复0成员问题）
+    # 1. 导入成员
     with st.container():
         st.subheader("Import Members")
-        # 显示当前成员数量（辅助调试）
-        st.info(f"Current members in system: {len(st.session_state.members)}")
-        
         if st.button("Import from members.xlsx", key="import_btn"):
-            # 检查文件是否存在
-            if not os.path.exists("members.xlsx"):
-                st.error("File not found! 'members.xlsx' does not exist in root directory.")
-                return
-            
             try:
                 df = pd.read_excel("members.xlsx")
-                st.success("File loaded successfully!")
-                
-                # 检查列是否存在
-                if "Member Name" not in df.columns:
-                    st.error("Excel file must contain a column named 'Member Name' (case-sensitive).")
-                    st.write("Columns found in Excel:", df.columns.tolist())
-                    return
-                
-                # 提取并清洗成员数据
-                raw_members = df["Member Name"].dropna().tolist()  # 保留所有非空值
-                cleaned_members = [str(name).strip() for name in raw_members if str(name).strip()]  # 去除空字符串
-                unique_members = list(set(cleaned_members))  # 去重
-                
-                st.write(f"Found {len(unique_members)} unique members in Excel.")
-                
-                # 筛选新成员（不在现有列表中）
-                existing_names = [m["name"] for m in st.session_state.members]
-                new_members = [name for name in unique_members if name not in existing_names]
-                
-                if new_members:
-                    # 添加新成员
+                if "Member Name" in df.columns:
+                    new_members = [name.strip() for name in df["Member Name"].dropna().unique() if name.strip()]
+                    added = 0
                     for name in new_members:
-                        st.session_state.members.append({
-                            "id": len(st.session_state.members) + 1,
-                            "name": name
-                        })
-                    st.success(f"Successfully imported {len(new_members)} new members!")
+                        if name not in [m["name"] for m in st.session_state.members]:
+                            st.session_state.members.append({"id": len(st.session_state.members)+1, "name": name})
+                            added += 1
+                    st.success(f"Imported {added} members!")
                 else:
-                    st.info("No new members to import. All members from Excel are already in the system.")
-                
+                    st.error("Excel must have 'Member Name' column!")
             except Exception as e:
-                st.error(f"Import failed: {str(e)}")
+                st.error(f"Error: {str(e)}")
 
     # 2. 添加会议
     with st.container():
@@ -125,12 +104,12 @@ def render_attendance():
         meeting_name = st.text_input("Meeting name", placeholder="e.g., Team Sync", key="meeting_input")
         if st.button("Add Meeting", key="add_btn"):
             if not meeting_name.strip():
-                st.error("Please enter a meeting name!")
+                st.error("Enter a meeting name!")
             elif any(m["name"] == meeting_name.strip() for m in st.session_state.meetings):
-                st.error("This meeting already exists!")
+                st.error("Meeting exists!")
             else:
                 st.session_state.meetings.append({"id": len(st.session_state.meetings)+1, "name": meeting_name.strip()})
-                st.success(f"Added meeting: {meeting_name.strip()}")
+                st.success(f"Added: {meeting_name.strip()}")
 
 if __name__ == "__main__":
     render_attendance()
