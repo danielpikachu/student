@@ -15,89 +15,95 @@ def render_attendance():
     # ---------------------- 上部分：带滚动条的表格 + 打勾功能 ----------------------
     st.header("Meeting Attendance Records")
 
-    # 滚动容器样式（同时支持水平和垂直滚动，限制最大10行高度）
+    # 滚动容器和表格样式优化
     st.markdown("""
         <style>
-            .scrollable-table {
-                max-height: 400px;  /* 调整高度以适应约10行内容 */
-                overflow-y: auto;  /* 垂直滚动 */
-                overflow-x: auto;  /* 水平滚动 */
-                padding: 10px;
-                border: 1px solid #e0e0e0;
+            .scrollable-table-container {
+                max-height: 400px;  /* 限制高度以触发滚动 */
+                overflow-y: auto;  /* 垂直滚动条 */
+                overflow-x: auto;  /* 水平滚动条 */
+                border: 1px solid #ddd;
                 border-radius: 5px;
             }
-            .scrollable-table::-webkit-scrollbar {
-                width: 8px;  /* 垂直滚动条宽度 */
-                height: 8px; /* 水平滚动条高度 */
-            }
-            .scrollable-table::-webkit-scrollbar-thumb {
-                background: #ccc;
-                border-radius: 4px;
-            }
-            .stCheckbox {margin: 0 !important; padding: 0 !important;}
-            .scrollable-table table {
-                border-collapse: collapse;
+            .custom-table {
                 width: 100%;
-                table-layout: fixed; /* 强制列宽均匀分配，解决对齐问题 */
+                border-collapse: collapse;
+                table-layout: fixed;
             }
-            .scrollable-table th,
-            .scrollable-table td {
-                border: 1px solid #999 !important; /* 更清晰的边框线条 */
-                padding: 10px 12px;
-                text-align: left; /* 统一左对齐 */
-                word-wrap: break-word; /* 内容过长时自动换行 */
-                height: 40px; /* 固定行高，确保10行高度一致 */
+            .custom-table th, .custom-table td {
+                border: 1px solid #999 !important;  /* 清晰的表格线 */
+                padding: 8px 12px;
+                text-align: left;
+                word-wrap: break-word;
+                vertical-align: middle;  /* 垂直居中对齐 */
             }
-            .scrollable-table th {
-                background-color: #f0f2f6; /* 表头背景色，增强区分度 */
-                font-weight: bold;
+            .custom-table th {
+                background-color: #f0f2f0;
+                position: sticky;
+                top: 0;  /* 表头固定 */
+                z-index: 10;
             }
-            /* 解决可能的样式覆盖问题 */
-            .scrollable-table * {
-                box-sizing: border-box;
+            .scrollable-table-container::-webkit-scrollbar {
+                width: 10px;
+                height: 10px;
+            }
+            .scrollable-table-container::-webkit-scrollbar-thumb {
+                background-color: #888;
+                border-radius: 5px;
+            }
+            .scrollable-table-container::-webkit-scrollbar-track {
+                background-color: #f1f1f1;
+            }
+            .stCheckbox {
+                margin: 0 auto !important;
+                display: block;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    # 带滚动条的表格容器
-    with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
-        if st.session_state.members and st.session_state.meetings:
-            # 计算列数并设置布局（成员列 + 会议列 + 考勤率列）
-            col_count = len(st.session_state.meetings) + 2
-            cols = st.columns([3] + [1]*(col_count-2) + [2])  # 比例优化
+    # 创建带滚动条的容器
+    st.markdown('<div class="scrollable-table-container">', unsafe_allow_html=True)
+    
+    # 创建表格
+    if st.session_state.members and st.session_state.meetings:
+        # 计算列数并设置布局（保证对齐）
+        col_count = len(st.session_state.meetings) + 2
+        cols = st.columns([3] + [1]*(col_count-2) + [2])
+        
+        # 表头
+        with cols[0]:
+            st.markdown('<div class="custom-table th">**Member Name**</div>', unsafe_allow_html=True)
+        for i, meeting in enumerate(st.session_state.meetings):
+            with cols[i+1]:
+                st.markdown(f'<div class="custom-table th">**{meeting["name"]}**</div>', unsafe_allow_html=True)
+        with cols[-1]:
+            st.markdown('<div class="custom-table th">**Attendance Rates**</div>', unsafe_allow_html=True)
+        
+        # 表格内容（所有成员都显示，通过滚动条查看）
+        for member in st.session_state.members:
+            with cols[0]:
+                st.markdown(f'<div class="custom-table td">{member["name"]}</div>', unsafe_allow_html=True)
             
-            # 表头
-            cols[0].write("**Member Name**")
+            # 会议勾选框
             for i, meeting in enumerate(st.session_state.meetings):
-                cols[i+1].write(f"**{meeting['name']}**")
-            cols[-1].write("**Attendance Rates**")
+                with cols[i+1]:
+                    checked = st.checkbox(
+                        "",
+                        value=st.session_state.attendance.get((member["id"], meeting["id"]), False),
+                        key=f"c_{member['id']}_{meeting['id']}",
+                        label_visibility="collapsed"
+                    )
+                    st.session_state.attendance[(member["id"], meeting["id"])] = checked
             
-            # 表格内容（最多显示10行）
-            members_to_display = st.session_state.members[:10]  # 只取前10个成员
-            for member in members_to_display:
-                cols[0].write(member["name"])
-                
-                # 会议勾选框
-                for i, meeting in enumerate(st.session_state.meetings):
-                    with cols[i+1]:
-                        checked = st.checkbox(
-                            "",
-                            value=st.session_state.attendance.get((member["id"], meeting["id"]), False),
-                            key=f"c_{member['id']}_{meeting['id']}",
-                            label_visibility="collapsed"
-                        )
-                        st.session_state.attendance[(member["id"], meeting["id"])] = checked
-                
-                # 考勤率
-                attended = sum(1 for m in st.session_state.meetings if st.session_state.attendance.get((member["id"], m["id"]), False))
-                rate = f"{(attended / len(st.session_state.meetings) * 100):.1f}%"
-                cols[-1].write(rate)
-
+            # 考勤率
+            attended = sum(1 for m in st.session_state.meetings if st.session_state.attendance.get((member["id"], m["id"]), False))
+            rate = f"{(attended / len(st.session_state.meetings) * 100):.1f}%" if st.session_state.meetings else "0%"
+            with cols[-1]:
+                st.markdown(f'<div class="custom-table td">{rate}</div>', unsafe_allow_html=True)
+    else:
+        st.write("Please add members and meetings to display attendance records.")
+    
     st.markdown('</div>', unsafe_allow_html=True)  # 关闭滚动容器
-
-    # 显示记录总数（如果超过10行）
-    if len(st.session_state.members) > 10:
-        st.caption(f"Showing first 10 members of {len(st.session_state.members)} total")
 
     # 分隔线
     st.markdown("---")
