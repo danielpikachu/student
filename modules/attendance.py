@@ -4,57 +4,63 @@ import pandas as pd
 def render_attendance():
     st.set_page_config(layout="wide")
     
-    # 初始化状态（仅保留数据，不绑定UI组件）
+    # 初始化状态（仅存储核心数据）
     if 'members' not in st.session_state:
-        st.session_state.members = []  # 成员列表：[{id, name}]
+        st.session_state.members = []  # [{id, name}]
     if 'meetings' not in st.session_state:
-        st.session_state.meetings = []  # 会议列表：[{id, name}]
+        st.session_state.meetings = []  # [{id, name}]
     if 'attendance' not in st.session_state:
-        st.session_state.attendance = {}  # 考勤数据：{(member_id, meeting_id): bool}
+        st.session_state.attendance = {}  # {(member_id, meeting_id): bool}
 
-    # ---------------------- 上部分：Meeting Attendance Records ----------------------
+    # ---------------------- 上部分：数据表格 + 打勾功能 ----------------------
     st.header("Meeting Attendance Records")
-    
-    # 显示表格（纯数据展示，无内嵌勾选框）
+
+    # 表格区域（包含打勾功能，紧凑布局）
     if st.session_state.members and st.session_state.meetings:
-        # 构建表格数据
-        data = []
+        # 构建表格数据（含勾选状态）
+        table_data = []
         for member in st.session_state.members:
             row = {"Member Name": member["name"]}
-            # 填充会议出勤状态
+            # 为每个会议生成勾选框
             for meeting in st.session_state.meetings:
-                row[meeting["name"]] = "✓" if st.session_state.attendance.get((member["id"], meeting["id"]), False) else "✗"
+                # 唯一标识键（避免重复渲染）
+                key = f"check_{member['id']}_{meeting['id']}"
+                # 渲染勾选框（紧凑模式）
+                checked = st.checkbox(
+                    label="",  # 无标签
+                    value=st.session_state.attendance.get((member["id"], meeting["id"]), False),
+                    key=key,
+                    label_visibility="collapsed",  # 彻底隐藏标签
+                    help=""  # 无帮助提示
+                )
+                # 实时更新状态
+                st.session_state.attendance[(member["id"], meeting["id"])] = checked
+                row[meeting["name"]] = "✓" if checked else "✗"  # 表格显示符号
+            
             # 计算考勤率
-            attended = sum(1 for m in st.session_state.meetings if st.session_state.attendance.get((member["id"], m["id"]), False))
+            attended = sum(
+                1 for m in st.session_state.meetings 
+                if st.session_state.attendance.get((member["id"], m["id"]), False)
+            )
             row["Attendance Rates"] = f"{(attended / len(st.session_state.meetings) * 100):.1f}%"
-            data.append(row)
+            table_data.append(row)
         
-        # 显示纯数据表格（无任何交互组件）
-        st.dataframe(pd.DataFrame(data), use_container_width=True)
+        # 显示表格（仅展示数据，勾选框在表格上方独立渲染）
+        st.dataframe(pd.DataFrame(table_data), use_container_width=True)
 
-    # ---------------------- 考勤操作区（外置勾选逻辑） ----------------------
-    if st.session_state.members and st.session_state.meetings:
-        st.subheader("Update Attendance")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            selected_member = st.selectbox("Select Member", st.session_state.members, format_func=lambda x: x["name"])
-        with col2:
-            selected_meeting = st.selectbox("Select Meeting", st.session_state.meetings, format_func=lambda x: x["name"])
-        with col3:
-            is_present = st.checkbox("Present", value=st.session_state.attendance.get((selected_member["id"], selected_meeting["id"]), False))
-            if st.button("Save"):
-                st.session_state.attendance[(selected_member["id"], selected_meeting["id"])] = is_present
-                st.success(f"Updated {selected_member['name']}'s attendance for {selected_meeting['name']}")
+    else:
+        st.info("Add members and meetings below to start tracking attendance")
 
+    # 分隔线（严格区分上下部分）
     st.markdown("---")
 
-    # ---------------------- 下部分：Attendance Management Tools ----------------------
+    # ---------------------- 下部分：成员导入 + 会议添加 ----------------------
     st.header("Attendance Management Tools")
 
     # 1. 导入成员
-    with st.container():
+    with st.container(border=True):
         st.subheader("Import Members")
-        if st.button("Import from members.xlsx"):
+        if st.button("Import from members.xlsx", key="import_btn"):
             try:
                 df = pd.read_excel("members.xlsx")
                 if "Member Name" in df.columns:
@@ -71,18 +77,18 @@ def render_attendance():
                 st.error(f"Error: {str(e)}")
 
     # 2. 添加会议（一次点击生效）
-    with st.container():
+    with st.container(border=True):
         st.subheader("Add Meeting")
-        meeting_name = st.text_input("Enter meeting name", placeholder="e.g., Team Meeting 1")
-        if st.button("Add Meeting"):
+        meeting_name = st.text_input("Enter meeting name", placeholder="e.g., Q1 Meeting", key="meeting_input")
+        if st.button("Add Meeting", key="add_meeting_btn"):
             meeting_name = meeting_name.strip()
             if not meeting_name:
                 st.error("Please enter a meeting name!")
             elif any(m["name"] == meeting_name for m in st.session_state.meetings):
-                st.error("Meeting already exists!")
+                st.error("This meeting already exists!")
             else:
                 st.session_state.meetings.append({"id": len(st.session_state.meetings) + 1, "name": meeting_name})
-                st.success(f"Added meeting: {meeting_name}")
+                st.success(f"Meeting '{meeting_name}' added!")
 
 if __name__ == "__main__":
     render_attendance()
