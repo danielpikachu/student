@@ -16,41 +16,19 @@ def render_attendance():
     st.markdown("""
         <style>
             .scrollable-table {
-                max-height: 240px;
+                max-height: 400px;
                 overflow-y: auto;
-                overflow-x: auto;
                 padding: 10px;
                 border: 1px solid #e0e0e0;
                 border-radius: 5px;
             }
-            .scrollable-table::-webkit-scrollbar {
-                width: 8px;
-                height: 8px;
-            }
-            .scrollable-table::-webkit-scrollbar-thumb {
-                background: #ccc;
-                border-radius: 4px;
-            }
-            .custom-table {
-                width: 100%;
-                border-collapse: collapse;
-                table-layout: fixed;
-            }
             .custom-table th, .custom-table td {
-                border: 1px solid #ddd !important;
-                padding: 8px 12px;
-                text-align: left;
-                vertical-align: middle;
-                word-wrap: break-word;
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: center;
             }
-            .checkbox-cell {
-                text-align: center !important;
-            }
-            [data-testid="column"] {
-                padding: 0 !important;
-            }
-            .element-container {
-                margin: 0 !important;
+            .custom-table th {
+                background-color: #f0f2f6;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -59,57 +37,76 @@ def render_attendance():
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 准备表格数据（包含成员名、各会议复选框占位、出勤率）
-            table_data = []
-            for member in st.session_state.members:
-                row = [member["name"]]  # 第一列是成员名
-                attended_count = 0      # 统计出勤次数
-                
-                # 为每个会议创建复选框
-                for meeting in st.session_state.meetings:
-                    # 生成唯一key，确保复选框独立
-                    checkbox_key = f"attendance_{member['id']}_{meeting['id']}"
-                    # 获取当前状态（默认未勾选）
-                    current_state = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                    
-                    # 显示复选框并更新状态
-                    new_state = st.checkbox(
-                        label="",  # 空标签
-                        value=current_state,
-                        key=checkbox_key,
-                        label_visibility="collapsed"  # 隐藏标签
-                    )
-                    
-                    # 更新状态到session_state
-                    st.session_state.attendance[(member["id"], meeting["id"])] = new_state
-                    
-                    if new_state:
-                        attended_count += 1  # 累加出勤次数
-                    
-                    row.append("")  # 占位（复选框已通过st.checkbox渲染）
-                
-                # 计算出勤率
-                total_meetings = len(st.session_state.meetings)
-                attendance_rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
-                row.append(attendance_rate)
-                
-                table_data.append(row)
+            # 创建表格数据，包含成员名、各会议出勤状态、出勤率
+            data = []
+            cols = st.columns([1] + [0.5]*len(st.session_state.meetings) + [1])  # 调整列宽比例
             
-            # 生成表格列名
-            columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
-            # 显示表格（注意：复选框是独立渲染的，表格仅用于布局参考）
-            st.dataframe(pd.DataFrame(table_data, columns=columns), use_container_width=True)
+            # 表头
+            with cols[0]:
+                st.write("**Member Name**")
+            for i, meeting in enumerate(st.session_state.meetings, 1):
+                with cols[i]:
+                    st.write(f"**{meeting['name']}**")
+            with cols[-1]:
+                st.write("**Attendance Rate**")
+
+            # 表内容
+            for member in st.session_state.members:
+                row = [member["name"]]
+                attended_count = 0
+                
+                # 处理每个会议的复选框
+                for i, meeting in enumerate(st.session_state.meetings, 1):
+                    key = f"att_{member['id']}_{meeting['id']}"
+                    current_val = st.session_state.attendance.get((member['id'], meeting['id']), False)
+                    
+                    with cols[i]:
+                        new_val = st.checkbox("", value=current_val, key=key, label_visibility="collapsed")
+                    
+                    st.session_state.attendance[(member['id'], meeting['id'])] = new_val
+                    if new_val:
+                        attended_count += 1
+                
+                # 计算并显示出勤率（最后一列）
+                total = len(st.session_state.meetings)
+                rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
+                row.append(rate)
+                data.append(row)
+                
+                # 显示成员行
+                with cols[0]:
+                    st.write(member["name"])
+                with cols[-1]:
+                    st.write(rate)
+
+            # 显示汇总表格（可选，用于数据预览）
+            st.markdown("### Attendance Summary")
+            summary_cols = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rate"]
+            summary_data = []
+            for member in st.session_state.members:
+                summary_row = [member["name"]]
+                attended = 0
+                for meeting in st.session_state.meetings:
+                    status = "✓" if st.session_state.attendance.get((member['id'], meeting['id']), False) else "✗"
+                    summary_row.append(status)
+                    if status == "✓":
+                        attended += 1
+                total = len(st.session_state.meetings)
+                rate = f"{(attended/total*100):.1f}%" if total > 0 else "N/A"
+                summary_row.append(rate)
+                summary_data.append(summary_row)
+            st.dataframe(pd.DataFrame(summary_data, columns=summary_cols), use_container_width=True)
         
         elif not st.session_state.members:
-            st.write("No members found. Please import members first.")
+            st.info("No members found. Please import members first.")
         else:
-            st.write("No meetings found. Please add meetings first.")
+            st.info("No meetings found. Please add meetings first.")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # 管理功能区域（保持不变）
+    # 管理功能区域
     st.header("Attendance Management Tools")
 
     # 1. 导入成员
