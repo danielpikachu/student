@@ -55,8 +55,8 @@ def render_money_transfers():
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # 原有逻辑：删除最后一行
-    if st.button("Delete Last Transaction", key="money_transfer_delete_last_20251104", use_container_width=True):
+    # 修复：修改删除按钮的key值，确保全局唯一
+    if st.button("Delete Last Transaction", key="money_transfer_delete_last_unique_001", use_container_width=True):
         if st.session_state.money_transfers:
             # 删除本地数据
             deleted = st.session_state.money_transfers.pop()
@@ -74,7 +74,7 @@ def render_money_transfers():
         else:
             st.warning("No transactions to delete!")
 
-    # 原有逻辑：显示交易历史（不变）
+    # 显示交易历史
     st.subheader("Transaction History")
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
@@ -98,7 +98,7 @@ def render_money_transfers():
 
     st.write("=" * 50)
 
-    # 新增交易区域（添加同步逻辑）
+    # 新增交易区域
     st.subheader("Record New Transaction")
     col1, col2 = st.columns(2)
     with col1:
