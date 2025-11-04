@@ -83,7 +83,11 @@ def render_attendance():
                             key=key,
                             label_visibility="collapsed"
                         )
-                        st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
+                        # 更新考勤状态时同步更新出勤次数
+                        if new_checked != checked:
+                            st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
+                            # 强制刷新页面以更新出勤率
+                            st.experimental_rerun()
                     
                     if new_checked:
                         attended_count += 1  # 累加出勤次数
