@@ -12,7 +12,7 @@ def render_attendance():
     if 'attendance' not in st.session_state:
         st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
 
-    # 保持原有样式，仅调整复选框显示
+    # 保持原有样式
     st.markdown("""
         <style>
             .scrollable-table {
@@ -60,40 +60,43 @@ def render_attendance():
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 构建表格数据（仅记录状态，不显示✗）
+            # 构建表格数据
             data = []
+            # 存储每个成员的出勤次数（用于计算出勤率）
+            attended_counts = []
+            
             for member in st.session_state.members:
                 row = [member["name"]]
-                attended_count = 0
+                attended_count = 0  # 记录当前成员出勤次数
                 
-                # 交叉单元格：只显示复选框控件，不显示文字标记
+                # 交叉单元格：显示复选框控件
                 for meeting in st.session_state.meetings:
                     key = f"c_{member['id']}_{meeting['id']}"
                     checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
                     
-                    # 用列布局确保复选框居中
+                    # 复选框布局
                     cols = st.columns([1])
                     with cols[0]:
                         new_checked = st.checkbox(
                             "",
                             value=checked,
                             key=key,
-                            label_visibility="collapsed"  # 隐藏标签，只显示复选框
+                            label_visibility="collapsed"
                         )
                         st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
                     
                     if new_checked:
-                        attended_count += 1
-                    # 关键修改：这里不再添加✗或✓的文字显示，只保留复选框控件
-                    row.append("")  # 占位，实际显示复选框
+                        attended_count += 1  # 累加出勤次数
+                    row.append("")  # 占位
             
-            # 计算出勤率并添加到行尾
-            for i, member in enumerate(st.session_state.members):
+            # 保存出勤次数并计算出勤率
+                attended_counts.append(attended_count)
                 total_meetings = len(st.session_state.meetings)
-                rate = f"{(data[i].count(True) / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
-                data[i].append(rate)
+                rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
+                row.append(rate)
+                data.append(row)
             
-            # 显示表格（列名保持不变）
+            # 显示表格
             columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
             df = pd.DataFrame(data, columns=columns)
             st.dataframe(df, use_container_width=True)
