@@ -1,107 +1,89 @@
 import streamlit as st
 import pandas as pd
+from streamlit_elements import elements, mui  # 需要安装：pip install streamlit-elements
 
 def render_attendance():
     st.set_page_config(layout="wide")
     
     # 初始化状态
     if 'members' not in st.session_state:
-        st.session_state.members = []  # 存储成员信息，包含id和name
+        st.session_state.members = []
     if 'meetings' not in st.session_state:
-        st.session_state.meetings = []  # 存储会议信息，包含id和name
+        st.session_state.meetings = []
     if 'attendance' not in st.session_state:
-        st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
+        st.session_state.attendance = {}
 
-    # 保持原有样式
+    # 样式设置
     st.markdown("""
         <style>
             .scrollable-table {
-                max-height: 240px;
+                max-height: 500px;
                 overflow-y: auto;
-                overflow-x: auto;
                 padding: 10px;
-                border: 1px solid #e0e0e0;
-                border-radius: 5px;
-            }
-            .scrollable-table::-webkit-scrollbar {
-                width: 8px;
-                height: 8px;
-            }
-            .scrollable-table::-webkit-scrollbar-thumb {
-                background: #ccc;
-                border-radius: 4px;
-            }
-            .custom-table {
-                width: 100%;
-                border-collapse: collapse;
-                table-layout: fixed;
-            }
-            .custom-table th, .custom-table td {
-                border: 1px solid #ddd !important;
-                padding: 8px 12px;
-                text-align: left;
-                vertical-align: middle;
-                word-wrap: break-word;
-            }
-            .checkbox-cell {
-                text-align: center !important;
-            }
-            [data-testid="column"] {
-                padding: 0 !important;
-            }
-            .element-container {
-                margin: 0 !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    # 保持原有界面结构
     st.header("Meeting Attendance Records")
 
-    with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
-        if st.session_state.members and st.session_state.meetings:
-            # 创建表格数据结构
-            data = []
-            attended_counts = []
-            
-            for member in st.session_state.members:
-                row = [member["name"]]
-                attended_count = 0
-                
-                for meeting in st.session_state.meetings:
-                    key = f"c_{member['id']}_{meeting['id']}"
-                    checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                    
-                    # 直接在当前位置创建复选框，不使用额外的columns
-                    new_checked = st.checkbox(
-                        "",
-                        value=checked,
-                        key=key,
-                        label_visibility="collapsed"
-                    )
-                    st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
-                    
-                    if new_checked:
-                        attended_count += 1
-                    row.append("✓" if new_checked else "")  # 显示勾选状态
-            
-                attended_counts.append(attended_count)
-                total_meetings = len(st.session_state.meetings)
-                rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
-                row.append(rate)
-                data.append(row)
-            
-            # 显示表格
-            columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
-            df = pd.DataFrame(data, columns=columns)
-            st.dataframe(df, use_container_width=True)
-        
-        elif not st.session_state.members:
-            st.write("No members found. Please import members first.")
-        else:
-            st.write("No meetings found. Please add meetings first.")
+    # 核心改进：使用streamlit-elements创建带复选框的表格
+    if st.session_state.members and st.session_state.meetings:
+        # 准备初始数据
+        attendance_data = {}
+        for member in st.session_state.members:
+            member_id = member["id"]
+            attendance_data[member_id] = {
+                "name": member["name"],
+                **{meeting["id"]: st.session_state.attendance.get((member_id, meeting["id"]), False) 
+                  for meeting in st.session_state.meetings}
+            }
 
-    st.markdown('</div>', unsafe_allow_html=True)
+        # 使用elements创建交互式表格
+        with elements("attendance_table"):
+            with mui.Paper(elevation=2, sx={"padding": 2}):
+                with mui.TableContainer(sx={"maxHeight": 400}):
+                    with mui.Table():
+                        # 表头
+                        with mui.TableHead():
+                            with mui.TableRow():
+                                mui.TableCell("Member Name")
+                                for meeting in st.session_state.meetings:
+                                    mui.TableCell(meeting["name"])
+                                mui.TableCell("Attendance Rate")
+
+                        # 表体
+                        with mui.TableBody():
+                            for member in st.session_state.members:
+                                member_id = member["id"]
+                                attended = sum(
+                                    st.session_state.attendance.get((member_id, meeting["id"]), False)
+                                    for meeting in st.session_state.meetings
+                                )
+                                rate = f"{(attended / len(st.session_state.meetings) * 100):.1f}%" if st.session_state.meetings else "N/A"
+                                
+                                with mui.TableRow():
+                                    mui.TableCell(member["name"])
+                                    for meeting in st.session_state.meetings:
+                                        meeting_id = meeting["id"]
+                                        # 复选框组件
+                                        def make_callback(m_id, me_id):
+                                            def callback(event):
+                                                st.session_state.attendance[(m_id, me_id)] = event.target.checked
+                                            return callback
+                                        
+                                        mui.TableCell(
+                                            mui.Checkbox(
+                                                checked=st.session_state.attendance.get((member_id, meeting_id), False),
+                                                onChange=make_callback(member_id, meeting_id),
+                                                color="primary"
+                                            )
+                                        )
+                                    mui.TableCell(rate)
+
+    elif not st.session_state.members:
+        st.info("No members found. Please import members first.")
+    else:
+        st.info("No meetings found. Please add meetings first.")
 
     st.markdown("---")
 
