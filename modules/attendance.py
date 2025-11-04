@@ -35,6 +35,15 @@ def render_attendance():
                 border-radius: 4px;
             }
             .stCheckbox {margin: 0 !important; padding: 0 !important;}
+            .scrollable-table table {
+                border-collapse: collapse;  /* 合并边框 */
+                width: 100%;
+            }
+            .scrollable-table th,
+            .scrollable-table td {
+                border: 1px solid #ddd;  /* 灰色细线边框 */
+                padding: 8px;  /* 单元格内边距 */
+            }
         </style>
     """, unsafe_allow_html=True)
 
