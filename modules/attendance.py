@@ -12,7 +12,7 @@ def render_attendance():
     if 'attendance' not in st.session_state:
         st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
 
-    # 保持原有样式
+    # 保持原有样式，增加表格布局优化
     st.markdown("""
         <style>
             .scrollable-table {
@@ -31,26 +31,26 @@ def render_attendance():
                 background: #ccc;
                 border-radius: 4px;
             }
-            .custom-table {
-                width: 100%;
-                border-collapse: collapse;
-                table-layout: fixed;
+            .table-row {
+                display: flex;
+                border-bottom: 1px solid #ddd;
             }
-            .custom-table th, .custom-table td {
-                border: 1px solid #ddd !important;
+            .table-header {
+                font-weight: bold;
+                background-color: #f5f5f5;
+            }
+            .table-cell {
+                flex: 1;
                 padding: 8px 12px;
-                text-align: left;
-                vertical-align: middle;
-                word-wrap: break-word;
+                border-right: 1px solid #ddd;
+                min-width: 100px;
             }
-            .checkbox-cell {
-                text-align: center !important;
+            .table-cell:last-child {
+                border-right: none;
             }
-            [data-testid="column"] {
-                padding: 0 !important;
-            }
-            .element-container {
-                margin: 0 !important;
+            .checkbox-center {
+                display: flex;
+                justify-content: center;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -60,47 +60,55 @@ def render_attendance():
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 构建表格数据
-            data = []
-            # 存储每个成员的出勤次数（用于计算出勤率）
-            attended_counts = []
-            
+            # 表格头部
+            header = st.container()
+            with header:
+                cols = st.columns(len(st.session_state.meetings) + 2)
+                with cols[0]:
+                    st.markdown('<div class="table-cell table-header">Member Name</div>', unsafe_allow_html=True)
+                for i, meeting in enumerate(st.session_state.meetings):
+                    with cols[i+1]:
+                        st.markdown(f'<div class="table-cell table-header">{meeting["name"]}</div>', unsafe_allow_html=True)
+                with cols[-1]:
+                    st.markdown('<div class="table-cell table-header">Attendance Rates</div>', unsafe_allow_html=True)
+
+            # 表格内容（逐行生成，确保复选框可交互）
             for member in st.session_state.members:
-                row = [member["name"]]
-                attended_count = 0  # 记录当前成员出勤次数
-                
-                # 交叉单元格：显示复选框控件
-                for meeting in st.session_state.meetings:
-                    key = f"c_{member['id']}_{meeting['id']}"
-                    checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                    
-                    # 复选框布局
-                    cols = st.columns([1])
+                row = st.container()
+                with row:
+                    cols = st.columns(len(st.session_state.meetings) + 2)
+                    attended_count = 0
+
+                    # 成员姓名
                     with cols[0]:
-                        new_checked = st.checkbox(
-                            "",
-                            value=checked,
-                            key=key,
-                            label_visibility="collapsed"
-                        )
-                        st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
-                    
-                    if new_checked:
-                        attended_count += 1  # 累加出勤次数
-                    row.append("")  # 占位
-            
-            # 保存出勤次数并计算出勤率
-                attended_counts.append(attended_count)
-                total_meetings = len(st.session_state.meetings)
-                rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
-                row.append(rate)
-                data.append(row)
-            
-            # 显示表格
-            columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
-            df = pd.DataFrame(data, columns=columns)
-            st.dataframe(df, use_container_width=True)
-        
+                        st.markdown(f'<div class="table-cell">{member["name"]}</div>', unsafe_allow_html=True)
+
+                    # 交叉单元格：可交互的复选框
+                    for i, meeting in enumerate(st.session_state.meetings):
+                        key = f"cb_{member['id']}_{meeting['id']}"
+                        current_state = st.session_state.attendance.get((member['id'], meeting['id']), False)
+                        
+                        with cols[i+1]:
+                            st.markdown('<div class="table-cell checkbox-center">', unsafe_allow_html=True)
+                            new_state = st.checkbox(
+                                label="",
+                                value=current_state,
+                                key=key,
+                                label_visibility="collapsed"
+                            )
+                            st.markdown('</div>', unsafe_allow_html=True)
+                            
+                            # 更新出勤状态
+                            st.session_state.attendance[(member['id'], meeting['id'])] = new_state
+                            if new_state:
+                                attended_count += 1
+
+                    # 出勤率计算
+                    total_meetings = len(st.session_state.meetings)
+                    rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
+                    with cols[-1]:
+                        st.markdown(f'<div class="table-cell">{rate}</div>', unsafe_allow_html=True)
+
         elif not st.session_state.members:
             st.write("No members found. Please import members first.")
         else:
