@@ -52,12 +52,11 @@ def render_attendance():
             .element-container {
                 margin: 0 !important;
             }
-            /* 新增按钮样式 */
+            /* 按钮样式 */
             .status-btn {
                 width: 100%;
-                padding: 4px 0;
-                border-radius: 4px;
-                cursor: pointer;
+                margin: 0;
+                padding: 2px;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -69,39 +68,36 @@ def render_attendance():
         if st.session_state.members and st.session_state.meetings:
             # 构建表格数据
             data = []
-            # 存储每个成员的出勤次数（用于计算出勤率）
-            attended_counts = []
             
             for member in st.session_state.members:
                 row = [member["name"]]
                 attended_count = 0  # 记录当前成员出勤次数
                 
-                # 交叉单元格：显示可切换的✓/✗按钮
+                # 交叉单元格：显示可点击的✓/✗按钮
                 for meeting in st.session_state.meetings:
-                    key = f"c_{member['id']}_{meeting['id']}"
+                    key = f"btn_{member['id']}_{meeting['id']}"
                     current_status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
                     
-                    # 使用按钮替代复选框实现状态切换
+                    # 按钮布局
                     cols = st.columns([1])
                     with cols[0]:
+                        # 根据当前状态显示不同按钮
                         if current_status:
-                            # 显示✓按钮，点击切换为✗
-                            if st.button("✓", key=key, use_container_width=True):
+                            # 显示✓按钮，点击切换为未选中
+                            if st.button("✓", key=key, use_container_width=True, type="primary"):
                                 st.session_state.attendance[(member["id"], meeting["id"])] = False
-                                st.experimental_rerun()
+                                st.experimental_rerun()  # 刷新状态
                         else:
-                            # 显示✗按钮，点击切换为✓
-                            if st.button("✗", key=key, use_container_width=True):
+                            # 显示✗按钮，点击切换为选中
+                            if st.button("✗", key=key, use_container_width=True, type="secondary"):
                                 st.session_state.attendance[(member["id"], meeting["id"])] = True
-                                st.experimental_rerun()
+                                st.experimental_rerun()  # 刷新状态
                     
-                    # 更新出勤计数
                     if current_status:
-                        attended_count += 1
+                        attended_count += 1  # 累加出勤次数
                     row.append("✓" if current_status else "✗")  # 表格中显示当前状态
             
-            # 保存出勤次数并计算出勤率
-                attended_counts.append(attended_count)
+                # 计算出勤率
                 total_meetings = len(st.session_state.meetings)
                 rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
                 row.append(rate)
