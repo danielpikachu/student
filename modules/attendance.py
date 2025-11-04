@@ -59,6 +59,7 @@ def render_attendance():
                 border-radius: 4px;
                 cursor: pointer;
                 font-weight: bold;
+                border: none;
             }
             .present-btn {
                 background-color: #e6f4ea;
@@ -87,7 +88,7 @@ def render_attendance():
                 row = [member["name"]]
                 attended_count = 0  # 记录当前成员出勤次数
                 
-                # 交叉单元格：显示✓/✗切换按钮
+                # 交叉单元格：显示可切换的✓/✗按钮
                 for meeting in st.session_state.meetings:
                     key = f"c_{member['id']}_{meeting['id']}"
                     current_status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
@@ -95,22 +96,27 @@ def render_attendance():
                     # 使用按钮实现状态切换
                     cols = st.columns([1])
                     with cols[0]:
-                        btn_label = "✓" if current_status else "✗"
-                        btn_class = "present-btn" if current_status else "absent-btn"
-                        
-                        # 通过按钮点击切换状态
-                        if st.button(
-                            btn_label,
-                            key=key,
-                            use_container_width=True,
-                            help="Click to toggle attendance"
-                        ):
-                            st.session_state.attendance[(member["id"], meeting["id"])] = not current_status
+                        if current_status:
+                            # 显示✓按钮，点击切换为✗
+                            if st.button("✓", key=key, use_container_width=True, 
+                                       help="Click to mark as absent", 
+                                       type="secondary"):
+                                st.session_state.attendance[(member["id"], meeting["id"])] = False
+                                st.experimental_rerun()  # 强制刷新以更新状态
+                        else:
+                            # 显示✗按钮，点击切换为✓
+                            if st.button("✗", key=key, use_container_width=True, 
+                                       help="Click to mark as present", 
+                                       type="secondary"):
+                                st.session_state.attendance[(member["id"], meeting["id"])] = True
+                                st.experimental_rerun()  # 强制刷新以更新状态
                     
                     # 更新出勤计数和表格显示内容
                     if current_status:
                         attended_count += 1
-                    row.append(btn_label)  # 在表格中显示✓或✗
+                        row.append("✓")
+                    else:
+                        row.append("✗")
             
             # 保存出勤次数并计算出勤率
                 attended_counts.append(attended_count)
