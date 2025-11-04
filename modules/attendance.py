@@ -46,11 +46,8 @@ def render_attendance():
                 vertical-align: middle;  /* 垂直居中对齐 */
                 word-wrap: break-word;
             }
-            .stCheckbox {
-                margin: 0 auto !important;
-                padding: 0 !important;
-                display: flex;
-                justify-content: center;
+            .checkbox-cell {
+                text-align: center !important;
             }
             /* 解决Streamlit默认样式冲突 */
             [data-testid="column"] {
@@ -65,66 +62,48 @@ def render_attendance():
     # 带滚动条的表格容器
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         # 只有当有成员时才显示表格
-        if st.session_state.members:
-            # 创建表格结构（使用HTML表格确保边框和对齐）
-            table_html = '<table class="custom-table">'
-            
-            # 表头行
-            table_html += '<tr>'
-            table_html += '<th>Member Name</th>'  # 第一列：成员名
-            
-            # 会议列标题（动态生成）
-            for meeting in st.session_state.meetings:
-                table_html += f'<th>{meeting["name"]}</th>'
-            
-            table_html += '<th>Attendance Rates</th>'  # 最后一列：考勤率
-            table_html += '</tr>'
-            
-            # 表格内容行（逐行处理成员）
+        if st.session_state.members and st.session_state.meetings:
+            # 创建数据表格
+            data = []
             for member in st.session_state.members:
-                table_html += '<tr>'
+                row = [member["name"]]
+                attended_count = 0
                 
-                # 成员名单元格
-                table_html += f'<td>{member["name"]}</td>'
-                
-                # 会议考勤单元格（动态生成勾选框）
+                # 为每个会议添加复选框
                 for meeting in st.session_state.meetings:
-                    # 生成唯一key
                     key = f"c_{member['id']}_{meeting['id']}"
-                    # 检查当前状态
                     checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                    # 添加勾选框（使用Streamlit的checkbox渲染）
-                    table_html += '<td>'
-                    # 在HTML中嵌入Streamlit组件需要特殊处理
-                    with st.container():
-                        cols = st.columns(1)
-                        with cols[0]:
-                            new_checked = st.checkbox(
-                                "",
-                                value=checked,
-                                key=key,
-                                label_visibility="collapsed"
-                            )
-                            st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
-                    table_html += '</td>'
+                    
+                    # 使用列布局确保复选框居中
+                    cols = st.columns([1])
+                    with cols[0]:
+                        new_checked = st.checkbox(
+                            "",
+                            value=checked,
+                            key=key,
+                            label_visibility="collapsed"
+                        )
+                        st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
+                    
+                    if new_checked:
+                        attended_count += 1
+                    row.append("✓" if new_checked else "✗")  # 显示勾选状态
                 
-                # 考勤率计算
+                # 计算考勤率
                 total_meetings = len(st.session_state.meetings)
-                if total_meetings == 0:
-                    rate = "N/A"
-                else:
-                    attended = sum(1 for m in st.session_state.meetings 
-                                  if st.session_state.attendance.get((member["id"], m["id"]), False))
-                    rate = f"{(attended / total_meetings * 100):.1f}%"
-                table_html += f'<td>{rate}</td>'
-                
-                table_html += '</tr>'
+                rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
+                row.append(rate)
+                data.append(row)
             
-            table_html += '</table>'
-            st.markdown(table_html, unsafe_allow_html=True)
+            # 创建DataFrame并显示
+            columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
+            df = pd.DataFrame(data, columns=columns)
+            st.dataframe(df, use_container_width=True)
         
-        else:
+        elif not st.session_state.members:
             st.write("No members found. Please import members first.")
+        else:
+            st.write("No meetings found. Please add meetings first.")
 
     st.markdown('</div>', unsafe_allow_html=True)  # 关闭滚动容器
 
