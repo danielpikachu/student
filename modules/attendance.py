@@ -15,11 +15,11 @@ def render_attendance():
     # ---------------------- 上部分：带滚动条的表格 + 打勾功能 ----------------------
     st.header("Meeting Attendance Records")
 
-    # 滚动容器样式（同时支持水平和垂直滚动）
+    # 滚动容器样式（同时支持水平和垂直滚动，限制最大10行高度）
     st.markdown("""
         <style>
             .scrollable-table {
-                max-height: 240px;  /* 垂直滚动触发高度 */
+                max-height: 400px;  /* 调整高度以适应约10行内容 */
                 overflow-y: auto;  /* 垂直滚动 */
                 overflow-x: auto;  /* 水平滚动 */
                 padding: 10px;
@@ -42,10 +42,15 @@ def render_attendance():
             }
             .scrollable-table th,
             .scrollable-table td {
-                border: 1px solid #ddd !important; /* 强制显示边框 */
-                padding: 8px 12px;
+                border: 1px solid #999 !important; /* 更清晰的边框线条 */
+                padding: 10px 12px;
                 text-align: left; /* 统一左对齐 */
                 word-wrap: break-word; /* 内容过长时自动换行 */
+                height: 40px; /* 固定行高，确保10行高度一致 */
+            }
+            .scrollable-table th {
+                background-color: #f0f2f6; /* 表头背景色，增强区分度 */
+                font-weight: bold;
             }
             /* 解决可能的样式覆盖问题 */
             .scrollable-table * {
@@ -67,8 +72,9 @@ def render_attendance():
                 cols[i+1].write(f"**{meeting['name']}**")
             cols[-1].write("**Attendance Rates**")
             
-            # 表格内容（逐行渲染）
-            for member in st.session_state.members:
+            # 表格内容（最多显示10行）
+            members_to_display = st.session_state.members[:10]  # 只取前10个成员
+            for member in members_to_display:
                 cols[0].write(member["name"])
                 
                 # 会议勾选框
@@ -88,6 +94,10 @@ def render_attendance():
                 cols[-1].write(rate)
 
     st.markdown('</div>', unsafe_allow_html=True)  # 关闭滚动容器
+
+    # 显示记录总数（如果超过10行）
+    if len(st.session_state.members) > 10:
+        st.caption(f"Showing first 10 members of {len(st.session_state.members)} total")
 
     # 分隔线
     st.markdown("---")
