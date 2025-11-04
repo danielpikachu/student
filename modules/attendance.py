@@ -60,49 +60,44 @@ def render_attendance():
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 构建表格数据
-            data = []
-            # 存储每个成员的出勤次数（用于计算出勤率）
-            attended_counts = []
-            
+            # 创建一个临时容器显示表格和复选框
+            table_data = []
             for member in st.session_state.members:
                 row = [member["name"]]
-                attended_count = 0  # 记录当前成员出勤次数
+                attended_count = 0
                 
-                # 交叉单元格：显示复选框控件
                 for meeting in st.session_state.meetings:
-                    key = f"c_{member['id']}_{meeting['id']}"
-                    checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
+                    key = f"att_{member['id']}_{meeting['id']}"
+                    # 从状态中获取当前值，默认为False
+                    current_value = st.session_state.attendance.get((member['id'], meeting['id']), False)
                     
-                    # 复选框布局
-                    cols = st.columns([1])
-                    with cols[0]:
-                        new_checked = st.checkbox(
-                            "",
-                            value=checked,
+                    # 在表格外单独创建复选框，但通过CSS控制位置
+                    col = st.columns([1])[0]
+                    with col:
+                        # 使用明确的标签让复选框可见
+                        new_value = st.checkbox(
+                            f"{member['name']} - {meeting['name']}",
+                            value=current_value,
                             key=key,
-                            label_visibility="collapsed"
+                            label_visibility="collapsed"  # 隐藏文字标签但保留复选框
                         )
-                        # 更新考勤状态时同步更新出勤次数
-                        if new_checked != checked:
-                            st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
-                            # 强制刷新页面以更新出勤率
-                            st.experimental_rerun()
+                        # 更新状态
+                        if new_value != current_value:
+                            st.session_state.attendance[(member['id'], meeting['id'])] = new_value
                     
-                    if new_checked:
-                        attended_count += 1  # 累加出勤次数
-                    row.append("")  # 占位
-            
-            # 保存出勤次数并计算出勤率
-                attended_counts.append(attended_count)
-                total_meetings = len(st.session_state.meetings)
-                rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
+                    if new_value:
+                        attended_count += 1
+                    row.append("✓" if new_value else "✗")  # 在表格中显示状态标记
+                
+                # 计算出勤率
+                total = len(st.session_state.meetings)
+                rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
                 row.append(rate)
-                data.append(row)
+                table_data.append(row)
             
             # 显示表格
             columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
-            df = pd.DataFrame(data, columns=columns)
+            df = pd.DataFrame(table_data, columns=columns)
             st.dataframe(df, use_container_width=True)
         
         elif not st.session_state.members:
