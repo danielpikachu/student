@@ -15,7 +15,7 @@ from google_sheet_utils import GoogleSheetHandler
 def render_attendance():
     st.set_page_config(layout="wide")
     
-    # 初始化状态（仅保留数据，不绑定UI组件）
+    # 初始化状态
     if 'members' not in st.session_state:
         st.session_state.members = []  # 成员列表：[{id, name}]
     if 'meetings' not in st.session_state:
@@ -27,9 +27,7 @@ def render_attendance():
     sheet_handler = None
     attendance_sheet = None
     try:
-        # 无需本地凭证路径，通过Streamlit Secrets获取认证
         sheet_handler = GoogleSheetHandler(credentials_path="")
-        # 共用"Student"表格，使用"Attendance"工作表
         attendance_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
             worksheet_name="Attendance"
@@ -82,34 +80,48 @@ def render_attendance():
     # ---------------------- 上部分：Meeting Attendance Records ----------------------
     st.header("Meeting Attendance Records")
     
-    # 显示表格（纯数据展示，无内嵌勾选框）
+    # 显示表格
     if st.session_state.members and st.session_state.meetings:
-        # 构建表格数据
         data = []
         for member in st.session_state.members:
             row = {"Member Name": member["name"]}
-            # 填充会议出勤状态
             for meeting in st.session_state.meetings:
                 row[meeting["name"]] = "✓" if st.session_state.attendance.get((member["id"], meeting["id"]), False) else "✗"
-            # 计算考勤率
             attended = sum(1 for m in st.session_state.meetings if st.session_state.attendance.get((member["id"], m["id"]), False))
             row["Attendance Rates"] = f"{(attended / len(st.session_state.meetings) * 100):.1f}%" if st.session_state.meetings else "0%"
             data.append(row)
         
-        # 显示纯数据表格（无任何交互组件）
         st.dataframe(pd.DataFrame(data), use_container_width=True)
 
-    # ---------------------- 考勤操作区（外置勾选逻辑） ----------------------
+    # ---------------------- 考勤操作区 ----------------------
     if st.session_state.members and st.session_state.meetings:
         st.subheader("Update Attendance")
         col1, col2, col3 = st.columns(3)
         with col1:
-            selected_member = st.selectbox("Select Member", st.session_state.members, format_func=lambda x: x["name"])
+            # 为selectbox添加唯一key
+            selected_member = st.selectbox(
+                "Select Member", 
+                st.session_state.members, 
+                format_func=lambda x: x["name"],
+                key="attendance_select_member"  # 新增：模块前缀
+            )
         with col2:
-            selected_meeting = st.selectbox("Select Meeting", st.session_state.meetings, format_func=lambda x: x["name"])
+            # 为selectbox添加唯一key
+            selected_meeting = st.selectbox(
+                "Select Meeting", 
+                st.session_state.meetings, 
+                format_func=lambda x: x["name"],
+                key="attendance_select_meeting"  # 新增：模块前缀
+            )
         with col3:
-            is_present = st.checkbox("Present", value=st.session_state.attendance.get((selected_member["id"], selected_meeting["id"]), False))
-            if st.button("Save"):
+            # 为checkbox添加唯一key
+            is_present = st.checkbox(
+                "Present", 
+                value=st.session_state.attendance.get((selected_member["id"], selected_meeting["id"]), False),
+                key="attendance_present_checkbox"  # 新增：模块前缀
+            )
+            # 为按钮添加唯一key
+            if st.button("Save", key="attendance_save_btn"):  # 新增：模块前缀
                 # 更新本地状态
                 st.session_state.attendance[(selected_member["id"], selected_meeting["id"])] = is_present
                 
@@ -118,7 +130,7 @@ def render_attendance():
                     try:
                         # 删除旧记录
                         all_rows = attendance_sheet.get_all_values()
-                        for i, row in enumerate(all_rows[1:], start=2):  # 行索引从2开始（跳过表头）
+                        for i, row in enumerate(all_rows[1:], start=2):
                             if row[0] == str(selected_member["id"]) and row[2] == str(selected_meeting["id"]):
                                 attendance_sheet.delete_rows(i)
                         
@@ -144,7 +156,8 @@ def render_attendance():
     # 1. 导入成员
     with st.container():
         st.subheader("Import Members")
-        if st.button("Import from members.xlsx"):
+        # 为按钮添加唯一key
+        if st.button("Import from members.xlsx", key="attendance_import_members_btn"):  # 新增：模块前缀
             try:
                 df = pd.read_excel("members.xlsx")
                 if "Member Name" in df.columns:
@@ -156,7 +169,7 @@ def render_attendance():
                             st.session_state.members.append({"id": member_id, "name": name})
                             added += 1
                             
-                            # 同步到Google Sheets（为每个成员创建一条初始记录）
+                            # 同步到Google Sheets
                             if attendance_sheet and sheet_handler:
                                 for meeting in st.session_state.meetings:
                                     attendance_sheet.append_row([
@@ -164,7 +177,7 @@ def render_attendance():
                                         name,
                                         str(meeting["id"]),
                                         meeting["name"],
-                                        "FALSE",  # 默认未出席
+                                        "FALSE",
                                         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     ])
                     st.success(f"Imported {added} members!")
@@ -173,11 +186,17 @@ def render_attendance():
             except Exception as e:
                 st.error(f"Error: {str(e)}")
 
-    # 2. 添加会议（一次点击生效）
+    # 2. 添加会议
     with st.container():
         st.subheader("Add Meeting")
-        meeting_name = st.text_input("Enter meeting name", placeholder="e.g., Team Meeting 1")
-        if st.button("Add Meeting"):
+        # 为文本输入框添加唯一key
+        meeting_name = st.text_input(
+            "Enter meeting name", 
+            placeholder="e.g., Team Meeting 1",
+            key="attendance_meeting_name_input"  # 新增：模块前缀
+        )
+        # 为按钮添加唯一key
+        if st.button("Add Meeting", key="attendance_add_meeting_btn"):  # 新增：模块前缀
             meeting_name = meeting_name.strip()
             if not meeting_name:
                 st.error("Please enter a meeting name!")
@@ -187,7 +206,7 @@ def render_attendance():
                 meeting_id = len(st.session_state.meetings) + 1
                 st.session_state.meetings.append({"id": meeting_id, "name": meeting_name})
                 
-                # 同步到Google Sheets（为每个成员创建一条初始记录）
+                # 同步到Google Sheets
                 if attendance_sheet and sheet_handler:
                     try:
                         for member in st.session_state.members:
@@ -196,7 +215,7 @@ def render_attendance():
                                 member["name"],
                                 str(meeting_id),
                                 meeting_name,
-                                "FALSE",  # 默认未出席
+                                "FALSE",
                                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             ])
                     except Exception as e:
