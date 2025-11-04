@@ -1,17 +1,16 @@
 import streamlit as st
 import pandas as pd
-from streamlit_elements import elements, mui  # 需要安装：pip install streamlit-elements
 
 def render_attendance():
     st.set_page_config(layout="wide")
     
     # 初始化状态
     if 'members' not in st.session_state:
-        st.session_state.members = []
+        st.session_state.members = []  # 存储成员信息，包含id和name
     if 'meetings' not in st.session_state:
-        st.session_state.meetings = []
+        st.session_state.meetings = []  # 存储会议信息，包含id和name
     if 'attendance' not in st.session_state:
-        st.session_state.attendance = {}
+        st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
 
     # 样式设置
     st.markdown("""
@@ -26,59 +25,44 @@ def render_attendance():
 
     st.header("Meeting Attendance Records")
 
-    # 核心改进：使用streamlit-elements创建带复选框的表格
     if st.session_state.members and st.session_state.meetings:
-        # 准备初始数据
-        attendance_data = {}
+        # 构建初始数据框
+        data = []
         for member in st.session_state.members:
-            member_id = member["id"]
-            attendance_data[member_id] = {
-                "name": member["name"],
-                **{meeting["id"]: st.session_state.attendance.get((member_id, meeting["id"]), False) 
-                  for meeting in st.session_state.meetings}
-            }
-
-        # 使用elements创建交互式表格
-        with elements("attendance_table"):
-            with mui.Paper(elevation=2, sx={"padding": 2}):
-                with mui.TableContainer(sx={"maxHeight": 400}):
-                    with mui.Table():
-                        # 表头
-                        with mui.TableHead():
-                            with mui.TableRow():
-                                mui.TableCell("Member Name")
-                                for meeting in st.session_state.meetings:
-                                    mui.TableCell(meeting["name"])
-                                mui.TableCell("Attendance Rate")
-
-                        # 表体
-                        with mui.TableBody():
-                            for member in st.session_state.members:
-                                member_id = member["id"]
-                                attended = sum(
-                                    st.session_state.attendance.get((member_id, meeting["id"]), False)
-                                    for meeting in st.session_state.meetings
-                                )
-                                rate = f"{(attended / len(st.session_state.meetings) * 100):.1f}%" if st.session_state.meetings else "N/A"
-                                
-                                with mui.TableRow():
-                                    mui.TableCell(member["name"])
-                                    for meeting in st.session_state.meetings:
-                                        meeting_id = meeting["id"]
-                                        # 复选框组件
-                                        def make_callback(m_id, me_id):
-                                            def callback(event):
-                                                st.session_state.attendance[(m_id, me_id)] = event.target.checked
-                                            return callback
-                                        
-                                        mui.TableCell(
-                                            mui.Checkbox(
-                                                checked=st.session_state.attendance.get((member_id, meeting_id), False),
-                                                onChange=make_callback(member_id, meeting_id),
-                                                color="primary"
-                                            )
-                                        )
-                                    mui.TableCell(rate)
+            row = {"Member Name": member["name"]}
+            # 初始化会议出勤状态
+            for meeting in st.session_state.meetings:
+                row[meeting["name"]] = st.session_state.attendance.get((member["id"], meeting["id"]), False)
+            data.append(row)
+        
+        # 使用data_editor创建带复选框的交互式表格
+        edited_df = st.data_editor(
+            data,
+            column_config={
+                "Member Name": st.column_config.TextColumn(disabled=True),  # 成员名不可编辑
+                **{meeting["name"]: st.column_config.CheckboxColumn(required=True) 
+                   for meeting in st.session_state.meetings}  # 会议列设为复选框
+            },
+            disabled=False,
+            use_container_width=True,
+            num_rows="fixed"
+        )
+        
+        # 更新考勤状态到session_state
+        for i, member in enumerate(st.session_state.members):
+            for meeting in st.session_state.meetings:
+                st.session_state.attendance[(member["id"], meeting["id"])] = edited_df.iloc[i][meeting["name"]]
+        
+        # 显示出勤率
+        st.subheader("Attendance Rates")
+        rate_data = []
+        for i, member in enumerate(st.session_state.members):
+            attended = sum(edited_df.iloc[i][meeting["name"]] for meeting in st.session_state.meetings)
+            total = len(st.session_state.meetings)
+            rate = f"{(attended / total * 100):.1f}%" if total > 0 else "N/A"
+            rate_data.append({"Member Name": member["name"], "Attendance Rate": rate})
+        
+        st.dataframe(rate_data, use_container_width=True)
 
     elif not st.session_state.members:
         st.info("No members found. Please import members first.")
@@ -87,7 +71,7 @@ def render_attendance():
 
     st.markdown("---")
 
-    # 保持原有管理功能区域不变
+    # 管理功能区域（保持不变）
     st.header("Attendance Management Tools")
 
     # 1. 导入成员
