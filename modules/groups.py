@@ -14,7 +14,7 @@ def render_groups():
     import_type = st.radio(
         "Select data type to import",
         ["Groups", "Members"],
-        key="groups_import_type"
+        key="grp_import_type_radio"
     )
 
     # 文件上传组件
