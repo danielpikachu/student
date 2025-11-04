@@ -12,7 +12,7 @@ def render_attendance():
     if 'attendance' not in st.session_state:
         st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
 
-    # 保持原有样式，新增状态标签样式
+    # 保持原有样式，新增状态按钮样式
     st.markdown("""
         <style>
             .scrollable-table {
@@ -52,20 +52,20 @@ def render_attendance():
             .element-container {
                 margin: 0 !important;
             }
-            /* 状态标签样式 */
-            .status-tag {
-                padding: 4px 8px;
+            /* 新增状态按钮样式 */
+            .status-btn {
+                width: 100%;
+                padding: 4px 0;
                 border-radius: 4px;
-                display: inline-block;
-                font-weight: bold;
                 cursor: pointer;
+                font-weight: bold;
             }
-            .present {
+            .present-btn {
                 background-color: #e6f4ea;
                 color: #137333;
                 border: 1px solid #c3e6c3;
             }
-            .absent {
+            .absent-btn {
                 background-color: #fce8e6;
                 color: #c5221f;
                 border: 1px solid #f5c6cb;
@@ -87,30 +87,30 @@ def render_attendance():
                 row = [member["name"]]
                 attended_count = 0  # 记录当前成员出勤次数
                 
-                # 交叉单元格：使用可点击的状态标签替代复选框
+                # 交叉单元格：显示✓/✗切换按钮
                 for meeting in st.session_state.meetings:
                     key = f"c_{member['id']}_{meeting['id']}"
                     current_status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
                     
-                    # 使用markdown显示可点击的状态标签
+                    # 使用按钮实现状态切换
                     cols = st.columns([1])
                     with cols[0]:
-                        status_class = "present" if current_status else "absent"
-                        status_text = "✓ 出勤" if current_status else "✗ 缺勤"
+                        btn_label = "✓" if current_status else "✗"
+                        btn_class = "present-btn" if current_status else "absent-btn"
                         
-                        # 点击标签文本切换状态
+                        # 通过按钮点击切换状态
                         if st.button(
-                            status_text,
+                            btn_label,
                             key=key,
                             use_container_width=True,
-                            help="点击切换状态"
+                            help="Click to toggle attendance"
                         ):
                             st.session_state.attendance[(member["id"], meeting["id"])] = not current_status
                     
+                    # 更新出勤计数和表格显示内容
                     if current_status:
-                        attended_count += 1  # 累加出勤次数
-                    # 表格中显示实际状态符号
-                    row.append("✓" if current_status else "✗")
+                        attended_count += 1
+                    row.append(btn_label)  # 在表格中显示✓或✗
             
             # 保存出勤次数并计算出勤率
                 attended_counts.append(attended_count)
