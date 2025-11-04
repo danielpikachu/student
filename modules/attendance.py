@@ -12,7 +12,7 @@ def render_attendance():
     if 'attendance' not in st.session_state:
         st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
 
-    # 保持原有样式
+    # 保持原有样式，仅添加按钮相关样式
     st.markdown("""
         <style>
             .scrollable-table {
@@ -52,6 +52,14 @@ def render_attendance():
             .element-container {
                 margin: 0 !important;
             }
+            /* 新增按钮样式 */
+            .status-btn {
+                width: 100%;
+                padding: 4px 0;
+                border-radius: 4px;
+                border: 1px solid #ddd;
+                cursor: pointer;
+            }
         </style>
     """, unsafe_allow_html=True)
 
@@ -62,26 +70,37 @@ def render_attendance():
         if st.session_state.members and st.session_state.meetings:
             # 构建表格数据
             data = []
+            # 存储每个成员的出勤次数（用于计算出勤率）
+            attended_counts = []
             
             for member in st.session_state.members:
                 row = [member["name"]]
                 attended_count = 0  # 记录当前成员出勤次数
                 
-                # 交叉单元格：显示可点击切换的✓或✗
+                # 交叉单元格：显示✓/✗按钮（核心修改部分）
                 for meeting in st.session_state.meetings:
                     key = f"c_{member['id']}_{meeting['id']}"
-                    current_state = st.session_state.attendance.get((member["id"], meeting["id"]), False)
+                    current_status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
                     
-                    # 显示可点击的状态标识
-                    if st.button("✓" if current_state else "✗", key=key, use_container_width=True):
-                        # 切换状态
-                        st.session_state.attendance[(member["id"], meeting["id"])] = not current_state
+                    # 用按钮替代复选框，仅在交叉格显示✓/✗
+                    cols = st.columns([1])
+                    with cols[0]:
+                        # 按钮显示✓或✗，点击切换状态
+                        if st.button(
+                            "✓" if current_status else "✗",
+                            key=key,
+                            use_container_width=True,
+                            help="Click to toggle"
+                        ):
+                            st.session_state.attendance[(member["id"], meeting["id"])] = not current_status
                     
-                    if current_state:
-                        attended_count += 1  # 累加出勤次数
-                    row.append("✓" if current_state else "✗")  # 表格中显示当前状态
+                    # 更新出勤计数
+                    if current_status:
+                        attended_count += 1
+                    row.append("✓" if current_status else "✗")  # 表格中显示当前状态
             
-            # 计算出勤率
+            # 保存出勤次数并计算出勤率
+                attended_counts.append(attended_count)
                 total_meetings = len(st.session_state.meetings)
                 rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
                 row.append(rate)
@@ -101,7 +120,7 @@ def render_attendance():
 
     st.markdown("---")
 
-    # 保持原有管理功能区域不变
+    # 保持原有管理功能区域不变（未做任何修改）
     st.header("Attendance Management Tools")
 
     # 1. 导入成员
