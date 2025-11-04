@@ -19,7 +19,7 @@ def render_attendance():
     st.markdown("""
         <style>
             .scrollable-table {
-                max-height: 400px;  /* 垂直滚动触发高度 */
+                max-height: 240px;  /* 垂直滚动触发高度 */
                 overflow-y: auto;  /* 垂直滚动 */
                 overflow-x: auto;  /* 水平滚动 */
                 padding: 10px;
