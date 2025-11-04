@@ -4,15 +4,15 @@ import pandas as pd
 def render_attendance():
     st.set_page_config(layout="wide")
     
-    # 初始化状态
+    # 初始化状态（保持原有数据结构）
     if 'members' not in st.session_state:
-        st.session_state.members = []  # 存储成员信息，包含id和name
+        st.session_state.members = []  # 成员：id + name
     if 'meetings' not in st.session_state:
-        st.session_state.meetings = []  # 存储会议信息，包含id和name
+        st.session_state.meetings = []  # 会议：id + name
     if 'attendance' not in st.session_state:
-        st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
+        st.session_state.attendance = {}  # 考勤状态：(member_id, meeting_id) → bool
 
-    # 样式设置
+    # 保持原有样式（未修改）
     st.markdown("""
         <style>
             .scrollable-table {
@@ -33,83 +33,65 @@ def render_attendance():
         </style>
     """, unsafe_allow_html=True)
 
-    st.header("Meeting Attendance Records")
+    st.header("Meeting Attendance Records")  # 保持原有标题
 
-    with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
+    with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):  # 保持原有滚动容器
         if st.session_state.members and st.session_state.meetings:
-            # 创建表格数据，包含成员名、各会议出勤状态、出勤率
-            data = []
-            cols = st.columns([1] + [0.5]*len(st.session_state.meetings) + [1])  # 调整列宽比例
-            
-            # 表头
-            with cols[0]:
-                st.write("**Member Name**")
-            for i, meeting in enumerate(st.session_state.meetings, 1):
-                with cols[i]:
-                    st.write(f"**{meeting['name']}**")
-            with cols[-1]:
-                st.write("**Attendance Rate**")
+            # 1. 创建表格列结构（与原布局一致）
+            # 列定义：成员名列 + 会议列 + 出勤率列
+            col_count = 1 + len(st.session_state.meetings) + 1
+            cols = st.columns(col_count)
 
-            # 表内容
+            # 2. 表头（保持原有结构）
+            cols[0].write("**Member Name**")  # 成员名列
+            for i, meeting in enumerate(st.session_state.meetings):
+                cols[i+1].write(f"**{meeting['name']}**")  # 会议列
+            cols[-1].write("**Attendance Rate**")  # 出勤率列
+
+            # 3. 表格内容（核心修复：确保复选框在交叉单元格）
             for member in st.session_state.members:
-                row = [member["name"]]
-                attended_count = 0
+                # 成员名（第一列）
+                cols[0].write(member["name"])
                 
-                # 处理每个会议的复选框
-                for i, meeting in enumerate(st.session_state.meetings, 1):
+                attended_count = 0
+                # 会议复选框（交叉单元格）
+                for i, meeting in enumerate(st.session_state.meetings):
+                    # 唯一key确保复选框独立
                     key = f"att_{member['id']}_{meeting['id']}"
+                    # 读取当前状态
                     current_val = st.session_state.attendance.get((member['id'], meeting['id']), False)
                     
-                    with cols[i]:
-                        new_val = st.checkbox("", value=current_val, key=key, label_visibility="collapsed")
+                    # 在对应会议列显示复选框（核心：严格对应交叉单元格）
+                    new_val = cols[i+1].checkbox(
+                        label="",
+                        value=current_val,
+                        key=key,
+                        label_visibility="collapsed"
+                    )
                     
+                    # 更新状态
                     st.session_state.attendance[(member['id'], meeting['id'])] = new_val
                     if new_val:
                         attended_count += 1
                 
-                # 计算并显示出勤率（最后一列）
+                # 出勤率（最后一列）
                 total = len(st.session_state.meetings)
                 rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
-                row.append(rate)
-                data.append(row)
-                
-                # 显示成员行
-                with cols[0]:
-                    st.write(member["name"])
-                with cols[-1]:
-                    st.write(rate)
+                cols[-1].write(rate)
 
-            # 显示汇总表格（可选，用于数据预览）
-            st.markdown("### Attendance Summary")
-            summary_cols = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rate"]
-            summary_data = []
-            for member in st.session_state.members:
-                summary_row = [member["name"]]
-                attended = 0
-                for meeting in st.session_state.meetings:
-                    status = "✓" if st.session_state.attendance.get((member['id'], meeting['id']), False) else "✗"
-                    summary_row.append(status)
-                    if status == "✓":
-                        attended += 1
-                total = len(st.session_state.meetings)
-                rate = f"{(attended/total*100):.1f}%" if total > 0 else "N/A"
-                summary_row.append(rate)
-                summary_data.append(summary_row)
-            st.dataframe(pd.DataFrame(summary_data, columns=summary_cols), use_container_width=True)
-        
         elif not st.session_state.members:
-            st.info("No members found. Please import members first.")
+            st.info("No members found. Please import members first.")  # 保持原有提示
         else:
-            st.info("No meetings found. Please add meetings first.")
+            st.info("No meetings found. Please add meetings first.")  # 保持原有提示
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)  # 保持原有容器闭合
 
-    st.markdown("---")
+    st.markdown("---")  # 保持原有分隔线
 
-    # 管理功能区域
-    st.header("Attendance Management Tools")
+    # 管理功能区域（完全保持原有布局和逻辑）
+    st.header("Attendance Management Tools")  # 保持原有标题
 
-    # 1. 导入成员
+    # 1. 导入成员（与之前完全一致）
     with st.container():
         st.subheader("Import Members")
         if st.button("Import from members.xlsx", key="import_btn"):
@@ -131,7 +113,7 @@ def render_attendance():
             except Exception as e:
                 st.error(f"Error: {str(e)}")
 
-    # 2. 添加会议
+    # 2. 添加会议（与之前完全一致）
     with st.container():
         st.subheader("Add Meeting")
         meeting_name = st.text_input("Meeting name", placeholder="e.g., Team Sync", key="meeting_input")
