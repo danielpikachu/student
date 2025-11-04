@@ -56,7 +56,7 @@ def render_money_transfers():
             st.warning(f"数据同步失败: {str(e)}")
 
     # 修复：使用更独特的key，添加模块缩写+功能描述确保唯一性
-    if st.button("Delete Last Transaction", key="mt_btn_delete_last_tx", use_container_width=True):
+    if st.button("Delete Last Transaction", key="mt_btn_20251105_delete_last", use_container_width=True):
         if st.session_state.money_transfers:
             # 删除本地数据
             deleted = st.session_state.money_transfers.pop()
