@@ -55,8 +55,8 @@ def render_money_transfers():
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # 修复：修改删除按钮的key值，确保全局唯一
-    if st.button("Delete Last Transaction", key="money_transfer_delete_last_unique_001", use_container_width=True):
+    # 修复：修改删除按钮的key值，确保全局唯一（增加模块前缀）
+    if st.button("Delete Last Transaction", key="money_transfers_delete_last_btn", use_container_width=True):
         if st.session_state.money_transfers:
             # 删除本地数据
             deleted = st.session_state.money_transfers.pop()
@@ -102,14 +102,14 @@ def render_money_transfers():
     st.subheader("Record New Transaction")
     col1, col2 = st.columns(2)
     with col1:
-        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="date_input_new")
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="amount_input_new")
-        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="type_radio_new")
+        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="money_transfers_date_input")
+        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="money_transfers_amount_input")
+        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="money_transfers_type_radio")
     with col2:
-        desc = st.text_input("Description", value="Fundraiser proceeds", key="desc_input_new").strip()
-        handler = st.text_input("Handled By", value="Pikachu Da Best", key="handler_input_new").strip()
+        desc = st.text_input("Description", value="Fundraiser proceeds", key="money_transfers_desc_input").strip()
+        handler = st.text_input("Handled By", value="Pikachu Da Best", key="money_transfers_handler_input").strip()
 
-    if st.button("Record Transaction", key="add_btn_new", use_container_width=True, type="primary"):
+    if st.button("Record Transaction", key="money_transfers_add_btn", use_container_width=True, type="primary"):
         if not (amount and desc and handler):
             st.error("Required fields: Amount, Description, Handled By!")
         else:
