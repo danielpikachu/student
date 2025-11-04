@@ -15,41 +15,49 @@ def render_attendance():
     # ---------------------- 上部分：带滚动条的表格 + 打勾功能 ----------------------
     st.header("Meeting Attendance Records")
 
-    # 滚动容器样式（同时支持水平和垂直滚动）
+    # 滚动容器和表格样式（强制显示边框并解决对齐问题）
     st.markdown("""
         <style>
             .scrollable-table {
-                max-height: 240px;  /* 垂直滚动触发高度 */
-                overflow-y: auto;  /* 垂直滚动 */
-                overflow-x: auto;  /* 水平滚动 */
+                max-height: 240px;
+                overflow-y: auto;
+                overflow-x: auto;
                 padding: 10px;
                 border: 1px solid #e0e0e0;
                 border-radius: 5px;
             }
             .scrollable-table::-webkit-scrollbar {
-                width: 8px;  /* 垂直滚动条宽度 */
-                height: 8px; /* 水平滚动条高度 */
+                width: 8px;
+                height: 8px;
             }
             .scrollable-table::-webkit-scrollbar-thumb {
                 background: #ccc;
                 border-radius: 4px;
             }
-            .stCheckbox {margin: 0 !important; padding: 0 !important;}
-            .scrollable-table table {
-                border-collapse: collapse;
+            .custom-table {
                 width: 100%;
-                table-layout: fixed; /* 强制列宽均匀分配，解决对齐问题 */
+                border-collapse: collapse;  /* 合并边框 */
+                table-layout: fixed;  /* 固定布局确保列对齐 */
             }
-            .scrollable-table th,
-            .scrollable-table td {
-                border: 1px solid #ddd !important; /* 强制显示边框 */
+            .custom-table th, .custom-table td {
+                border: 1px solid #ddd !important;  /* 强制显示所有边框 */
                 padding: 8px 12px;
-                text-align: left; /* 统一左对齐 */
-                word-wrap: break-word; /* 内容过长时自动换行 */
+                text-align: left;
+                vertical-align: middle;  /* 垂直居中对齐 */
+                word-wrap: break-word;
             }
-            /* 解决可能的样式覆盖问题 */
-            .scrollable-table * {
-                box-sizing: border-box;
+            .stCheckbox {
+                margin: 0 auto !important;
+                padding: 0 !important;
+                display: flex;
+                justify-content: center;
+            }
+            /* 解决Streamlit默认样式冲突 */
+            [data-testid="column"] {
+                padding: 0 !important;
+            }
+            .element-container {
+                margin: 0 !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -58,50 +66,64 @@ def render_attendance():
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         # 只有当有成员时才显示表格
         if st.session_state.members:
-            # 计算列数：成员名列 + 会议列 + 考勤率列
-            col_count = len(st.session_state.meetings) + 2
-            # 列宽分配：成员名3份，每个会议1份，考勤率2份
-            cols = st.columns([3] + [1]*(col_count-2) + [2])
+            # 创建表格结构（使用HTML表格确保边框和对齐）
+            table_html = '<table class="custom-table">'
             
-            # 表头
-            cols[0].write("**Member Name**")
-            # 会议列标题
-            for i, meeting in enumerate(st.session_state.meetings):
-                cols[i+1].write(f"**{meeting['name']}**")
-            # 考勤率列标题
-            cols[-1].write("**Attendance Rates**")
+            # 表头行
+            table_html += '<tr>'
+            table_html += '<th>Member Name</th>'  # 第一列：成员名
             
-            # 表格内容（逐行渲染成员）
+            # 会议列标题（动态生成）
+            for meeting in st.session_state.meetings:
+                table_html += f'<th>{meeting["name"]}</th>'
+            
+            table_html += '<th>Attendance Rates</th>'  # 最后一列：考勤率
+            table_html += '</tr>'
+            
+            # 表格内容行（逐行处理成员）
             for member in st.session_state.members:
-                # 成员名
-                cols[0].write(member["name"])
+                table_html += '<tr>'
                 
-                # 会议勾选框（每个会议对应一列）
-                for i, meeting in enumerate(st.session_state.meetings):
-                    with cols[i+1]:
-                        # 从状态中获取当前考勤状态，默认为未勾选
-                        checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                        # 渲染勾选框
-                        new_checked = st.checkbox(
-                            "",
-                            value=checked,
-                            key=f"c_{member['id']}_{meeting['id']}",
-                            label_visibility="collapsed"
-                        )
-                        # 更新考勤状态
-                        st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
+                # 成员名单元格
+                table_html += f'<td>{member["name"]}</td>'
                 
-                # 计算并显示考勤率
+                # 会议考勤单元格（动态生成勾选框）
+                for meeting in st.session_state.meetings:
+                    # 生成唯一key
+                    key = f"c_{member['id']}_{meeting['id']}"
+                    # 检查当前状态
+                    checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
+                    # 添加勾选框（使用Streamlit的checkbox渲染）
+                    table_html += '<td>'
+                    # 在HTML中嵌入Streamlit组件需要特殊处理
+                    with st.container():
+                        cols = st.columns(1)
+                        with cols[0]:
+                            new_checked = st.checkbox(
+                                "",
+                                value=checked,
+                                key=key,
+                                label_visibility="collapsed"
+                            )
+                            st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
+                    table_html += '</td>'
+                
+                # 考勤率计算
                 total_meetings = len(st.session_state.meetings)
                 if total_meetings == 0:
-                    rate = "N/A"  # 没有会议时显示N/A
+                    rate = "N/A"
                 else:
                     attended = sum(1 for m in st.session_state.meetings 
                                   if st.session_state.attendance.get((member["id"], m["id"]), False))
                     rate = f"{(attended / total_meetings * 100):.1f}%"
-                cols[-1].write(rate)
+                table_html += f'<td>{rate}</td>'
+                
+                table_html += '</tr>'
+            
+            table_html += '</table>'
+            st.markdown(table_html, unsafe_allow_html=True)
+        
         else:
-            # 没有成员时显示提示信息
             st.write("No members found. Please import members first.")
 
     st.markdown('</div>', unsafe_allow_html=True)  # 关闭滚动容器
