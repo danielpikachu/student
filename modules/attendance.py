@@ -12,98 +12,99 @@ def render_attendance():
     if 'attendance' not in st.session_state:
         st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
 
-    # 样式设置
+    # 保持原有样式
     st.markdown("""
         <style>
             .scrollable-table {
-                max-height: 400px;
+                max-height: 240px;
                 overflow-y: auto;
                 overflow-x: auto;
                 padding: 10px;
                 border: 1px solid #e0e0e0;
                 border-radius: 5px;
             }
-            .status-button {
-                width: 100%;
-                margin: 2px 0;
-                padding: 4px;
+            .scrollable-table::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            .scrollable-table::-webkit-scrollbar-thumb {
+                background: #ccc;
                 border-radius: 4px;
             }
-            .present {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
+            .custom-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
             }
-            .absent {
-                background-color: #f44336;
-                color: white;
-                border: none;
+            .custom-table th, .custom-table td {
+                border: 1px solid #ddd !important;
+                padding: 8px 12px;
+                text-align: left;
+                vertical-align: middle;
+                word-wrap: break-word;
             }
-            .dataframe-container {
-                margin-top: 10px;
+            .checkbox-cell {
+                text-align: center !important;
+            }
+            [data-testid="column"] {
+                padding: 0 !important;
+            }
+            .element-container {
+                margin: 0 !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    # 处理状态更新（关键改进：在渲染前处理所有点击事件）
-    for member in st.session_state.members:
-        for meeting in st.session_state.meetings:
-            key = f"btn_{member['id']}_{meeting['id']}"
-            if st.button("Toggle", key=key, visible=False):  # 隐藏的触发按钮
-                # 切换状态
-                current_state = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                st.session_state.attendance[(member["id"], meeting["id"])] = not current_state
+    # 处理状态切换的函数
+    def toggle_attendance(member_id, meeting_id):
+        current = st.session_state.attendance.get((member_id, meeting_id), False)
+        st.session_state.attendance[(member_id, meeting_id)] = not current
 
+    # 保持原有界面结构
     st.header("Meeting Attendance Records")
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 创建表格布局
-            cols = st.columns([2] + [1]*len(st.session_state.meetings) + [1])
-            
-            # 表头
-            cols[0].write("**Member Name**")
-            for i, meeting in enumerate(st.session_state.meetings):
-                cols[i+1].write(f"**{meeting['name']}**")
-            cols[-1].write("**Attendance Rate**")
-            
-            # 表格内容
-            for member in st.session_state.members:
-                row_cols = st.columns([2] + [1]*len(st.session_state.meetings) + [1])
-                row_cols[0].write(member["name"])
+            # 创建表单以确保状态正确更新
+            with st.form(key='attendance_form'):
+                # 构建表格数据
+                data = []
                 
-                attended_count = 0
-                
-                # 为每个会议创建状态按钮
-                for i, meeting in enumerate(st.session_state.meetings):
-                    status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                    btn_key = f"btn_{member['id']}_{meeting['id']}"
+                for member in st.session_state.members:
+                    row = [member["name"]]
+                    attended_count = 0
                     
-                    # 根据状态显示不同按钮
-                    if status:
-                        row_cols[i+1].button(
-                            "Present ✓", 
-                            key=f"display_{btn_key}",
-                            on_click=lambda k=btn_key: st.session_state.update({k: True}),
-                            use_container_width=True,
-                            type="primary",
-                            args=(btn_key,)
-                        )
-                        attended_count += 1
-                    else:
-                        row_cols[i+1].button(
-                            "Absent ✗", 
-                            key=f"display_{btn_key}",
-                            on_click=lambda k=btn_key: st.session_state.update({k: True}),
-                            use_container_width=True,
-                            type="secondary",
-                            args=(btn_key,)
-                        )
+                    for meeting in st.session_state.meetings:
+                        key = f"c_{member['id']}_{meeting['id']}"
+                        current_status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
+                        
+                        # 显示可点击的按钮
+                        col = st.columns(1)[0]
+                        with col:
+                            # 明确的按钮文本和回调函数
+                            if st.form_submit_button(
+                                "✓" if current_status else "✗",
+                                key=key,
+                                use_container_width=True,
+                                on_click=toggle_attendance,
+                                args=(member["id"], meeting["id"])
+                            ):
+                                pass  # 回调函数会处理状态更新
+                        
+                        if current_status:
+                            attended_count += 1
+                        row.append("✓" if current_status else "✗")
+                    
+                    # 计算出勤率
+                    total = len(st.session_state.meetings)
+                    rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
+                    row.append(rate)
+                    data.append(row)
                 
-                # 计算出勤率
-                total = len(st.session_state.meetings)
-                rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
-                row_cols[-1].write(rate)
+                # 显示表格
+                columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
+                df = pd.DataFrame(data, columns=columns)
+                st.dataframe(df, use_container_width=True)
         
         elif not st.session_state.members:
             st.write("No members found. Please import members first.")
@@ -114,7 +115,7 @@ def render_attendance():
 
     st.markdown("---")
 
-    # 管理功能区域
+    # 保持原有管理功能区域不变
     st.header("Attendance Management Tools")
 
     # 1. 导入成员
