@@ -60,36 +60,31 @@ def render_attendance():
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 构建表格数据
+            # 创建表格数据结构
             data = []
-            # 存储每个成员的出勤次数（用于计算出勤率）
             attended_counts = []
             
             for member in st.session_state.members:
                 row = [member["name"]]
-                attended_count = 0  # 记录当前成员出勤次数
+                attended_count = 0
                 
-                # 交叉单元格：显示复选框控件
                 for meeting in st.session_state.meetings:
                     key = f"c_{member['id']}_{meeting['id']}"
                     checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
                     
-                    # 复选框布局
-                    cols = st.columns([1])
-                    with cols[0]:
-                        new_checked = st.checkbox(
-                            "",
-                            value=checked,
-                            key=key,
-                            label_visibility="collapsed"
-                        )
-                        st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
+                    # 直接在当前位置创建复选框，不使用额外的columns
+                    new_checked = st.checkbox(
+                        "",
+                        value=checked,
+                        key=key,
+                        label_visibility="collapsed"
+                    )
+                    st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
                     
                     if new_checked:
-                        attended_count += 1  # 累加出勤次数
-                    row.append("")  # 占位
+                        attended_count += 1
+                    row.append("✓" if new_checked else "")  # 显示勾选状态
             
-            # 保存出勤次数并计算出勤率
                 attended_counts.append(attended_count)
                 total_meetings = len(st.session_state.meetings)
                 rate = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
