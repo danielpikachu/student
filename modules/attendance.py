@@ -1,119 +1,152 @@
 import streamlit as st
 import pandas as pd
-import uuid
 
 def render_attendance():
     st.set_page_config(layout="wide")
     
-    # 初始化状态（使用uuid确保id唯一）
+    # 初始化状态
     if 'members' not in st.session_state:
-        st.session_state.members = []  # 格式: [{"id": str, "name": str}, ...]
+        st.session_state.members = []  # 存储成员信息，包含id和name
     if 'meetings' not in st.session_state:
-        st.session_state.meetings = []  # 格式: [{"id": str, "name": str}, ...]
+        st.session_state.meetings = []  # 存储会议信息，包含id和name
     if 'attendance' not in st.session_state:
-        st.session_state.attendance = {}  # 格式: {(member_id, meeting_id): bool, ...}
+        st.session_state.attendance = {}  # {(member_id, meeting_id): bool} 存储考勤状态
 
-    # 确保样式正确
+    # 保持原有样式，仅调整复选框显示
     st.markdown("""
         <style>
-            .checkbox-container {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100%;
-            }
-            .scrollable {
-                max-height: 400px;
+            .scrollable-table {
+                max-height: 240px;
                 overflow-y: auto;
+                overflow-x: auto;
                 padding: 10px;
-                border: 1px solid #eee;
+                border: 1px solid #e0e0e0;
                 border-radius: 5px;
+            }
+            .scrollable-table::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            .scrollable-table::-webkit-scrollbar-thumb {
+                background: #ccc;
+                border-radius: 4px;
+            }
+            .custom-table {
+                width: 100%;
+                border-collapse: collapse;
+                table-layout: fixed;
+            }
+            .custom-table th, .custom-table td {
+                border: 1px solid #ddd !important;
+                padding: 8px 12px;
+                text-align: left;
+                vertical-align: middle;
+                word-wrap: break-word;
+            }
+            .checkbox-cell {
+                text-align: center !important;
+            }
+            [data-testid="column"] {
+                padding: 0 !important;
+            }
+            .element-container {
+                margin: 0 !important;
             }
         </style>
     """, unsafe_allow_html=True)
 
-    st.header("会议出勤记录表")
+    # 保持原有界面结构
+    st.header("Meeting Attendance Records")
 
-    # 1. 成员管理
-    with st.expander("成员管理", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            new_member = st.text_input("添加成员", placeholder="输入成员姓名")
-            if st.button("添加") and new_member.strip():
-                member_id = str(uuid.uuid4())
-                st.session_state.members.append({"id": member_id, "name": new_member.strip()})
-                st.success(f"已添加成员: {new_member.strip()}")
-        
-        with col2:
-            st.write("当前成员列表:")
-            st.write([m["name"] for m in st.session_state.members] or "暂无成员")
-
-    # 2. 会议管理
-    with st.expander("会议管理", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            new_meeting = st.text_input("添加会议", placeholder="输入会议名称/日期")
-            if st.button("创建会议") and new_meeting.strip():
-                meeting_id = str(uuid.uuid4())
-                st.session_state.meetings.append({"id": meeting_id, "name": new_meeting.strip()})
-                st.success(f"已创建会议: {new_meeting.strip()}")
-        
-        with col2:
-            st.write("当前会议列表:")
-            st.write([m["name"] for m in st.session_state.meetings] or "暂无会议")
-
-    # 3. 出勤记录表格（核心部分）
-    st.subheader("出勤记录")
-    with st.container():
+    with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 创建表格结构
-            with st.markdown('<div class="scrollable">', unsafe_allow_html=True):
-                # 表头
-                header_cols = st.columns(len(st.session_state.meetings) + 2)
-                with header_cols[0]:
-                    st.write("**成员**")
-                for i, meeting in enumerate(st.session_state.meetings):
-                    with header_cols[i + 1]:
-                        st.write(f"**{meeting['name']}**")
-                with header_cols[-1]:
-                    st.write("**出勤率**")
-
-                # 表格内容（逐行生成）
-                for member in st.session_state.members:
-                    row_cols = st.columns(len(st.session_state.meetings) + 2)
+            # 构建表格数据（仅记录状态，不显示✗）
+            data = []
+            for member in st.session_state.members:
+                row = [member["name"]]
+                attended_count = 0
+                
+                # 交叉单元格：只显示复选框控件，不显示文字标记
+                for meeting in st.session_state.meetings:
+                    key = f"c_{member['id']}_{meeting['id']}"
+                    checked = st.session_state.attendance.get((member["id"], meeting["id"]), False)
                     
-                    # 成员姓名
-                    with row_cols[0]:
-                        st.write(member["name"])
+                    # 用列布局确保复选框居中
+                    cols = st.columns([1])
+                    with cols[0]:
+                        new_checked = st.checkbox(
+                            "",
+                            value=checked,
+                            key=key,
+                            label_visibility="collapsed"  # 隐藏标签，只显示复选框
+                        )
+                        st.session_state.attendance[(member["id"], meeting["id"])] = new_checked
                     
-                    # 出勤复选框（核心交互）
-                    attended_count = 0
-                    for i, meeting in enumerate(st.session_state.meetings):
-                        key = f"att_{member['id']}_{meeting['id']}"
-                        current_state = st.session_state.attendance.get((member['id'], meeting['id']), False)
-                        
-                        with row_cols[i + 1]:
-                            with st.markdown('<div class="checkbox-container">', unsafe_allow_html=True):
-                                # 显示可交互的复选框
-                                new_state = st.checkbox(
-                                    label="",  # 空标签
-                                    value=current_state,
-                                    key=key,
-                                    label_visibility="collapsed"  # 隐藏标签
-                                )
-                            # 更新状态
-                            st.session_state.attendance[(member['id'], meeting['id'])] = new_state
-                            if new_state:
-                                attended_count += 1
-                    
-                    # 计算出勤率
-                    total = len(st.session_state.meetings)
-                    rate = (attended_count / total * 100) if total > 0 else 0
-                    with row_cols[-1]:
-                        st.write(f"{rate:.1f}%")
-            st.markdown('</div>', unsafe_allow_html=True)
+                    if new_checked:
+                        attended_count += 1
+                    # 关键修改：这里不再添加✗或✓的文字显示，只保留复选框控件
+                    row.append("")  # 占位，实际显示复选框
+            
+            # 计算出勤率并添加到行尾
+            for i, member in enumerate(st.session_state.members):
+                total_meetings = len(st.session_state.meetings)
+                rate = f"{(data[i].count(True) / total_meetings * 100):.1f}%" if total_meetings > 0 else "N/A"
+                data[i].append(rate)
+            
+            # 显示表格（列名保持不变）
+            columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
+            df = pd.DataFrame(data, columns=columns)
+            st.dataframe(df, use_container_width=True)
+        
+        elif not st.session_state.members:
+            st.write("No members found. Please import members first.")
         else:
-            st.info("请先添加成员和会议以生成出勤表格")
+            st.write("No meetings found. Please add meetings first.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # 保持原有管理功能区域不变
+    st.header("Attendance Management Tools")
+
+    # 1. 导入成员
+    with st.container():
+        st.subheader("Import Members")
+        if st.button("Import from members.xlsx", key="import_btn"):
+            try:
+                df = pd.read_excel("members.xlsx")
+                first_col = df.columns[0]
+                new_members = [str(name).strip() for name in df[first_col].dropna().unique() if str(name).strip()]
+                added = 0
+                for name in new_members:
+                    if name not in [m["name"] for m in st.session_state.members]:
+                        st.session_state.members.append({
+                            "id": len(st.session_state.members) + 1, 
+                            "name": name
+                        })
+                        added += 1
+                st.success(f"Imported {added} members from {first_col} column!")
+            except FileNotFoundError:
+                st.error("File 'members.xlsx' not found!")
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+
+    # 2. 添加会议
+    with st.container():
+        st.subheader("Add Meeting")
+        meeting_name = st.text_input("Meeting name", placeholder="e.g., Team Sync", key="meeting_input")
+        if st.button("Add Meeting", key="add_btn"):
+            if not meeting_name.strip():
+                st.error("Please enter a meeting name!")
+            elif any(m["name"] == meeting_name.strip() for m in st.session_state.meetings):
+                st.error("This meeting already exists!")
+            else:
+                st.session_state.meetings.append({
+                    "id": len(st.session_state.meetings) + 1, 
+                    "name": meeting_name.strip()
+                })
+                st.success(f"Added meeting: {meeting_name.strip()}")
 
 if __name__ == "__main__":
     render_attendance()
