@@ -55,8 +55,8 @@ def render_attendance():
         </style>
     """, unsafe_allow_html=True)
 
-    # 处理状态切换的函数
-    def toggle_attendance(member_id, meeting_id):
+    # 切换出勤状态的函数
+    def toggle_status(member_id, meeting_id):
         current = st.session_state.attendance.get((member_id, meeting_id), False)
         st.session_state.attendance[(member_id, meeting_id)] = not current
 
@@ -65,46 +65,46 @@ def render_attendance():
 
     with st.markdown('<div class="scrollable-table">', unsafe_allow_html=True):
         if st.session_state.members and st.session_state.meetings:
-            # 创建表单以确保状态正确更新
-            with st.form(key='attendance_form'):
-                # 构建表格数据
-                data = []
+            # 构建表格数据
+            table_data = []
+            for member in st.session_state.members:
+                row = [member["name"]]
+                attended_count = 0
                 
-                for member in st.session_state.members:
-                    row = [member["name"]]
-                    attended_count = 0
-                    
-                    for meeting in st.session_state.meetings:
-                        key = f"c_{member['id']}_{meeting['id']}"
-                        current_status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
-                        
-                        # 显示可点击的按钮
-                        col = st.columns(1)[0]
-                        with col:
-                            # 明确的按钮文本和回调函数
-                            if st.form_submit_button(
-                                "✓" if current_status else "✗",
-                                key=key,
-                                use_container_width=True,
-                                on_click=toggle_attendance,
-                                args=(member["id"], meeting["id"])
-                            ):
-                                pass  # 回调函数会处理状态更新
-                        
-                        if current_status:
-                            attended_count += 1
-                        row.append("✓" if current_status else "✗")
-                    
-                    # 计算出勤率
-                    total = len(st.session_state.meetings)
-                    rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
-                    row.append(rate)
-                    data.append(row)
+                for meeting in st.session_state.meetings:
+                    status = st.session_state.attendance.get((member["id"], meeting["id"]), False)
+                    row.append("✓" if status else "✗")
+                    if status:
+                        attended_count += 1
                 
-                # 显示表格
-                columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
-                df = pd.DataFrame(data, columns=columns)
-                st.dataframe(df, use_container_width=True)
+                # 计算出勤率
+                total = len(st.session_state.meetings)
+                rate = f"{(attended_count/total*100):.1f}%" if total > 0 else "N/A"
+                row.append(rate)
+                table_data.append(row)
+            
+            # 显示表格
+            columns = ["Member Name"] + [m["name"] for m in st.session_state.meetings] + ["Attendance Rates"]
+            df = pd.DataFrame(table_data, columns=columns)
+            st.dataframe(df, use_container_width=True)
+
+            # 单独的状态修改区域
+            st.subheader("Update Attendance")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                selected_member = st.selectbox("Select Member", [m["name"] for m in st.session_state.members])
+            with col2:
+                selected_meeting = st.selectbox("Select Meeting", [m["name"] for m in st.session_state.meetings])
+            with col3:
+                # 获取成员和会议ID
+                member_id = next(m["id"] for m in st.session_state.members if m["name"] == selected_member)
+                meeting_id = next(m["id"] for m in st.session_state.meetings if m["name"] == selected_meeting)
+                current_status = st.session_state.attendance.get((member_id, meeting_id), False)
+                
+                # 显示切换按钮
+                if st.button(f"Set to {'✗' if current_status else '✓'}", key="toggle_btn"):
+                    toggle_status(member_id, meeting_id)
+                    st.success(f"Updated {selected_member}'s status for {selected_meeting}")
         
         elif not st.session_state.members:
             st.write("No members found. Please import members first.")
