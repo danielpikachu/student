@@ -1,3 +1,4 @@
+# modules/attendance.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -13,15 +14,10 @@ if ROOT_DIR not in sys.path:
 from google_sheet_utils import GoogleSheetHandler
 
 def render_attendance():
+    """渲染考勤模块界面（att_前缀命名空间）"""
     st.set_page_config(layout="wide")
-    
-    # 初始化状态
-    if 'members' not in st.session_state:
-        st.session_state.members = []  # 成员列表：[{id, name}]
-    if 'meetings' not in st.session_state:
-        st.session_state.meetings = []  # 会议列表：[{id, name}]
-    if 'attendance' not in st.session_state:
-        st.session_state.attendance = {}  # 考勤数据：{(member_id, meeting_id): bool}
+    st.header("Meeting Attendance Records")
+    st.markdown("---")
 
     # 初始化Google Sheets连接
     sheet_handler = None
@@ -35,17 +31,18 @@ def render_attendance():
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据到本地会话状态
+    # 从Google Sheets同步数据到本地会话状态（使用att_前缀状态）
     if attendance_sheet and sheet_handler:
         try:
             all_data = attendance_sheet.get_all_values()
             
             # 检查并创建表头
-            if not all_data or all_data[0] != ["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]:
+            expected_headers = ["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]
+            if not all_data or all_data[0] != expected_headers:
                 attendance_sheet.clear()
-                attendance_sheet.append_row(["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"])
+                attendance_sheet.append_row(expected_headers)
             else:
-                # 提取成员数据
+                # 提取成员数据（更新att_members状态）
                 members = []
                 member_ids = set()
                 for row in all_data[1:]:
@@ -53,9 +50,9 @@ def render_attendance():
                         member_ids.add(row[0])
                         members.append({"id": int(row[0]), "name": row[1]})
                 if members:
-                    st.session_state.members = members
+                    st.session_state.att_members = members
 
-                # 提取会议数据
+                # 提取会议数据（更新att_meetings状态）
                 meetings = []
                 meeting_ids = set()
                 for row in all_data[1:]:
@@ -63,9 +60,9 @@ def render_attendance():
                         meeting_ids.add(row[2])
                         meetings.append({"id": int(row[2]), "name": row[3]})
                 if meetings:
-                    st.session_state.meetings = meetings
+                    st.session_state.att_meetings = meetings
 
-                # 提取考勤数据
+                # 提取考勤数据（更新att_records状态）
                 attendance_data = {}
                 for row in all_data[1:]:
                     if row[0] and row[2]:
@@ -73,64 +70,70 @@ def render_attendance():
                         meeting_id = int(row[2])
                         attendance_data[(member_id, meeting_id)] = row[4].lower() == "true"
                 if attendance_data:
-                    st.session_state.attendance = attendance_data
+                    st.session_state.att_records = attendance_data
+
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # ---------------------- 上部分：Meeting Attendance Records ----------------------
-    st.header("Meeting Attendance Records")
-    
-    # 显示表格
-    if st.session_state.members and st.session_state.meetings:
+    # ---------------------- 考勤表格展示 ----------------------
+    if st.session_state.att_members and st.session_state.att_meetings:
         data = []
-        for member in st.session_state.members:
+        for member in st.session_state.att_members:
             row = {"Member Name": member["name"]}
-            for meeting in st.session_state.meetings:
-                row[meeting["name"]] = "✓" if st.session_state.attendance.get((member["id"], meeting["id"]), False) else "✗"
-            attended = sum(1 for m in st.session_state.meetings if st.session_state.attendance.get((member["id"], m["id"]), False))
-            row["Attendance Rates"] = f"{(attended / len(st.session_state.meetings) * 100):.1f}%" if st.session_state.meetings else "0%"
+            # 填充各会议考勤状态
+            for meeting in st.session_state.att_meetings:
+                row[meeting["name"]] = "✓" if st.session_state.att_records.get((member["id"], meeting["id"]), False) else "✗"
+            # 计算出勤率
+            attended_count = sum(1 for m in st.session_state.att_meetings 
+                               if st.session_state.att_records.get((member["id"], m["id"]), False))
+            total_meetings = len(st.session_state.att_meetings)
+            row["Attendance Rates"] = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "0%"
             data.append(row)
         
         st.dataframe(pd.DataFrame(data), use_container_width=True)
+    else:
+        st.info("No members or meetings found. Please add data first.")
 
-    # ---------------------- 考勤操作区 ----------------------
-    if st.session_state.members and st.session_state.meetings:
-        st.subheader("Update Attendance")
+    # ---------------------- 考勤更新操作区 ----------------------
+    st.subheader("Update Attendance")
+    if st.session_state.att_members and st.session_state.att_meetings:
         col1, col2, col3 = st.columns(3)
+        
         with col1:
-            # 为selectbox添加唯一key
             selected_member = st.selectbox(
                 "Select Member", 
-                st.session_state.members, 
+                st.session_state.att_members, 
                 format_func=lambda x: x["name"],
-                key="attendance_select_member"  # 新增：模块前缀
+                key="att_select_member"  # 层级化Key：att_模块_选择组件_成员
             )
+        
         with col2:
-            # 为selectbox添加唯一key
             selected_meeting = st.selectbox(
                 "Select Meeting", 
-                st.session_state.meetings, 
+                st.session_state.att_meetings, 
                 format_func=lambda x: x["name"],
-                key="attendance_select_meeting"  # 新增：模块前缀
+                key="att_select_meeting"  # 层级化Key：att_模块_选择组件_会议
             )
+        
         with col3:
-            # 为checkbox添加唯一key
+            # 获取当前考勤状态作为默认值
+            current_status = st.session_state.att_records.get((selected_member["id"], selected_meeting["id"]), False)
             is_present = st.checkbox(
                 "Present", 
-                value=st.session_state.attendance.get((selected_member["id"], selected_meeting["id"]), False),
-                key="attendance_present_checkbox"  # 新增：模块前缀
+                value=current_status,
+                key="att_check_present"  # 层级化Key：att_模块_复选框_出勤状态
             )
-            # 为按钮添加唯一key
-            if st.button("Save", key="attendance_save_btn"):  # 新增：模块前缀
+            
+            if st.button("Save Attendance", key="att_btn_save"):  # 层级化Key：att_模块_按钮_保存
                 # 更新本地状态
-                st.session_state.attendance[(selected_member["id"], selected_meeting["id"])] = is_present
+                st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = is_present
                 
                 # 同步到Google Sheets
                 if attendance_sheet and sheet_handler:
                     try:
                         # 删除旧记录
                         all_rows = attendance_sheet.get_all_values()
-                        for i, row in enumerate(all_rows[1:], start=2):
+                        for i, row in enumerate(all_rows[1:], start=2):  # 从第二行开始（跳过表头）
                             if row[0] == str(selected_member["id"]) and row[2] == str(selected_meeting["id"]):
                                 attendance_sheet.delete_rows(i)
                         
@@ -143,85 +146,88 @@ def render_attendance():
                             "TRUE" if is_present else "FALSE",
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         ])
+                        st.success(f"Updated {selected_member['name']}'s attendance for {selected_meeting['name']}")
                     except Exception as e:
                         st.warning(f"同步到Google Sheets失败: {str(e)}")
-                
-                st.success(f"Updated {selected_member['name']}'s attendance for {selected_meeting['name']}")
-
     st.markdown("---")
 
-    # ---------------------- 下部分：Attendance Management Tools ----------------------
+    # ---------------------- 考勤管理工具 ----------------------
     st.header("Attendance Management Tools")
 
     # 1. 导入成员
-    with st.container():
+    with st.container(border=True):
         st.subheader("Import Members")
-        # 为按钮添加唯一key
-        if st.button("Import from members.xlsx", key="attendance_import_members_btn"):  # 新增：模块前缀
+        if st.button("Import from members.xlsx", key="att_btn_import_members"):  # 层级化Key：att_模块_按钮_导入成员
             try:
                 df = pd.read_excel("members.xlsx")
-                if "Member Name" in df.columns:
-                    new_members = [name.strip() for name in df["Member Name"].dropna().unique() if name.strip()]
-                    added = 0
-                    for name in new_members:
-                        if not any(m["name"] == name for m in st.session_state.members):
-                            member_id = len(st.session_state.members) + 1
-                            st.session_state.members.append({"id": member_id, "name": name})
-                            added += 1
-                            
-                            # 同步到Google Sheets
-                            if attendance_sheet and sheet_handler:
-                                for meeting in st.session_state.meetings:
-                                    attendance_sheet.append_row([
-                                        str(member_id),
-                                        name,
-                                        str(meeting["id"]),
-                                        meeting["name"],
-                                        "FALSE",
-                                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    ])
-                    st.success(f"Imported {added} members!")
-                else:
+                if "Member Name" not in df.columns:
                     st.error("Excel must have 'Member Name' column!")
+                    return
+                
+                # 去重并提取有效成员名
+                new_member_names = [name.strip() for name in df["Member Name"].dropna().unique() if name.strip()]
+                added_count = 0
+                
+                for name in new_member_names:
+                    # 检查是否已存在
+                    if not any(m["name"] == name for m in st.session_state.att_members):
+                        # 生成新成员ID（自增）
+                        new_member_id = len(st.session_state.att_members) + 1
+                        st.session_state.att_members.append({"id": new_member_id, "name": name})
+                        added_count += 1
+                        
+                        # 同步到Google Sheets（为每个现有会议创建默认缺勤记录）
+                        if attendance_sheet and sheet_handler:
+                            for meeting in st.session_state.att_meetings:
+                                attendance_sheet.append_row([
+                                    str(new_member_id),
+                                    name,
+                                    str(meeting["id"]),
+                                    meeting["name"],
+                                    "FALSE",  # 默认缺勤
+                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                ])
+                
+                st.success(f"Imported {added_count} new members!")
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"Import failed: {str(e)}")
 
     # 2. 添加会议
-    with st.container():
+    with st.container(border=True):
         st.subheader("Add Meeting")
-        # 为文本输入框添加唯一key
         meeting_name = st.text_input(
             "Enter meeting name", 
             placeholder="e.g., Team Meeting 1",
-            key="attendance_meeting_name_input"  # 新增：模块前缀
+            key="att_input_meeting_name"  # 层级化Key：att_模块_输入组件_会议名
         )
-        # 为按钮添加唯一key
-        if st.button("Add Meeting", key="attendance_add_meeting_btn"):  # 新增：模块前缀
+        
+        if st.button("Add Meeting", key="att_btn_add_meeting"):  # 层级化Key：att_模块_按钮_添加会议
             meeting_name = meeting_name.strip()
             if not meeting_name:
                 st.error("Please enter a meeting name!")
-            elif any(m["name"] == meeting_name for m in st.session_state.meetings):
+                return
+            
+            # 检查是否已存在
+            if any(m["name"] == meeting_name for m in st.session_state.att_meetings):
                 st.error("Meeting already exists!")
-            else:
-                meeting_id = len(st.session_state.meetings) + 1
-                st.session_state.meetings.append({"id": meeting_id, "name": meeting_name})
-                
-                # 同步到Google Sheets
-                if attendance_sheet and sheet_handler:
-                    try:
-                        for member in st.session_state.members:
-                            attendance_sheet.append_row([
-                                str(member["id"]),
-                                member["name"],
-                                str(meeting_id),
-                                meeting_name,
-                                "FALSE",
-                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            ])
-                    except Exception as e:
-                        st.warning(f"同步到Google Sheets失败: {str(e)}")
-                
-                st.success(f"Added meeting: {meeting_name}")
-
-if __name__ == "__main__":
-    render_attendance()
+                return
+            
+            # 生成新会议ID（自增）
+            new_meeting_id = len(st.session_state.att_meetings) + 1
+            st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
+            
+            # 同步到Google Sheets（为每个现有成员创建默认缺勤记录）
+            if attendance_sheet and sheet_handler:
+                try:
+                    for member in st.session_state.att_members:
+                        attendance_sheet.append_row([
+                            str(member["id"]),
+                            member["name"],
+                            str(new_meeting_id),
+                            meeting_name,
+                            "FALSE",  # 默认缺勤
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                    st.success(f"Added meeting: {meeting_name}")
+                except Exception as e:
+                    st.warning(f"同步到Google Sheets失败: {str(e)}")
