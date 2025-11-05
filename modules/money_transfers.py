@@ -69,7 +69,7 @@ def render_money_transfers():
                 col.write(f"**{header}**")
             
             # 显示每条交易记录及删除按钮
-            # 复制一份列表用于迭代，避免删除时索引问题
+            # 复制列表避免迭代时修改导致的问题
             for idx, trans in enumerate(list(st.session_state.money_transfers)):
                 row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
                 
@@ -81,8 +81,8 @@ def render_money_transfers():
                 row_cols[4].write(trans["Description"])
                 row_cols[5].write(trans["Handler"])
                 
-                # 使用记录的uuid作为唯一key，确保不会重复
-                unique_key = f"mt_del_{trans['uuid']}"
+                # 使用记录自身的uuid作为唯一key（最可靠的方式）
+                unique_key = f"delete_{trans['uuid']}"
                 
                 # 删除按钮
                 if row_cols[6].button(
@@ -90,7 +90,7 @@ def render_money_transfers():
                     key=unique_key, 
                     use_container_width=True
                 ):
-                    # 查找并删除本地数据（使用uuid而非索引）
+                    # 通过uuid删除记录（避免索引变化导致的错误）
                     st.session_state.money_transfers = [
                         t for t in st.session_state.money_transfers 
                         if t["uuid"] != trans["uuid"]
@@ -114,43 +114,15 @@ def render_money_transfers():
     st.subheader("Record New Transaction")
     col1, col2 = st.columns(2)
     with col1:
-        # 修改key，确保唯一性
-        trans_date = st.date_input(
-            "Transaction Date", 
-            value=datetime.today(), 
-            key="money_transfers_date_input"
-        )
-        amount = st.number_input(
-            "Amount ($)", 
-            min_value=0.01, 
-            step=0.01, 
-            value=100.00, 
-            key="money_transfers_amount_input"
-        )
-        trans_type = st.radio(
-            "Transaction Type", 
-            ["Income", "Expense"], 
-            index=0, 
-            key="money_transfers_type_radio"
-        )
+        # 确保这些key在全局唯一（避免与其他模块冲突）
+        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="mt_date_unique")
+        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="mt_amount_unique")
+        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="mt_type_unique")
     with col2:
-        desc = st.text_input(
-            "Description", 
-            value="Fundraiser proceeds", 
-            key="money_transfers_desc_input"
-        ).strip()
-        handler = st.text_input(
-            "Handled By", 
-            value="Pikachu Da Best", 
-            key="money_transfers_handler_input"
-        ).strip()
+        desc = st.text_input("Description", value="Fundraiser proceeds", key="mt_desc_unique").strip()
+        handler = st.text_input("Handled By", value="Pikachu Da Best", key="mt_handler_unique").strip()
 
-    if st.button(
-        "Record Transaction", 
-        key="money_transfers_record_btn", 
-        use_container_width=True, 
-        type="primary"
-    ):
+    if st.button("Record Transaction", key="mt_record_unique", use_container_width=True, type="primary"):
         if not (amount and desc and handler):
             st.error("Required fields: Amount, Description, Handled By!")
         else:
