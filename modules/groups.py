@@ -1,153 +1,183 @@
+# modules/groups.py
 import streamlit as st
-import sys
-import os
-from datetime import datetime
-import uuid
-
-# 解决根目录模块导入问题
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-
-# 导入工具类
-from google_sheet_utils import GoogleSheetHandler
+import pandas as pd
 
 def render_groups():
-    # 为当前模块生成唯一标识（可选，进一步增强唯一性）
-    module_prefix = "groups_"  # 模块专属前缀，核心是这个
-    
-    # 初始化会话状态
-    if 'groups' not in st.session_state:
-        st.session_state.groups = []
-    if 'group_members' not in st.session_state:
-        st.session_state.group_members = []
-    
-    # 初始化Google Sheets连接
-    sheet_handler = None
-    groups_sheet = None
-    members_sheet = None
-    try:
-        sheet_handler = GoogleSheetHandler(credentials_path="")
-        groups_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="Student",
-            worksheet_name="Groups"
-        )
-        members_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="Student",
-            worksheet_name="Groups"
-        )
-    except Exception as e:
-        st.error(f"Google Sheets初始化失败: {str(e)}")
+    """渲染群组模块界面（grp_前缀命名空间）"""
+    st.header("👥 Groups Management")
+    st.write("Import and manage group and member data")
+    st.divider()
 
-    # 数据导入选项（关键修改：添加模块前缀）
+    # ---------------------- 数据导入区域 ----------------------
+    st.subheader("Import Data from File")
+    st.write("Supported formats: .xlsx, .csv")
+    
+    # 选择导入类型
     import_type = st.radio(
         "Select data type to import",
         ["Groups", "Members"],
-        key=f"{module_prefix}import_type_radio"  # 确保与其他模块不冲突
+        key="grp_radio_import_type"  # 层级化Key：grp_模块_单选框_导入类型
     )
-
-    # 同步数据按钮（添加模块前缀）
-    if st.button("Sync from Google Sheets", key=f"{module_prefix}sync_btn"):
-        if import_type == "Groups" and groups_sheet:
-            try:
-                data = groups_sheet.get_all_values()
-                if data and len(data) > 1:
-                    st.session_state.groups = [
-                        {"id": row[0], "name": row[1], "created": row[2]}
-                        for row in data[1:] if row
-                    ]
-                    st.success(f"Synced {len(st.session_state.groups)} groups")
-            except Exception as e:
-                st.error(f"同步Groups失败: {str(e)}")
+    
+    # 文件上传组件
+    uploaded_file = st.file_uploader(
+        "Choose a file",
+        type=["xlsx", "csv"],
+        key="grp_upload_file"  # 层级化Key：grp_模块_上传组件_文件
+    )
+    
+    # 导入按钮
+    if st.button("Import Data", key="grp_btn_import", use_container_width=True):
+        if not uploaded_file:
+            st.error("Please upload a file first!")
+            return
         
-        elif import_type == "Members" and members_sheet:
-            try:
-                data = members_sheet.get_all_values()
-                if data and len(data) > 1:
-                    st.session_state.group_members = [
-                        {"group_id": row[0], "member_name": row[1], "role": row[2]}
-                        for row in data[1:] if row
-                    ]
-                    st.success(f"Synced {len(st.session_state.group_members)} members")
-            except Exception as e:
-                st.error(f"同步Members失败: {str(e)}")
+        try:
+            # 读取文件
+            if uploaded_file.name.endswith(".xlsx"):
+                df = pd.read_excel(uploaded_file)
+            else:  # CSV格式
+                df = pd.read_csv(uploaded_file)
+            
+            # 处理导入逻辑
+            if import_type == "Groups":
+                # 验证必要列
+                required_cols = ["GroupName", "Leader"]
+                if not all(col in df.columns for col in required_cols):
+                    st.error(f"Groups file must contain columns: {', '.join(required_cols)}")
+                    return
+                
+                # 处理每一行数据
+                added_count = 0
+                for _, row in df.iterrows():
+                    group_name = str(row["GroupName"]).strip()
+                    leader = str(row["Leader"]).strip()
+                    description = str(row.get("Description", "")).strip()
+                    
+                    # 验证数据有效性
+                    if not group_name or not leader:
+                        st.warning(f"Skipping invalid row: GroupName or Leader missing")
+                        continue
+                    
+                    # 检查重复
+                    if any(g["GroupName"] == group_name for g in st.session_state.grp_list):
+                        st.warning(f"Skipping duplicate group: {group_name}")
+                        continue
+                    
+                    # 生成群组ID（G+3位数字，如G001）
+                    group_id = f"G{len(st.session_state.grp_list) + 1:03d}"
+                    
+                    # 添加到会话状态
+                    st.session_state.grp_list.append({
+                        "GroupID": group_id,
+                        "GroupName": group_name,
+                        "Leader": leader,
+                        "Description": description,
+                        "MemberCount": 0  # 初始成员数为0
+                    })
+                    added_count += 1
+                
+                st.success(f"Successfully imported {added_count} new groups!")
+            
+            else:  # 导入成员
+                # 验证必要列
+                required_cols = ["GroupName", "Name", "StudentID", "Position"]
+                if not all(col in df.columns for col in required_cols):
+                    st.error(f"Members file must contain columns: {', '.join(required_cols)}")
+                    return
+                
+                # 检查是否存在群组
+                if not st.session_state.grp_list:
+                    st.error("No existing groups. Please create groups first.")
+                    return
+                
+                # 处理每一行数据
+                added_count = 0
+                for _, row in df.iterrows():
+                    group_name = str(row["GroupName"]).strip()
+                    member_name = str(row["Name"]).strip()
+                    student_id = str(row["StudentID"]).strip()
+                    position = str(row["Position"]).strip()
+                    contact = str(row.get("Contact", "")).strip()
+                    
+                    # 验证数据有效性
+                    if not all([group_name, member_name, student_id, position]):
+                        st.warning(f"Skipping invalid row: Missing required fields")
+                        continue
+                    
+                    # 查找对应群组
+                    group = next((g for g in st.session_state.grp_list if g["GroupName"] == group_name), None)
+                    if not group:
+                        st.warning(f"Skipping: Group '{group_name}' not found")
+                        continue
+                    
+                    # 检查重复（同一群组内学生ID唯一）
+                    if any(
+                        m["StudentID"] == student_id and m["GroupID"] == group["GroupID"]
+                        for m in st.session_state.grp_members
+                    ):
+                        st.warning(f"Skipping duplicate member: {member_name} (StudentID: {student_id}) in {group_name}")
+                        continue
+                    
+                    # 生成成员ID（M+3位数字，如M001）
+                    member_id = f"M{len(st.session_state.grp_members) + 1:03d}"
+                    
+                    # 添加到成员列表
+                    st.session_state.grp_members.append({
+                        "MemberID": member_id,
+                        "GroupID": group["GroupID"],
+                        "GroupName": group_name,  # 冗余存储，便于展示
+                        "Name": member_name,
+                        "StudentID": student_id,
+                        "Position": position,
+                        "Contact": contact
+                    })
+                    
+                    # 更新群组成员计数
+                    group["MemberCount"] += 1
+                    added_count += 1
+                
+                st.success(f"Successfully imported {added_count} new members!")
+        
+        except Exception as e:
+            st.error(f"Import failed: {str(e)}")
 
-    # 显示Groups数据
-    if import_type == "Groups":
-        st.subheader("Groups List")
-        if not st.session_state.groups:
-            st.info("No groups data available. Click 'Sync' to load.")
-        else:
-            for idx, group in enumerate(st.session_state.groups):
-                # 每个小组的删除按钮（添加模块前缀+唯一ID）
-                col1, col2 = st.columns([0.8, 0.2])
-                col1.write(f"**{group['name']}** (ID: {group['id']}, Created: {group['created']})")
-                if col2.button(
-                    "Delete",
-                    key=f"{module_prefix}del_group_{group['id']}_{idx}",  # 多重唯一保障
-                    use_container_width=True
-                ):
-                    st.session_state.groups = [g for g in st.session_state.groups if g["id"] != group["id"]]
-                    st.success(f"Group {group['name']} deleted")
-                    st.rerun()
+    st.markdown("---")
 
-    # 显示Members数据
+    # ---------------------- 数据展示区域 ----------------------
+    # 1. 群组列表展示
+    st.subheader("Groups List")
+    if not st.session_state.grp_list:
+        st.info("No groups found. Please import groups first.")
     else:
-        st.subheader("Group Members")
-        if not st.session_state.group_members:
-            st.info("No members data available. Click 'Sync' to load.")
-        else:
-            for idx, member in enumerate(st.session_state.group_members):
-                # 每个成员的删除按钮（添加模块前缀+唯一ID）
-                col1, col2 = st.columns([0.8, 0.2])
-                col1.write(f"**{member['member_name']}** (Group: {member['group_id']}, Role: {member['role']})")
-                if col2.button(
-                    "Delete",
-                    key=f"{module_prefix}del_member_{member['group_id']}_{idx}_{uuid.uuid4().hex[:4]}",  # 极端唯一
-                    use_container_width=True
-                ):
-                    st.session_state.group_members = [m for m in st.session_state.group_members if 
-                                                     m["group_id"] != member["group_id"] or 
-                                                     m["member_name"] != member["member_name"]]
-                    st.success(f"Member {member['member_name']} deleted")
-                    st.rerun()
+        # 准备群组表格数据
+        group_table = [
+            {
+                "Group ID": g["GroupID"],
+                "Group Name": g["GroupName"],
+                "Leader": g["Leader"],
+                "Description": g["Description"],
+                "Member Count": g["MemberCount"]
+            }
+            for g in st.session_state.grp_list
+        ]
+        st.dataframe(pd.DataFrame(group_table), use_container_width=True)
 
-    # 新增数据区域（所有key都加模块前缀）
-    st.subheader("Add New Entry")
-    with st.form(key=f"{module_prefix}new_entry_form"):
-        if import_type == "Groups":
-            group_id = st.text_input("Group ID", key=f"{module_prefix}new_group_id")
-            group_name = st.text_input("Group Name", key=f"{module_prefix}new_group_name")
-            created_date = st.date_input("Created Date", value=datetime.today(), key=f"{module_prefix}new_group_date")
-        else:
-            member_group_id = st.text_input("Group ID", key=f"{module_prefix}new_member_group_id")
-            member_name = st.text_input("Member Name", key=f"{module_prefix}new_member_name")
-            member_role = st.text_input("Role", key=f"{module_prefix}new_member_role")
-        
-        submit = st.form_submit_button("Add Entry", key=f"{module_prefix}add_entry_btn")
-        
-        if submit:
-            if import_type == "Groups" and group_id and group_name:
-                new_group = {
-                    "id": group_id,
-                    "name": group_name,
-                    "created": created_date.strftime("%Y-%m-%d")
-                }
-                st.session_state.groups.append(new_group)
-                if groups_sheet:
-                    groups_sheet.append_row([group_id, group_name, created_date.strftime("%Y-%m-%d")])
-                st.success("Group added successfully")
-                st.rerun()
-            elif import_type == "Members" and member_group_id and member_name:
-                new_member = {
-                    "group_id": member_group_id,
-                    "member_name": member_name,
-                    "role": member_role or "Member"
-                }
-                st.session_state.group_members.append(new_member)
-                if members_sheet:
-                    members_sheet.append_row([member_group_id, member_name, member_role or "Member"])
-                st.success("Member added successfully")
-                st.rerun()
-            else:
-                st.error("Required fields cannot be empty!")
+    # 2. 成员列表展示
+    st.subheader("Group Members")
+    if not st.session_state.grp_members:
+        st.info("No members found. Please import members first.")
+    else:
+        # 准备成员表格数据
+        member_table = [
+            {
+                "Member ID": m["MemberID"],
+                "Group Name": m["GroupName"],
+                "Name": m["Name"],
+                "Student ID": m["StudentID"],
+                "Position": m["Position"],
+                "Contact": m["Contact"]
+            }
+            for m in st.session_state.grp_members
+        ]
+        st.dataframe(pd.DataFrame(member_table), use_container_width=True)
