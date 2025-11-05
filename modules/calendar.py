@@ -194,108 +194,96 @@ def render_calendar():
 
                     current_day += 1
 
-    # ---------------------- 事件管理面板（管理员）----------------------
+    # ---------------------- 事件管理面板 ----------------------
     st.divider()
     with st.container(border=True):
-        st.subheader("📝 Manage Calendar Events (Admin Only)")
+        st.subheader("📝 Manage Calendar Events")
         
-        # 管理员密码验证
-        admin_password = st.text_input(
-            "Enter Admin Password",
-            type="password",
-            key="cal_input_admin_pwd"  # 层级化Key：cal_模块_输入组件_管理员密码
-        )
+        # 事件编辑区域（移除了密码验证）
+        col_date, col_desc = st.columns([1, 2])
         
-        if admin_password == st.session_state.sys_admin_password:
-            st.success("Admin access granted!")
+        with col_date:
+            selected_date = st.date_input(
+                "Select Date",
+                value=datetime.today(),
+                label_visibility="collapsed",
+                key="cal_input_event_date"
+            )
+        
+        with col_desc:
+            # 检查选中日期是否已有事件
+            existing_event = next(
+                (e for e in st.session_state.cal_events if e["date"] == selected_date),
+                None
+            )
+            default_desc = existing_event["description"] if existing_event else ""
             
-            # 事件编辑区域
-            col_date, col_desc = st.columns([1, 2])
-            
-            with col_date:
-                selected_date = st.date_input(
-                    "Select Date",
-                    value=datetime.today(),
-                    label_visibility="collapsed",
-                    key="cal_input_event_date"  # 层级化Key：cal_模块_输入组件_事件日期
-                )
-            
-            with col_desc:
-                # 检查选中日期是否已有事件
-                existing_event = next(
-                    (e for e in st.session_state.cal_events if e["date"] == selected_date),
-                    None
-                )
-                default_desc = existing_event["description"] if existing_event else ""
+            event_desc = st.text_area(
+                "Event Description (max 100 characters)",
+                value=default_desc,
+                max_chars=100,
+                placeholder="Enter event details...",
+                label_visibility="collapsed",
+                key="cal_input_event_desc"
+            )
+        
+        # 操作按钮
+        col_save, col_delete = st.columns(2)
+        with col_save:
+            if st.button("💾 Save Event", use_container_width=True, type="primary", key="cal_btn_save_event"):
+                if not event_desc.strip():
+                    st.error("Event description cannot be empty!")
+                    return
                 
-                event_desc = st.text_area(
-                    "Event Description (max 100 characters)",
-                    value=default_desc,
-                    max_chars=100,
-                    placeholder="Enter event details...",
-                    label_visibility="collapsed",
-                    key="cal_input_event_desc"  # 层级化Key：cal_模块_输入组件_事件描述
-                )
-            
-            # 操作按钮
-            col_save, col_delete = st.columns(2)
-            with col_save:
-                if st.button("💾 Save Event", use_container_width=True, type="primary", key="cal_btn_save_event"):
-                    if not event_desc.strip():
-                        st.error("Event description cannot be empty!")
-                        return
-                    
-                    # 删除同日期的旧事件
-                    st.session_state.cal_events = [
-                        e for e in st.session_state.cal_events 
-                        if e["date"] != selected_date
-                    ]
-                    
-                    # 添加新事件
-                    new_event = {
-                        "date": selected_date,
-                        "description": event_desc.strip()
-                    }
-                    st.session_state.cal_events.append(new_event)
-                    
-                    # 同步到Google Sheets
-                    if calendar_sheet and sheet_handler:
-                        try:
-                            # 删除旧记录
-                            all_rows = calendar_sheet.get_all_values()
-                            for i, row in enumerate(all_rows[1:], start=2):
-                                if row[0] == str(selected_date):
-                                    calendar_sheet.delete_rows(i)
-                            
-                            # 添加新记录
-                            calendar_sheet.append_row([str(selected_date), event_desc.strip()])
-                            st.success("✅ Event saved successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.warning(f"同步到Google Sheets失败: {str(e)}")
-            
-            with col_delete:
-                if st.button("🗑️ Delete Event", use_container_width=True, key="cal_btn_delete_event"):
-                    if not existing_event:
-                        st.warning("No event found for this date!")
-                        return
-                    
-                    # 删除本地事件
-                    st.session_state.cal_events = [
-                        e for e in st.session_state.cal_events 
-                        if e["date"] != selected_date
-                    ]
-                    
-                    # 同步删除Google Sheets记录
-                    if calendar_sheet and sheet_handler:
-                        try:
-                            all_rows = calendar_sheet.get_all_values()
-                            for i, row in enumerate(all_rows[1:], start=2):
-                                if row[0] == str(selected_date):
-                                    calendar_sheet.delete_rows(i)
-                            st.success("✅ Event deleted successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.warning(f"从Google Sheets删除失败: {str(e)}")
-        elif admin_password != "":
-            st.error("Incorrect admin password. Please try again.")
+                # 删除同日期的旧事件
+                st.session_state.cal_events = [
+                    e for e in st.session_state.cal_events 
+                    if e["date"] != selected_date
+                ]
+                
+                # 添加新事件
+                new_event = {
+                    "date": selected_date,
+                    "description": event_desc.strip()
+                }
+                st.session_state.cal_events.append(new_event)
+                
+                # 同步到Google Sheets
+                if calendar_sheet and sheet_handler:
+                    try:
+                        # 删除旧记录
+                        all_rows = calendar_sheet.get_all_values()
+                        for i, row in enumerate(all_rows[1:], start=2):
+                            if row[0] == str(selected_date):
+                                calendar_sheet.delete_rows(i)
+                        
+                        # 添加新记录
+                        calendar_sheet.append_row([str(selected_date), event_desc.strip()])
+                        st.success("✅ Event saved successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.warning(f"同步到Google Sheets失败: {str(e)}")
+        
+        with col_delete:
+            if st.button("🗑️ Delete Event", use_container_width=True, key="cal_btn_delete_event"):
+                if not existing_event:
+                    st.warning("No event found for this date!")
+                    return
+                
+                # 删除本地事件
+                st.session_state.cal_events = [
+                    e for e in st.session_state.cal_events 
+                    if e["date"] != selected_date
+                ]
+                
+                # 同步删除Google Sheets记录
+                if calendar_sheet and sheet_handler:
+                    try:
+                        all_rows = calendar_sheet.get_all_values()
+                        for i, row in enumerate(all_rows[1:], start=2):
+                            if row[0] == str(selected_date):
+                                calendar_sheet.delete_rows(i)
+                        st.success("✅ Event deleted successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.warning(f"从Google Sheets删除失败: {str(e)}")
