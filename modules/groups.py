@@ -34,7 +34,7 @@ def render_groups():
         )
         members_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
-            worksheet_name="GroupMembers"
+            worksheet_name="Groups"
         )
     except Exception as e:
         st.error(f"Google Sheets初始化失败: {str(e)}")
