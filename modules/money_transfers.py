@@ -1,187 +1,65 @@
 import streamlit as st
-from datetime import datetime
-import uuid
-import sys
-import os
-import time
 
-# 解决根目录模块导入问题
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-
-# 导入Google Sheets工具类
-from google_sheet_utils import GoogleSheetHandler
-
-def render_money_transfers():
-    # 初始化会话状态
-    if 'money_transfers' not in st.session_state:
-        st.session_state.money_transfers = []
-    if 'trans_key_version' not in st.session_state:
-        st.session_state.trans_key_version = 0  # 用于触发key更新的版本号
-
-    # 初始化Google Sheets连接
-    sheet_handler = None
-    transfers_sheet = None
-    try:
-        sheet_handler = GoogleSheetHandler(credentials_path="")
-        transfers_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="Student",
-            worksheet_name="MoneyTransfers"
-        )
-    except Exception as e:
-        st.error(f"Google Sheets初始化失败: {str(e)}")
-
-    # 从Google Sheets同步数据
-    if transfers_sheet and not st.session_state.money_transfers:
-        try:
-            time.sleep(0.1)
-            all_data = transfers_sheet.get_all_values()
-            
-            if not all_data or all_data[0] != ["uuid", "date", "type", "amount", "description", "handler"]:
-                transfers_sheet.clear()
-                transfers_sheet.append_row(["uuid", "date", "type", "amount", "description", "handler"])
-                records = []
-            else:
-                records = [
-                    {
-                        "uuid": row[0],
-                        "Date": datetime.strptime(row[1], "%Y-%m-%d").date(),
-                        "Type": row[2],
-                        "Amount": float(row[3]),
-                        "Description": row[4],
-                        "Handler": row[5]
-                    } 
-                    for row in all_data[1:] if row and row[0]
-                ]
-            
-            st.session_state.money_transfers = records
-        except Exception as e:
-            st.warning(f"数据同步失败: {str(e)}")
-
-    # 显示交易历史
-    st.subheader("Transaction History")
-    if not st.session_state.money_transfers:
-        st.info("No financial transactions recorded yet")
-    else:
-        # 表头
-        cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
-        headers = ["No.", "Date", "Amount ($)", "Type", "Description", "Handled By", "Action"]
-        for col, header in zip(cols, headers):
-            col.write(f"**{header}**")
-        
-        # 为每行生成容器
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            # 关键修复：加入版本号确保数据变化时key完全更新
-            row_key = f"trans_{st.session_state.trans_key_version}_{trans['uuid']}_{idx}"
-            with st.container(key=row_key):
-                row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
-                
-                # 显示数据
-                row_cols[0].write(idx + 1)
-                row_cols[1].write(trans["Date"].strftime("%Y-%m-%d"))
-                row_cols[2].write(f"${trans['Amount']:.2f}")
-                row_cols[3].write(trans["Type"])
-                row_cols[4].write(trans["Description"])
-                row_cols[5].write(trans["Handler"])
-                
-                # 删除按钮key
-                delete_key = f"{row_key}_delete"
-                if row_cols[6].button("Delete", key=delete_key, use_container_width=True):
-                    # 删除本地记录
-                    st.session_state.money_transfers = [
-                        t for t in st.session_state.money_transfers 
-                        if t["uuid"] != trans["uuid"]
-                    ]
-                    
-                    # 同步到Google Sheets
-                    if transfers_sheet and sheet_handler:
-                        try:
-                            cell = transfers_sheet.find(trans["uuid"])
-                            if cell:
-                                transfers_sheet.delete_rows(cell.row)
-                        except Exception as e:
-                            st.warning(f"同步删除失败: {str(e)}")
-                    
-                    st.success("Transaction deleted successfully!")
-                    st.session_state.trans_key_version += 1  # 关键：删除后更新版本号
-                    st.rerun()
-        
-        st.write("---")
-
-    st.write("=" * 50)
-
-    # 新增交易区域
-    form_key = f"new_trans_{st.session_state.trans_key_version}"
-    with st.form(key=form_key):
-        st.subheader("Record New Transaction")
-        col1, col2 = st.columns(2)
+def render_money_transfers(namespace):
+    """转账模块渲染函数，使用命名空间隔离状态"""
+    st.header("资金转账管理")
+    
+    # 生成带命名空间的key
+    def get_key(name):
+        return f"{namespace}_{name}"
+    
+    # 初始化当前模块的会话状态（如果需要）
+    if "initialized" not in st.session_state[namespace]:
+        st.session_state[namespace]["initialized"] = True
+    
+    # 转账表单
+    with st.expander("新增转账记录", expanded=False):
+        col1, col2, col3 = st.columns(3)
         with col1:
-            trans_date = st.date_input(
-                "Transaction Date", 
-                value=datetime.today(), 
-                key=f"{form_key}_date"
-            )
             amount = st.number_input(
-                "Amount ($)", 
+                "转账金额", 
                 min_value=0.01, 
                 step=0.01, 
-                value=100.00, 
-                key=f"{form_key}_amount"
-            )
-            trans_type = st.radio(
-                "Transaction Type", 
-                ["Income", "Expense"], 
-                index=0, 
-                key=f"{form_key}_type"
+                key=get_key("amount")
             )
         with col2:
-            desc = st.text_input(
-                "Description", 
-                value="Fundraiser proceeds", 
-                key=f"{form_key}_desc"
-            ).strip()
-            handler = st.text_input(
-                "Handled By", 
-                value="Pikachu Da Best", 
-                key=f"{form_key}_handler"
-            ).strip()
-
-        submit = st.form_submit_button(
-            "Record Transaction", 
-            use_container_width=True, 
-            type="primary"
+            recipient = st.text_input(
+                "接收方", 
+                key=get_key("recipient")
+            )
+        with col3:
+            category = st.selectbox(
+                "转账类别", 
+                st.session_state[namespace]["categories"],
+                key=get_key("category")
+            )
+        
+        description = st.text_area(
+            "转账说明", 
+            key=get_key("description")
         )
-
-        if submit:
-            if not (amount and desc and handler):
-                st.error("Required fields: Amount, Description, Handled By!")
-            else:
-                new_trans = {
-                    "uuid": str(uuid.uuid4()),
-                    "Date": trans_date,
-                    "Type": trans_type,
-                    "Amount": round(amount, 2),
-                    "Description": desc,
-                    "Handler": handler
-                }
-                st.session_state.money_transfers.append(new_trans)
-                
-                if transfers_sheet and sheet_handler:
-                    try:
-                        transfers_sheet.append_row([
-                            new_trans["uuid"],
-                            new_trans["Date"].strftime("%Y-%m-%d"),
-                            new_trans["Type"],
-                            str(new_trans["Amount"]),
-                            new_trans["Description"],
-                            new_trans["Handler"]
-                        ])
-                    except Exception as e:
-                        st.warning(f"同步失败: {str(e)}")
-                
-                st.success("Transaction recorded successfully!")
-                st.session_state.trans_key_version += 1  # 关键：新增后更新版本号
-                st.rerun()
-
-render_money_transfers()
+        
+        if st.button("提交转账", key=get_key("submit")):
+            new_transfer = {
+                "amount": amount,
+                "recipient": recipient,
+                "category": category,
+                "description": description,
+                "status": "pending"
+            }
+            st.session_state[namespace]["records"].append(new_transfer)
+            st.session_state[namespace]["pending"].append(new_transfer)
+            st.success("转账记录已添加")
+    
+    # 展示转账记录
+    st.subheader("转账记录")
+    if st.session_state[namespace]["records"]:
+        for i, transfer in enumerate(st.session_state[namespace]["records"]):
+            with st.container():
+                st.write(f"**编号**: {i+1}")
+                st.write(f"**金额**: ¥{transfer['amount']}")
+                st.write(f"**接收方**: {transfer['recipient']}")
+                st.write(f"**状态**: {transfer['status']}")
+                st.divider()
+    else:
+        st.info("暂无转账记录")
