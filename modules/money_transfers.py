@@ -1,65 +1,209 @@
+# modules/money_transfers.py
 import streamlit as st
+from datetime import datetime
+import uuid
+import sys
+import os
 
-def render_money_transfers(namespace):
-    """转账模块渲染函数，使用命名空间隔离状态"""
-    st.header("资金转账管理")
+# 解决根目录模块导入问题
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+# 导入Google Sheets工具类
+from google_sheet_utils import GoogleSheetHandler
+
+def render_money_transfers():
+    """渲染转账模块界面（tra_前缀命名空间）"""
+    st.header("💸 Money Transfers")
+    st.markdown("---")
+
+    # 初始化Google Sheets连接
+    sheet_handler = None
+    transfers_sheet = None
+    try:
+        sheet_handler = GoogleSheetHandler(credentials_path="")
+        transfers_sheet = sheet_handler.get_worksheet(
+            spreadsheet_name="Student",
+            worksheet_name="MoneyTransfers"
+        )
+    except Exception as e:
+        st.error(f"Google Sheets 初始化失败: {str(e)}")
+
+    # 从Google Sheets同步数据（使用tra_records状态）
+    if transfers_sheet and sheet_handler and (not st.session_state.tra_records):
+        try:
+            all_data = transfers_sheet.get_all_values()
+            expected_headers = ["uuid", "date", "type", "amount", "description", "handler"]
+            
+            # 检查表头
+            if not all_data or all_data[0] != expected_headers:
+                transfers_sheet.clear()
+                transfers_sheet.append_row(expected_headers)
+                records = []
+            else:
+                # 处理数据（跳过表头）
+                records = [
+                    {
+                        "uuid": row[0],
+                        "date": datetime.strptime(row[1], "%Y-%m-%d").date(),
+                        "type": row[2],
+                        "amount": float(row[3]),
+                        "description": row[4],
+                        "handler": row[5]
+                    } 
+                    for row in all_data[1:] 
+                    if row[0]  # 确保UUID不为空
+                ]
+            
+            st.session_state.tra_records = records
+        except Exception as e:
+            st.warning(f"数据同步失败: {str(e)}")
+
+    # ---------------------- 删除最后一笔交易（管理员）----------------------
+    admin_password = st.text_input(
+        "Admin Password (for delete operation)",
+        type="password",
+        key="tra_input_delete_pwd"  # 层级化Key：tra_模块_输入组件_删除密码
+    )
     
-    # 生成带命名空间的key
-    def get_key(name):
-        return f"{namespace}_{name}"
-    
-    # 初始化当前模块的会话状态（如果需要）
-    if "initialized" not in st.session_state[namespace]:
-        st.session_state[namespace]["initialized"] = True
-    
-    # 转账表单
-    with st.expander("新增转账记录", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            amount = st.number_input(
-                "转账金额", 
-                min_value=0.01, 
-                step=0.01, 
-                key=get_key("amount")
-            )
-        with col2:
-            recipient = st.text_input(
-                "接收方", 
-                key=get_key("recipient")
-            )
-        with col3:
-            category = st.selectbox(
-                "转账类别", 
-                st.session_state[namespace]["categories"],
-                key=get_key("category")
-            )
+    if admin_password == st.session_state.sys_admin_password:
+        if st.button("Delete Last Transaction", key="tra_btn_delete_last", use_container_width=True):
+            if not st.session_state.tra_records:
+                st.warning("No transactions to delete!")
+                return
+            
+            # 删除本地最后一笔记录
+            deleted_trans = st.session_state.tra_records.pop()
+            
+            # 同步删除Google Sheets记录
+            if transfers_sheet and sheet_handler:
+                try:
+                    # 根据UUID查找并删除行
+                    cell = transfers_sheet.find(deleted_trans["uuid"])
+                    if cell:
+                        transfers_sheet.delete_rows(cell.row)
+                    st.success("Last transaction deleted successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.warning(f"同步删除失败: {str(e)}")
+    elif admin_password != "":
+        st.error("Incorrect admin password. Delete operation denied.")
+
+    st.markdown("---")
+
+    # ---------------------- 交易历史展示 ----------------------
+    st.subheader("Transaction History")
+    if not st.session_state.tra_records:
+        st.info("No financial transactions recorded yet")
+    else:
+        # 准备表格数据
+        table_data = []
+        for idx, trans in enumerate(st.session_state.tra_records, 1):
+            table_data.append({
+                "No.": idx,
+                "Date": trans["date"].strftime("%Y-%m-%d"),
+                "Amount ($)": trans["amount"],
+                "Type": trans["type"],
+                "Description": trans["description"],
+                "Handled By": trans["handler"]
+            })
         
-        description = st.text_area(
-            "转账说明", 
-            key=get_key("description")
+        # 渲染表格（带货币格式化）
+        st.dataframe(
+            table_data,
+            column_config={"Amount ($)": st.column_config.NumberColumn(format="$%.2f")},
+            hide_index=True,
+            use_container_width=True
+        )
+
+        # 显示汇总信息
+        total_income = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Income")
+        total_expense = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Expense")
+        net_balance = total_income - total_expense
+        
+        st.markdown(f"""
+        <div style='margin-top: 1rem; padding: 1rem; background-color: #f8f9fa; border-radius: 8px;'>
+            <strong>Summary:</strong><br>
+            Total Income: ${total_income:.2f} | 
+            Total Expense: ${total_expense:.2f} | 
+            Net Balance: ${net_balance:.2f}
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.write("=" * 50)
+
+    # ---------------------- 新增交易 ----------------------
+    st.subheader("Record New Transaction")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        trans_date = st.date_input(
+            "Transaction Date", 
+            value=datetime.today(),
+            key="tra_input_date"  # 层级化Key：tra_模块_输入组件_日期
         )
         
-        if st.button("提交转账", key=get_key("submit")):
-            new_transfer = {
-                "amount": amount,
-                "recipient": recipient,
-                "category": category,
-                "description": description,
-                "status": "pending"
-            }
-            st.session_state[namespace]["records"].append(new_transfer)
-            st.session_state[namespace]["pending"].append(new_transfer)
-            st.success("转账记录已添加")
+        amount = st.number_input(
+            "Amount ($)", 
+            min_value=0.01, 
+            step=0.01, 
+            value=100.00,
+            key="tra_input_amount"  # 层级化Key：tra_模块_输入组件_金额
+        )
+        
+        trans_type = st.radio(
+            "Transaction Type", 
+            ["Income", "Expense"], 
+            index=0,
+            key="tra_radio_type"  # 层级化Key：tra_模块_单选框_类型
+        )
     
-    # 展示转账记录
-    st.subheader("转账记录")
-    if st.session_state[namespace]["records"]:
-        for i, transfer in enumerate(st.session_state[namespace]["records"]):
-            with st.container():
-                st.write(f"**编号**: {i+1}")
-                st.write(f"**金额**: ¥{transfer['amount']}")
-                st.write(f"**接收方**: {transfer['recipient']}")
-                st.write(f"**状态**: {transfer['status']}")
-                st.divider()
-    else:
-        st.info("暂无转账记录")
+    with col2:
+        description = st.text_input(
+            "Description", 
+            value="Fundraiser proceeds",
+            key="tra_input_desc"  # 层级化Key：tra_模块_输入组件_描述
+        ).strip()
+        
+        handler = st.text_input(
+            "Handled By", 
+            value="",
+            key="tra_input_handler"  # 层级化Key：tra_模块_输入组件_处理人
+        ).strip()
+
+    # 记录交易按钮
+    if st.button("Record Transaction", key="tra_btn_record", use_container_width=True, type="primary"):
+        # 验证必填字段
+        if not description or not handler:
+            st.error("Description and Handled By are required fields!")
+            return
+        
+        # 创建新交易记录
+        new_trans = {
+            "uuid": str(uuid.uuid4()),  # 生成唯一标识
+            "date": trans_date,
+            "type": trans_type,
+            "amount": round(amount, 2),
+            "description": description,
+            "handler": handler
+        }
+        
+        # 更新本地状态
+        st.session_state.tra_records.append(new_trans)
+        
+        # 同步到Google Sheets
+        if transfers_sheet and sheet_handler:
+            try:
+                transfers_sheet.append_row([
+                    new_trans["uuid"],
+                    new_trans["date"].strftime("%Y-%m-%d"),
+                    new_trans["type"],
+                    str(new_trans["amount"]),
+                    new_trans["description"],
+                    new_trans["handler"]
+                ])
+                st.success("Transaction recorded successfully!")
+                st.rerun()
+            except Exception as e:
+                st.warning(f"同步到Google Sheets失败: {str(e)}")
