@@ -14,13 +14,13 @@ if ROOT_DIR not in sys.path:
 from google_sheet_utils import GoogleSheetHandler
 
 def render_money_transfers():
-    # 初始化会话状态
+    # 初始化会话状态（确保每次加载都正确初始化）
     if 'money_transfers' not in st.session_state:
         st.session_state.money_transfers = []
     
-    # 生成全局唯一标识
+    # 生成全局唯一标识（确保只初始化一次，且格式简单）
     if 'global_unique_id' not in st.session_state:
-        st.session_state.global_unique_id = uuid.uuid4().hex
+        st.session_state.global_unique_id = uuid.uuid4().hex  # 32位纯字母数字
     
     # 初始化Google Sheets连接
     sheet_handler = None
@@ -34,7 +34,7 @@ def render_money_transfers():
     except Exception as e:
         st.error(f"Google Sheets初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据（只在首次加载或数据为空时）
+    # 从Google Sheets同步数据
     if transfers_sheet and not st.session_state.money_transfers:
         try:
             time.sleep(0.1)
@@ -73,7 +73,6 @@ def render_money_transfers():
             for col, header in zip(cols, headers):
                 col.write(f"**{header}**")
             
-            # 显示交易记录和删除按钮
             for idx, trans in enumerate(st.session_state.money_transfers):
                 with st.container():
                     row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
@@ -86,65 +85,70 @@ def render_money_transfers():
                     row_cols[4].write(trans["Description"])
                     row_cols[5].write(trans["Handler"])
                     
-                    # 简化删除按钮key（使用记录uuid确保唯一性）
-                    delete_key = f"delete_{trans['uuid']}"
-                    if row_cols[6].button("Delete", key=delete_key, use_container_width=True):
-                        # 更新本地状态
+                    # 生成唯一key
+                    unique_key = f"del_{st.session_state.global_unique_id}_{trans['uuid']}_{idx}_{uuid.uuid4().hex[:4]}"
+                    
+                    # 删除按钮
+                    if row_cols[6].button(
+                        "Delete", 
+                        key=unique_key, 
+                        use_container_width=True
+                    ):
+                        # 删除逻辑
                         st.session_state.money_transfers = [
                             t for t in st.session_state.money_transfers 
                             if t["uuid"] != trans["uuid"]
                         ]
                         
-                        # 同步到Google Sheets
-                        if transfers_sheet:
+                        if transfers_sheet and sheet_handler:
                             try:
                                 cell = transfers_sheet.find(trans["uuid"])
                                 if cell:
                                     transfers_sheet.delete_rows(cell.row)
                             except Exception as e:
-                                st.warning(f"删除同步失败: {str(e)}")
+                                st.warning(f"同步删除失败: {str(e)}")
                         
                         st.success("Transaction deleted successfully!")
-                        # 使用更可靠的刷新方式
-                        st.experimental_rerun()
+                        st.rerun()  # 使用当前版本的rerun函数
         
         st.write("---")
 
     st.write("=" * 50)
 
-    # 新增交易区域（使用固定表单key，避免随机生成导致的问题）
-    with st.form(key="transaction_form"):
+    # 新增交易区域
+    form_key = f"new_trans_{st.session_state.global_unique_id}_{uuid.uuid4().hex[:8]}"
+    with st.form(key=form_key):
         st.subheader("Record New Transaction")
         col1, col2 = st.columns(2)
         with col1:
             trans_date = st.date_input(
                 "Transaction Date", 
                 value=datetime.today(), 
-                key="trans_date"
+                key=f"date_{st.session_state.global_unique_id}_{uuid.uuid4().hex[:4]}"
             )
             amount = st.number_input(
                 "Amount ($)", 
                 min_value=0.01, 
                 step=0.01, 
                 value=100.00, 
-                key="trans_amount"
+                key=f"amount_{st.session_state.global_unique_id}_{uuid.uuid4().hex[:4]}"
             )
             trans_type = st.radio(
                 "Transaction Type", 
                 ["Income", "Expense"], 
                 index=0, 
-                key="trans_type"
+                key=f"type_{st.session_state.global_unique_id}_{uuid.uuid4().hex[:4]}"
             )
         with col2:
             desc = st.text_input(
                 "Description", 
                 value="Fundraiser proceeds", 
-                key="trans_desc"
+                key=f"desc_{st.session_state.global_unique_id}_{uuid.uuid4().hex[:4]}"
             ).strip()
             handler = st.text_input(
                 "Handled By", 
                 value="Pikachu Da Best", 
-                key="trans_handler"
+                key=f"handler_{st.session_state.global_unique_id}_{uuid.uuid4().hex[:4]}"
             ).strip()
 
         submit = st.form_submit_button(
@@ -165,11 +169,9 @@ def render_money_transfers():
                     "Description": desc,
                     "Handler": handler
                 }
-                # 更新本地状态
                 st.session_state.money_transfers.append(new_trans)
                 
-                # 同步到Google Sheets
-                if transfers_sheet:
+                if transfers_sheet and sheet_handler:
                     try:
                         transfers_sheet.append_row([
                             new_trans["uuid"],
@@ -183,6 +185,6 @@ def render_money_transfers():
                         st.warning(f"同步失败: {str(e)}")
                 
                 st.success("Transaction recorded successfully!")
-                st.experimental_rerun()
+                st.rerun()  # 使用当前版本的rerun函数
 
 render_money_transfers()
