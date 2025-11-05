@@ -7,14 +7,12 @@ ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# 导入Google Sheets工具类
+# 导入工具类和功能模块
 from google_sheet_utils import GoogleSheetHandler
-
-# 导入功能模块（新增attendance模块）
 from modules.calendar import render_calendar
 from modules.announcements import render_announcements
 from modules.financial_planning import render_financial_planning
-from modules.attendance import render_attendance  # 新增考勤模块
+from modules.attendance import render_attendance
 from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
 
@@ -25,47 +23,73 @@ st.set_page_config(
     layout="wide"
 )
 
-# 初始化会话状态（添加考勤相关状态）
+# 初始化会话状态（采用命名空间隔离）
 if 'initialized' not in st.session_state:
-    st.session_state.calendar_events = []
-    st.session_state.announcements = []
-    st.session_state.financial_records = []
-    st.session_state.scheduled_events = []
-    st.session_state.occasional_events = []
-    st.session_state.money_transfers = []
-    st.session_state.groups = []
-    st.session_state.group_members = []
-    st.session_state.attendance_events = []  # 考勤事件
-    st.session_state.attendance_records = []  # 考勤记录
-    st.session_state.members = []  # 成员列表
+    # 日历模块命名空间
+    st.session_state.calendar = {
+        "events": [],
+        "scheduled": [],
+        "occasional": []
+    }
+    
+    # 公告模块命名空间
+    st.session_state.announcements = {
+        "items": []
+    }
+    
+    # 财务规划模块命名空间
+    st.session_state.financial_planning = {
+        "records": []
+    }
+    
+    # 考勤模块命名空间
+    st.session_state.attendance = {
+        "events": [],
+        "records": [],
+        "members": []
+    }
+    
+    # 转账模块命名空间
+    st.session_state.money_transfers = {
+        "records": [],
+        "categories": [],
+        "pending": []
+    }
+    
+    # 群组模块命名空间
+    st.session_state.groups = {
+        "items": [],
+        "members": []
+    }
+    
     st.session_state.initialized = True
 
 # 主标题
 st.title("Student Council Management System")
 
-# 功能选项卡（将Attendance放在Money Transfers左边）
+# 功能选项卡（保持原有顺序）
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📅 Calendar",
     "📢 Announcements",
     "💰 Financial Planning",
-    "📋 Attendance",  # 新增考勤选项卡
+    "📋 Attendance",
     "💸 Money Transfers",
     "👥 Groups"
 ])
 
-# 渲染各功能模块
+# 渲染各功能模块（传递模块命名空间前缀）
 with tab1:
-    render_calendar()
+    render_calendar(namespace="calendar")
 with tab2:
-    render_announcements()
+    render_announcements(namespace="announcements")
 with tab3:
-    render_financial_planning()
-with tab4:  # 考勤模块
-    render_attendance()
+    render_financial_planning(namespace="financial_planning")
+with tab4:
+    render_attendance(namespace="attendance")
 with tab5:
-    render_money_transfers()
+    render_money_transfers(namespace="money_transfers")
 with tab6:
-    render_groups()
+    render_groups(namespace="groups")
 
 # 页脚信息
 st.sidebar.markdown("---")
