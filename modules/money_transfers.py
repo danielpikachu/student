@@ -69,7 +69,7 @@ def render_money_transfers():
                 col.write(f"**{header}**")
             
             # 显示每条交易记录及删除按钮
-            # 复制列表避免迭代时修改导致的问题
+            # 迭代副本以避免修改原列表时的索引问题
             for idx, trans in enumerate(list(st.session_state.money_transfers)):
                 row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
                 
@@ -81,7 +81,7 @@ def render_money_transfers():
                 row_cols[4].write(trans["Description"])
                 row_cols[5].write(trans["Handler"])
                 
-                # 仅使用记录自身的uuid作为唯一key（最可靠的方式）
+                # 仅使用记录自身的uuid作为唯一key（最可靠）
                 unique_key = f"delete_{trans['uuid']}"
                 
                 # 删除按钮
@@ -90,7 +90,7 @@ def render_money_transfers():
                     key=unique_key, 
                     use_container_width=True
                 ):
-                    # 通过uuid删除记录（避免索引变化导致的错误）
+                    # 通过uuid删除本地数据（避免依赖索引）
                     st.session_state.money_transfers = [
                         t for t in st.session_state.money_transfers 
                         if t["uuid"] != trans["uuid"]
