@@ -51,6 +51,7 @@ def add_custom_css():
     """, unsafe_allow_html=True)
 
 def render_calendar():
+    ns = "calendar"  # 日历模块命名空间
     add_custom_css()
     st.header("📅 Event Calendar")
     st.divider()
@@ -68,24 +69,21 @@ def render_calendar():
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据到本地会话状态（从第二行开始读取）
-    if calendar_sheet and ('calendar_events' not in st.session_state or not st.session_state.calendar_events):
+    # 从Google Sheets同步数据到本地会话状态
+    if calendar_sheet and (f"{ns}_events" not in st.session_state or not st.session_state[f"{ns}_events"]):
         try:
-            # 获取所有数据（包含表头）
             all_data = calendar_sheet.get_all_values()
             
             # 检查是否有表头，没有则创建表头
             if not all_data or all_data[0] != ["date", "event"]:
-                # 清除现有数据并设置表头
                 calendar_sheet.clear()
                 calendar_sheet.append_row(["date", "event"])
                 records = []
             else:
-                # 跳过表头，处理从第二行开始的数据
                 records = [{"Date": row[0], "Description": row[1]} for row in all_data[1:] if row[0] and row[1]]
             
             # 转换为本地事件格式
-            st.session_state.calendar_events = [
+            st.session_state[f"{ns}_events"] = [
                 {
                     "Date": datetime.strptime(record["Date"], "%Y-%m-%d").date(),
                     "Description": record["Description"]
@@ -96,34 +94,44 @@ def render_calendar():
             st.warning(f"数据同步失败: {str(e)}")
 
     # 月份导航逻辑
-    if 'current_month' not in st.session_state:
-        st.session_state.current_month = datetime.today().replace(day=1)
+    if f"{ns}_current_month" not in st.session_state:
+        st.session_state[f"{ns}_current_month"] = datetime.today().replace(day=1)
 
     # 月份切换按钮
     col_prev, col_title, col_next = st.columns([1, 3, 1])
     with col_prev:
-        if st.button("← Previous", use_container_width=True, type="secondary"):
-            prev_month = st.session_state.current_month.month - 1
-            prev_year = st.session_state.current_month.year
+        if st.button(
+            "← Previous", 
+            use_container_width=True, 
+            type="secondary",
+            key=f"{ns}_prev_btn"  # 前一个月按钮
+        ):
+            prev_month = st.session_state[f"{ns}_current_month"].month - 1
+            prev_year = st.session_state[f"{ns}_current_month"].year
             if prev_month == 0:
                 prev_month = 12
                 prev_year -= 1
-            st.session_state.current_month = datetime(prev_year, prev_month, 1)
+            st.session_state[f"{ns}_current_month"] = datetime(prev_year, prev_month, 1)
     
     with col_title:
-        st.markdown(f"### {st.session_state.current_month.strftime('%B %Y')}")
+        st.markdown(f"### {st.session_state[f'{ns}_current_month'].strftime('%B %Y')}")
     
     with col_next:
-        if st.button("Next →", use_container_width=True, type="secondary"):
-            next_month = st.session_state.current_month.month + 1
-            next_year = st.session_state.current_month.year
+        if st.button(
+            "Next →", 
+            use_container_width=True, 
+            type="secondary",
+            key=f"{ns}_next_btn"  # 下一个月按钮
+        ):
+            next_month = st.session_state[f"{ns}_current_month"].month + 1
+            next_year = st.session_state[f"{ns}_current_month"].year
             if next_month == 13:
                 next_month = 1
                 next_year += 1
-            st.session_state.current_month = datetime(next_year, next_month, 1)
+            st.session_state[f"{ns}_current_month"] = datetime(next_year, next_month, 1)
 
     # 计算日历网格数据
-    year, month = st.session_state.current_month.year, st.session_state.current_month.month
+    year, month = st.session_state[f"{ns}_current_month"].year, st.session_state[f"{ns}_current_month"].month
     first_day = datetime(year, month, 1)
     if month < 12:
         last_day = datetime(year, month + 1, 1) - timedelta(days=1)
@@ -134,8 +142,8 @@ def render_calendar():
 
     # 映射日期到事件
     date_events = {}
-    if 'calendar_events' in st.session_state:
-        for event in st.session_state.calendar_events:
+    if f"{ns}_events" in st.session_state:
+        for event in st.session_state[f"{ns}_events"]:
             date_key = event["Date"].strftime("%Y-%m-%d")
             date_events[date_key] = event["Description"]
 
@@ -189,14 +197,15 @@ def render_calendar():
             selected_date = st.date_input(
                 "Select Date",
                 value=datetime.today(),
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key=f"{ns}_date_input"  # 日期选择器
             )
         
         with col_desc:
             event_desc = ""
-            if 'calendar_events' in st.session_state:
+            if f"{ns}_events" in st.session_state:
                 existing_event = next(
-                    (e for e in st.session_state.calendar_events 
+                    (e for e in st.session_state[f"{ns}_events"] 
                      if e["Date"] == selected_date),
                     None
                 )
@@ -208,35 +217,41 @@ def render_calendar():
                 value=event_desc,
                 max_chars=100,
                 placeholder="Enter event details...",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key=f"{ns}_desc_area"  # 事件描述文本框
             )
         
         col_save, col_delete = st.columns(2)
         with col_save:
-            if st.button("💾 SAVE EVENT", use_container_width=True, type="primary", key="save_event"):
+            if st.button(
+                "💾 SAVE EVENT", 
+                use_container_width=True, 
+                type="primary", 
+                key=f"{ns}_save_btn"  # 保存按钮
+            ):
                 if not event_desc.strip():
                     st.error("Event description cannot be empty!")
                 else:
-                    if 'calendar_events' not in st.session_state:
-                        st.session_state.calendar_events = []
-                    st.session_state.calendar_events = [
-                        e for e in st.session_state.calendar_events 
+                    if f"{ns}_events" not in st.session_state:
+                        st.session_state[f"{ns}_events"] = []
+                    st.session_state[f"{ns}_events"] = [
+                        e for e in st.session_state[f"{ns}_events"] 
                         if e["Date"] != selected_date
                     ]
-                    st.session_state.calendar_events.append({
+                    st.session_state[f"{ns}_events"].append({
                         "Date": selected_date,
                         "Description": event_desc.strip()
                     })
 
                     if calendar_sheet and sheet_handler:
                         try:
-                            # 删除同日期的旧记录（从第二行开始搜索）
+                            # 删除同日期的旧记录
                             all_rows = calendar_sheet.get_all_values()
-                            for i, row in enumerate(all_rows[1:], start=2):  # 行索引从2开始（跳过表头）
+                            for i, row in enumerate(all_rows[1:], start=2):
                                 if row[0] == str(selected_date):
                                     calendar_sheet.delete_rows(i)
                             
-                            # 追加新记录（会自动添加到最后一行）
+                            # 追加新记录
                             calendar_sheet.append_row([str(selected_date), event_desc.strip()])
                         except Exception as e:
                             st.warning(f"同步到Google Sheets失败: {str(e)}")
@@ -245,17 +260,20 @@ def render_calendar():
                     st.rerun()
         
         with col_delete:
-            if st.button("🗑️ DELETE EVENT", use_container_width=True, key="delete_event"):
-                if 'calendar_events' in st.session_state:
+            if st.button(
+                "🗑️ DELETE EVENT", 
+                use_container_width=True, 
+                key=f"{ns}_delete_btn"  # 删除按钮
+            ):
+                if f"{ns}_events" in st.session_state:
                     deleted_date = selected_date
-                    st.session_state.calendar_events = [
-                        e for e in st.session_state.calendar_events 
+                    st.session_state[f"{ns}_events"] = [
+                        e for e in st.session_state[f"{ns}_events"] 
                         if e["Date"] != deleted_date
                     ]
 
                     if calendar_sheet and sheet_handler:
                         try:
-                            # 从第二行开始删除
                             all_rows = calendar_sheet.get_all_values()
                             for i, row in enumerate(all_rows[1:], start=2):
                                 if row[0] == str(deleted_date):
