@@ -13,6 +13,10 @@ if ROOT_DIR not in sys.path:
 from google_sheet_utils import GoogleSheetHandler
 
 def render_money_transfers():
+    # 初始化会话状态（确保money_transfers存在）
+    if 'money_transfers' not in st.session_state:
+        st.session_state.money_transfers = []
+    
     # 初始化Google Sheets连接
     sheet_handler = None
     transfers_sheet = None
@@ -25,8 +29,8 @@ def render_money_transfers():
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据到本地会话状态
-    if transfers_sheet and ('money_transfers' not in st.session_state or not st.session_state.money_transfers):
+    # 从Google Sheets同步数据到本地会话状态（仅在本地为空时同步）
+    if transfers_sheet and not st.session_state.money_transfers:
         try:
             all_data = transfers_sheet.get_all_values()
             
@@ -56,46 +60,50 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 显示表头
-        cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
-        headers = ["No.", "Date", "Amount ($)", "Type", "Description", "Handled By", "Action"]
-        for col, header in zip(cols, headers):
-            col.write(f"**{header}**")
-        
-        # 显示每条交易记录及删除按钮
-        for idx, trans in enumerate(st.session_state.money_transfers):
-            # 为每行创建独立的列对象
-            row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
+        # 使用容器包裹表格，避免渲染冲突
+        with st.container():
+            # 显示表头
+            cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
+            headers = ["No.", "Date", "Amount ($)", "Type", "Description", "Handled By", "Action"]
+            for col, header in zip(cols, headers):
+                col.write(f"**{header}**")
             
-            # 显示交易数据
-            row_cols[0].write(idx + 1)
-            row_cols[1].write(trans["Date"].strftime("%Y-%m-%d"))
-            row_cols[2].write(f"${trans['Amount']:.2f}")
-            row_cols[3].write(trans["Type"])
-            row_cols[4].write(trans["Description"])
-            row_cols[5].write(trans["Handler"])
+            # 为每条记录生成唯一标识符（结合时间戳和uuid）
+            render_id = str(uuid.uuid4())[:8]  # 生成本次渲染的唯一标识
             
-            # 生成绝对唯一的key：结合模块名、功能、索引和uuid
-            unique_key = f"mt_delete_row_{idx}_{trans['uuid']}"
-            
-            # 删除按钮
-            if row_cols[6].button(
-                "Delete", 
-                key=unique_key, 
-                use_container_width=True
-            ):
-                # 删除本地数据
-                st.session_state.money_transfers.pop(idx)
-                # 同步删除Google Sheet数据
-                if transfers_sheet and sheet_handler:
-                    try:
-                        cell = transfers_sheet.find(trans["uuid"])
-                        if cell:
-                            transfers_sheet.delete_rows(cell.row)
-                    except Exception as e:
-                        st.warning(f"同步删除失败: {str(e)}")
-                st.success("Transaction deleted successfully!")
-                st.rerun()
+            # 显示每条交易记录及删除按钮
+            for idx, trans in enumerate(st.session_state.money_transfers):
+                row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
+                
+                # 显示交易数据
+                row_cols[0].write(idx + 1)
+                row_cols[1].write(trans["Date"].strftime("%Y-%m-%d"))
+                row_cols[2].write(f"${trans['Amount']:.2f}")
+                row_cols[3].write(trans["Type"])
+                row_cols[4].write(trans["Description"])
+                row_cols[5].write(trans["Handler"])
+                
+                # 生成绝对唯一的key：渲染ID + 索引 + 记录UUID
+                unique_key = f"mt_del_{render_id}_{idx}_{trans['uuid']}"
+                
+                # 删除按钮
+                if row_cols[6].button(
+                    "Delete", 
+                    key=unique_key, 
+                    use_container_width=True
+                ):
+                    # 删除本地数据
+                    st.session_state.money_transfers.pop(idx)
+                    # 同步删除Google Sheet数据
+                    if transfers_sheet and sheet_handler:
+                        try:
+                            cell = transfers_sheet.find(trans["uuid"])
+                            if cell:
+                                transfers_sheet.delete_rows(cell.row)
+                        except Exception as e:
+                            st.warning(f"同步删除失败: {str(e)}")
+                    st.success("Transaction deleted successfully!")
+                    st.rerun()
         
         st.write("---")
 
@@ -105,14 +113,14 @@ def render_money_transfers():
     st.subheader("Record New Transaction")
     col1, col2 = st.columns(2)
     with col1:
-        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="mt_date_transaction")
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="mt_num_amount")
-        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="mt_radio_type")
+        trans_date = st.date_input("Transaction Date", value=datetime.today(), key="mt_date")
+        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, value=100.00, key="mt_amount")
+        trans_type = st.radio("Transaction Type", ["Income", "Expense"], index=0, key="mt_type")
     with col2:
-        desc = st.text_input("Description", value="Fundraiser proceeds", key="mt_txt_description").strip()
-        handler = st.text_input("Handled By", value="Pikachu Da Best", key="mt_txt_handler").strip()
+        desc = st.text_input("Description", value="Fundraiser proceeds", key="mt_desc").strip()
+        handler = st.text_input("Handled By", value="Pikachu Da Best", key="mt_handler").strip()
 
-    if st.button("Record Transaction", key="mt_btn_record_transaction", use_container_width=True, type="primary"):
+    if st.button("Record Transaction", key="mt_record", use_container_width=True, type="primary"):
         if not (amount and desc and handler):
             st.error("Required fields: Amount, Description, Handled By!")
         else:
