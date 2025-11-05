@@ -17,8 +17,8 @@ def render_money_transfers():
     # 初始化会话状态
     if 'money_transfers' not in st.session_state:
         st.session_state.money_transfers = []
-    if 'trans_key_counter' not in st.session_state:
-        st.session_state.trans_key_counter = 0  # 用于跟踪交易操作次数
+    if 'trans_key_version' not in st.session_state:
+        st.session_state.trans_key_version = 0  # 用于触发key更新的版本号
 
     # 初始化Google Sheets连接
     sheet_handler = None
@@ -32,7 +32,7 @@ def render_money_transfers():
     except Exception as e:
         st.error(f"Google Sheets初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据（仅首次加载时）
+    # 从Google Sheets同步数据
     if transfers_sheet and not st.session_state.money_transfers:
         try:
             time.sleep(0.1)
@@ -64,18 +64,17 @@ def render_money_transfers():
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        # 使用静态表头key
+        # 表头
         cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
         headers = ["No.", "Date", "Amount ($)", "Type", "Description", "Handled By", "Action"]
         for col, header in zip(cols, headers):
             col.write(f"**{header}**")
         
-        # 为每个记录生成绝对唯一的key
+        # 为每行生成容器
         for idx, trans in enumerate(st.session_state.money_transfers):
-            # 核心修复：使用UUID+索引+计数器组合确保绝对唯一
-            row_key = f"trans_{trans['uuid']}_{idx}_{st.session_state.trans_key_counter}"
-            
-            with st.container(key=row_key):  # 直接使用组合key作为容器key
+            # 关键修复：加入版本号确保数据变化时key完全更新
+            row_key = f"trans_{st.session_state.trans_key_version}_{trans['uuid']}_{idx}"
+            with st.container(key=row_key):
                 row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
                 
                 # 显示数据
@@ -86,14 +85,9 @@ def render_money_transfers():
                 row_cols[4].write(trans["Description"])
                 row_cols[5].write(trans["Handler"])
                 
-                # 删除按钮key：基于容器key确保唯一
+                # 删除按钮key
                 delete_key = f"{row_key}_delete"
-                
-                if row_cols[6].button(
-                    "Delete", 
-                    key=delete_key, 
-                    use_container_width=True
-                ):
+                if row_cols[6].button("Delete", key=delete_key, use_container_width=True):
                     # 删除本地记录
                     st.session_state.money_transfers = [
                         t for t in st.session_state.money_transfers 
@@ -110,15 +104,15 @@ def render_money_transfers():
                             st.warning(f"同步删除失败: {str(e)}")
                     
                     st.success("Transaction deleted successfully!")
-                    st.session_state.trans_key_counter += 1  # 有变动时更新计数器
+                    st.session_state.trans_key_version += 1  # 关键：删除后更新版本号
                     st.rerun()
-
+        
         st.write("---")
 
     st.write("=" * 50)
 
-    # 新增交易区域（使用计数器确保表单key稳定更新）
-    form_key = f"new_trans_form_{st.session_state.trans_key_counter}"
+    # 新增交易区域
+    form_key = f"new_trans_{st.session_state.trans_key_version}"
     with st.form(key=form_key):
         st.subheader("Record New Transaction")
         col1, col2 = st.columns(2)
@@ -126,31 +120,31 @@ def render_money_transfers():
             trans_date = st.date_input(
                 "Transaction Date", 
                 value=datetime.today(), 
-                key=f"trans_date_{form_key}"
+                key=f"{form_key}_date"
             )
             amount = st.number_input(
                 "Amount ($)", 
                 min_value=0.01, 
                 step=0.01, 
                 value=100.00, 
-                key=f"trans_amount_{form_key}"
+                key=f"{form_key}_amount"
             )
             trans_type = st.radio(
                 "Transaction Type", 
                 ["Income", "Expense"], 
                 index=0, 
-                key=f"trans_type_{form_key}"
+                key=f"{form_key}_type"
             )
         with col2:
             desc = st.text_input(
                 "Description", 
                 value="Fundraiser proceeds", 
-                key=f"trans_desc_{form_key}"
+                key=f"{form_key}_desc"
             ).strip()
             handler = st.text_input(
                 "Handled By", 
                 value="Pikachu Da Best", 
-                key=f"trans_handler_{form_key}"
+                key=f"{form_key}_handler"
             ).strip()
 
         submit = st.form_submit_button(
@@ -164,7 +158,7 @@ def render_money_transfers():
                 st.error("Required fields: Amount, Description, Handled By!")
             else:
                 new_trans = {
-                    "uuid": str(uuid.uuid4()),  # 生成唯一标识
+                    "uuid": str(uuid.uuid4()),
                     "Date": trans_date,
                     "Type": trans_type,
                     "Amount": round(amount, 2),
@@ -187,7 +181,7 @@ def render_money_transfers():
                         st.warning(f"同步失败: {str(e)}")
                 
                 st.success("Transaction recorded successfully!")
-                st.session_state.trans_key_counter += 1  # 有新交易时更新计数器
+                st.session_state.trans_key_version += 1  # 关键：新增后更新版本号
                 st.rerun()
 
 render_money_transfers()
