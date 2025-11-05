@@ -3,6 +3,7 @@ from datetime import datetime
 import uuid
 import sys
 import os
+import time  # 新增：用于生成时间戳增强唯一性
 
 # 解决根目录模块导入问题
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -13,13 +14,14 @@ if ROOT_DIR not in sys.path:
 from google_sheet_utils import GoogleSheetHandler
 
 def render_money_transfers():
-    # 初始化会话状态（确保money_transfers存在）
+    # 强制初始化会话状态（确保每次加载都重置基础状态）
     if 'money_transfers' not in st.session_state:
         st.session_state.money_transfers = []
     
-    # 生成模块级唯一标识（整个模块只生成一次）
-    if 'module_uuid' not in st.session_state:
-        st.session_state.module_uuid = str(uuid.uuid4())
+    # 生成全局唯一的模块标识（结合时间戳和UUID，确保在线环境不重复）
+    if 'global_unique_id' not in st.session_state:
+        # 时间戳+随机UUID，最大限度避免冲突
+        st.session_state.global_unique_id = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
     
     # 初始化Google Sheets连接
     sheet_handler = None
@@ -33,9 +35,10 @@ def render_money_transfers():
     except Exception as e:
         st.error(f"Google Sheets初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据（仅在本地为空时）
+    # 从Google Sheets同步数据（添加延迟避免在线环境加载冲突）
     if transfers_sheet and not st.session_state.money_transfers:
         try:
+            time.sleep(0.1)  # 轻微延迟，避免在线环境并发问题
             all_data = transfers_sheet.get_all_values()
             
             if not all_data or all_data[0] != ["uuid", "date", "type", "amount", "description", "handler"]:
@@ -59,12 +62,13 @@ def render_money_transfers():
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # 显示交易历史
+    # 显示交易历史（使用表单包裹避免在线环境渲染冲突）
     st.subheader("Transaction History")
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        with st.container():
+        # 用表单包裹所有删除按钮，强制Streamlit重新计算key
+        with st.form(key=f"transactions_form_{st.session_state.global_unique_id}"):
             # 表头
             cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
             headers = ["No.", "Date", "Amount ($)", "Type", "Description", "Handled By", "Action"]
@@ -83,17 +87,18 @@ def render_money_transfers():
                 row_cols[4].write(trans["Description"])
                 row_cols[5].write(trans["Handler"])
                 
-                # 生成绝对唯一的key：模块唯一标识 + 记录uuid
-                # 双重保险确保不会与任何其他组件冲突
-                unique_key = f"mt_{st.session_state.module_uuid}_del_{trans['uuid']}"
+                # 生成极端唯一的key：全局标识+记录UUID+索引（三重保险）
+                unique_key = f"del_{st.session_state.global_unique_id}_{trans['uuid']}_{idx}"
                 
-                # 删除按钮
-                if row_cols[6].button(
+                # 删除按钮（使用表单内按钮特性）
+                delete_clicked = row_cols[6].form_submit_button(
                     "Delete", 
                     key=unique_key, 
                     use_container_width=True
-                ):
-                    # 通过uuid删除记录
+                )
+                
+                if delete_clicked:
+                    # 通过UUID删除记录
                     st.session_state.money_transfers = [
                         t for t in st.session_state.money_transfers 
                         if t["uuid"] != trans["uuid"]
@@ -115,75 +120,77 @@ def render_money_transfers():
 
     st.write("=" * 50)
 
-    # 新增交易区域
-    st.subheader("Record New Transaction")
-    col1, col2 = st.columns(2)
-    with col1:
-        # 输入组件key：模块唯一标识 + 功能名
-        trans_date = st.date_input(
-            "Transaction Date", 
-            value=datetime.today(), 
-            key=f"mt_{st.session_state.module_uuid}_date"
-        )
-        amount = st.number_input(
-            "Amount ($)", 
-            min_value=0.01, 
-            step=0.01, 
-            value=100.00, 
-            key=f"mt_{st.session_state.module_uuid}_amount"
-        )
-        trans_type = st.radio(
-            "Transaction Type", 
-            ["Income", "Expense"], 
-            index=0, 
-            key=f"mt_{st.session_state.module_uuid}_type"
-        )
-    with col2:
-        desc = st.text_input(
-            "Description", 
-            value="Fundraiser proceeds", 
-            key=f"mt_{st.session_state.module_uuid}_desc"
-        ).strip()
-        handler = st.text_input(
-            "Handled By", 
-            value="Pikachu Da Best", 
-            key=f"mt_{st.session_state.module_uuid}_handler"
-        ).strip()
+    # 新增交易区域（同样用表单包裹）
+    with st.form(key=f"new_transaction_form_{st.session_state.global_unique_id}"):
+        st.subheader("Record New Transaction")
+        col1, col2 = st.columns(2)
+        with col1:
+            # 输入组件key：全局标识+功能名
+            trans_date = st.date_input(
+                "Transaction Date", 
+                value=datetime.today(), 
+                key=f"date_{st.session_state.global_unique_id}"
+            )
+            amount = st.number_input(
+                "Amount ($)", 
+                min_value=0.01, 
+                step=0.01, 
+                value=100.00, 
+                key=f"amount_{st.session_state.global_unique_id}"
+            )
+            trans_type = st.radio(
+                "Transaction Type", 
+                ["Income", "Expense"], 
+                index=0, 
+                key=f"type_{st.session_state.global_unique_id}"
+            )
+        with col2:
+            desc = st.text_input(
+                "Description", 
+                value="Fundraiser proceeds", 
+                key=f"desc_{st.session_state.global_unique_id}"
+            ).strip()
+            handler = st.text_input(
+                "Handled By", 
+                value="Pikachu Da Best", 
+                key=f"handler_{st.session_state.global_unique_id}"
+            ).strip()
 
-    # 记录按钮
-    if st.button(
-        "Record Transaction", 
-        key=f"mt_{st.session_state.module_uuid}_record", 
-        use_container_width=True, 
-        type="primary"
-    ):
-        if not (amount and desc and handler):
-            st.error("Required fields: Amount, Description, Handled By!")
-        else:
-            new_trans = {
-                "uuid": str(uuid.uuid4()),
-                "Date": trans_date,
-                "Type": trans_type,
-                "Amount": round(amount, 2),
-                "Description": desc,
-                "Handler": handler
-            }
-            st.session_state.money_transfers.append(new_trans)
-            
-            if transfers_sheet and sheet_handler:
-                try:
-                    transfers_sheet.append_row([
-                        new_trans["uuid"],
-                        new_trans["Date"].strftime("%Y-%m-%d"),
-                        new_trans["Type"],
-                        str(new_trans["Amount"]),
-                        new_trans["Description"],
-                        new_trans["Handler"]
-                    ])
-                except Exception as e:
-                    st.warning(f"同步失败: {str(e)}")
-            
-            st.success("Transaction recorded successfully!")
-            st.rerun()
+        # 记录按钮（表单提交按钮）
+        submit = st.form_submit_button(
+            "Record Transaction", 
+            use_container_width=True, 
+            type="primary"
+        )
+
+        if submit:
+            if not (amount and desc and handler):
+                st.error("Required fields: Amount, Description, Handled By!")
+            else:
+                new_trans = {
+                    "uuid": str(uuid.uuid4()),
+                    "Date": trans_date,
+                    "Type": trans_type,
+                    "Amount": round(amount, 2),
+                    "Description": desc,
+                    "Handler": handler
+                }
+                st.session_state.money_transfers.append(new_trans)
+                
+                if transfers_sheet and sheet_handler:
+                    try:
+                        transfers_sheet.append_row([
+                            new_trans["uuid"],
+                            new_trans["Date"].strftime("%Y-%m-%d"),
+                            new_trans["Type"],
+                            str(new_trans["Amount"]),
+                            new_trans["Description"],
+                            new_trans["Handler"]
+                        ])
+                    except Exception as e:
+                        st.warning(f"同步失败: {str(e)}")
+                
+                st.success("Transaction recorded successfully!")
+                st.rerun()
 
 render_money_transfers()
