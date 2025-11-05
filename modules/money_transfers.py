@@ -55,46 +55,47 @@ def render_money_transfers():
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # 修复：使用更独特的key，添加模块缩写+功能描述确保唯一性
-    if st.button("Delete Last Transaction", key="student.modules.money_transfers.button.delete_last.202511051530.12345", use_container_width=True):
-        if st.session_state.money_transfers:
-            # 删除本地数据
-            deleted = st.session_state.money_transfers.pop()
-            # 同步删除Google Sheet数据
-            if transfers_sheet and sheet_handler:
-                try:
-                    # 根据uuid查找并删除行
-                    cell = transfers_sheet.find(deleted["uuid"])
-                    if cell:
-                        transfers_sheet.delete_rows(cell.row)
-                except Exception as e:
-                    st.warning(f"同步删除失败: {str(e)}")
-            st.success("Last transaction deleted successfully!")
-            st.rerun()
-        else:
-            st.warning("No transactions to delete!")
-
-    # 显示交易历史
+    # 显示交易历史（每条记录带删除按钮）
     st.subheader("Transaction History")
     if not st.session_state.money_transfers:
         st.info("No financial transactions recorded yet")
     else:
-        table_data = []
+        # 显示表头
+        cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
+        headers = ["No.", "Date", "Amount ($)", "Type", "Description", "Handled By", "Action"]
+        for col, header in zip(cols, headers):
+            col.write(f"**{header}**")
+        
+        # 显示每条交易记录及删除按钮
         for idx, trans in enumerate(st.session_state.money_transfers):
-            table_data.append({
-                "No.": idx + 1,
-                "Date": trans["Date"].strftime("%Y-%m-%d"),
-                "Amount ($)": trans["Amount"],
-                "Type": trans["Type"],
-                "Description": trans["Description"],
-                "Handled By": trans["Handler"]
-            })
-        st.dataframe(
-            table_data,
-            column_config={"Amount ($)": st.column_config.NumberColumn(format="$%.2f")},
-            hide_index=True,
-            use_container_width=True
-        )
+            cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
+            cols[0].write(idx + 1)  # 序号
+            cols[1].write(trans["Date"].strftime("%Y-%m-%d"))  # 日期
+            cols[2].write(f"${trans['Amount']:.2f}")  # 金额
+            cols[3].write(trans["Type"])  # 类型
+            cols[4].write(trans["Description"])  # 描述
+            cols[5].write(trans["Handler"])  # 处理人
+            
+            # 删除按钮（使用uuid确保key唯一）
+            if cols[6].button(
+                "Delete", 
+                key=f"mt_delete_{trans['uuid']}", 
+                use_container_width=True
+            ):
+                # 删除本地数据
+                st.session_state.money_transfers.pop(idx)
+                # 同步删除Google Sheet数据
+                if transfers_sheet and sheet_handler:
+                    try:
+                        cell = transfers_sheet.find(trans["uuid"])
+                        if cell:
+                            transfers_sheet.delete_rows(cell.row)
+                    except Exception as e:
+                        st.warning(f"同步删除失败: {str(e)}")
+                st.success("Transaction deleted successfully!")
+                st.rerun()
+        
+        st.write("---")  # 表格分隔线
 
     st.write("=" * 50)
 
