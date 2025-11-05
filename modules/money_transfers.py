@@ -14,12 +14,12 @@ if ROOT_DIR not in sys.path:
 from google_sheet_utils import GoogleSheetHandler
 
 def render_money_transfers():
-    # 初始化会话状态（确保每次加载都正确初始化）
+    # 初始化会话状态
     if 'money_transfers' not in st.session_state:
         st.session_state.money_transfers = []
-    if 'last_action' not in st.session_state:
-        st.session_state.last_action = None  # 记录最后操作，用于状态同步
-
+    if 'render_counter' not in st.session_state:
+        st.session_state.render_counter = 0  # 用于跟踪渲染次数，确保key随渲染更新
+    
     # 初始化Google Sheets连接
     sheet_handler = None
     transfers_sheet = None
@@ -32,8 +32,8 @@ def render_money_transfers():
     except Exception as e:
         st.error(f"Google Sheets初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据（仅在首次加载或有操作后同步）
-    if transfers_sheet and (not st.session_state.money_transfers or st.session_state.last_action == "sync"):
+    # 从Google Sheets同步数据（仅首次加载时）
+    if transfers_sheet and not st.session_state.money_transfers:
         try:
             time.sleep(0.1)
             all_data = transfers_sheet.get_all_values()
@@ -56,7 +56,6 @@ def render_money_transfers():
                 ]
             
             st.session_state.money_transfers = records
-            st.session_state.last_action = None  # 重置操作状态
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
@@ -72,7 +71,7 @@ def render_money_transfers():
             for col, header in zip(cols, headers):
                 col.write(f"**{header}**")
             
-            # 为每个记录生成稳定唯一的key（不包含随机数，避免状态丢失）
+            # 为每个记录生成绝对唯一的删除按钮key
             for idx, trans in enumerate(st.session_state.money_transfers):
                 with st.container():
                     row_cols = st.columns([0.5, 1.5, 1.5, 1.2, 2, 1.5, 1.2])
@@ -85,68 +84,74 @@ def render_money_transfers():
                     row_cols[4].write(trans["Description"])
                     row_cols[5].write(trans["Handler"])
                     
-                    # 关键修改：使用固定格式的key（仅包含稳定标识）
-                    delete_key = f"delete_{trans['uuid']}"  # 仅用记录自身的uuid确保唯一
+                    # 关键修复：使用渲染计数器+记录UUID确保每次渲染的key绝对唯一
+                    # 避免Streamlit检测到重复的element key
+                    unique_key = f"del_{st.session_state.render_counter}_{trans['uuid']}_{idx}"
                     
-                    # 删除按钮逻辑
-                    if row_cols[6].button("Delete", key=delete_key, use_container_width=True):
-                        # 1. 先更新本地状态
+                    # 删除按钮
+                    if row_cols[6].button(
+                        "Delete", 
+                        key=unique_key, 
+                        use_container_width=True
+                    ):
+                        # 删除本地记录
                         st.session_state.money_transfers = [
                             t for t in st.session_state.money_transfers 
                             if t["uuid"] != trans["uuid"]
                         ]
                         
-                        # 2. 同步到Google Sheets
-                        if transfers_sheet:
+                        # 同步到Google Sheets
+                        if transfers_sheet and sheet_handler:
                             try:
                                 cell = transfers_sheet.find(trans["uuid"])
                                 if cell:
                                     transfers_sheet.delete_rows(cell.row)
                             except Exception as e:
-                                st.warning(f"删除同步失败: {str(e)}")
+                                st.warning(f"同步删除失败: {str(e)}")
                         
-                        # 3. 更新操作状态并刷新
-                        st.session_state.last_action = "sync"
                         st.success("Transaction deleted successfully!")
+                        st.session_state.render_counter += 1  # 更新计数器确保下次渲染key变化
                         st.rerun()
         
         st.write("---")
 
     st.write("=" * 50)
 
-    # 新增交易区域（使用固定表单key，避免随机生成导致状态丢失）
-    with st.form(key="transaction_form"):  # 固定key，确保表单状态稳定
+    # 新增交易区域
+    # 使用渲染计数器确保表单key唯一
+    form_key = f"new_trans_{st.session_state.render_counter}"
+    with st.form(key=form_key):
         st.subheader("Record New Transaction")
         col1, col2 = st.columns(2)
         with col1:
             trans_date = st.date_input(
                 "Transaction Date", 
                 value=datetime.today(), 
-                key="trans_date"  # 固定key
+                key=f"date_{st.session_state.render_counter}"
             )
             amount = st.number_input(
                 "Amount ($)", 
                 min_value=0.01, 
                 step=0.01, 
                 value=100.00, 
-                key="trans_amount"  # 固定key
+                key=f"amount_{st.session_state.render_counter}"
             )
             trans_type = st.radio(
                 "Transaction Type", 
                 ["Income", "Expense"], 
                 index=0, 
-                key="trans_type"  # 固定key
+                key=f"type_{st.session_state.render_counter}"
             )
         with col2:
             desc = st.text_input(
                 "Description", 
                 value="Fundraiser proceeds", 
-                key="trans_desc"  # 固定key
+                key=f"desc_{st.session_state.render_counter}"
             ).strip()
             handler = st.text_input(
                 "Handled By", 
                 value="Pikachu Da Best", 
-                key="trans_handler"  # 固定key
+                key=f"handler_{st.session_state.render_counter}"
             ).strip()
 
         submit = st.form_submit_button(
@@ -167,11 +172,9 @@ def render_money_transfers():
                     "Description": desc,
                     "Handler": handler
                 }
-                # 1. 更新本地状态
                 st.session_state.money_transfers.append(new_trans)
                 
-                # 2. 同步到Google Sheets
-                if transfers_sheet:
+                if transfers_sheet and sheet_handler:
                     try:
                         transfers_sheet.append_row([
                             new_trans["uuid"],
@@ -184,9 +187,8 @@ def render_money_transfers():
                     except Exception as e:
                         st.warning(f"同步失败: {str(e)}")
                 
-                # 3. 更新操作状态并刷新
-                st.session_state.last_action = "sync"
                 st.success("Transaction recorded successfully!")
+                st.session_state.render_counter += 1  # 更新计数器确保下次渲染key变化
                 st.rerun()
 
 render_money_transfers()
