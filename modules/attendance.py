@@ -30,22 +30,6 @@ def render_attendance():
     st.header("Meeting Attendance Records")
     st.markdown("---")
 
-    # 新增：自定义CSS样式，隐藏索引列数字并设置浅灰色背景
-    st.markdown("""
-    <style>
-    /* 隐藏表格索引列的数字 */
-    .dataframe thead tr th:first-child,
-    .dataframe tbody tr td:first-child {
-        color: transparent !important;
-    }
-    /* 设置索引列浅灰色背景 */
-    .dataframe thead tr th:first-child,
-    .dataframe tbody tr td:first-child {
-        background-color: #f0f2f6 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
     # 初始化Google Sheets连接
     sheet_handler = None
     attendance_sheet = None
@@ -221,10 +205,10 @@ def render_attendance():
             
             data.append(row)
         
-        # 显示表格
+        # 显示表格（隐藏索引列）
         with st.container():
             df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
             
             # 调试用：显示当前数据状态（可注释）
             # with st.expander("当前数据状态"):
