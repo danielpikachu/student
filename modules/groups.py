@@ -1,357 +1,463 @@
+# modules/groups.py
 import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime
 import pandas as pd
+from datetime import datetime
+import sys
+import os
 
-# 页面配置
-st.set_page_config(page_title="小组财务管理系统", layout="wide")
-st.title("📊 小组财务管理系统")
+# 解决根目录模块导入问题
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-# ------------------------------
-# 1. 谷歌表格连接配置
-# ------------------------------
-# 权限范围
-SCOPE = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/drive"
-]
+# 导入Google Sheets工具类（与Calendar模块共用）
+from google_sheet_utils import GoogleSheetHandler
 
-# 连接谷歌表格
-@st.cache_resource
-def connect_to_gsheets():
+def add_custom_css():
+    """添加自定义CSS样式"""
+    st.markdown("""
+    <style>
+    .section-container {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    .stExpander {
+        margin-bottom: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def init_google_sheet_handler():
+    """初始化Google Sheet处理器（与Calendar模块一致）"""
     try:
-        # 从Streamlit Secrets获取凭证
-        credentials = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=SCOPE
-        )
-        client = gspread.authorize(credentials)
-        return client
+        creds_path = os.path.join(ROOT_DIR, "credentials.json")
+        return GoogleSheetHandler(credentials_path=creds_path)
     except Exception as e:
-        st.error(f"连接谷歌表格失败: {str(e)}")
+        st.error(f"Google Sheets初始化失败: {str(e)}")
         return None
 
-# 初始化连接
-client = connect_to_gsheets()
+def get_group_worksheet(sheet_handler, group_name):
+    """获取指定小组在Student表格中已存在的子工作表（仅获取不创建）"""
+    if not sheet_handler:
+        return None
+    
+    try:
+        # 直接获取已存在的工作表
+        return sheet_handler.get_worksheet(
+            spreadsheet_name="Student",
+            worksheet_name=group_name
+        )
+    except Exception as e:
+        st.error(f"获取{group_name}工作表失败，请确认该工作表已存在: {str(e)}")
+        return None
 
-# ------------------------------
-# 2. 数据加载与解析函数（核心修复）
-# ------------------------------
 def load_group_data(worksheet):
-    """加载并解析工作表数据，正确区分成员/收入/报销区域"""
+    """从工作表加载小组数据（成员、收入、报销），优化边界判断"""
     if not worksheet:
         return {"members": [], "earnings": [], "reimbursements": []}
     
     try:
         all_data = worksheet.get_all_values()
         data = {"members": [], "earnings": [], "reimbursements": []}
-        current_section = None  # 当前解析的区域
-        skip_next_row = False   # 用于跳过表头行
+        current_section = None  # 用于标记当前解析的区域
         
         for row in all_data:
-            # 跳过空行
-            if all(cell.strip() == "" for cell in row):
-                continue
-            
-            # 识别区域标题行（切换区域并标记跳过表头）
+            # 识别数据区域的标题行
             if row[0] == "Members":
                 current_section = "members"
-                skip_next_row = True
                 continue
             elif row[0] == "Earnings":
                 current_section = "earnings"
-                skip_next_row = True
                 continue
             elif row[0] == "Reimbursements":
                 current_section = "reimbursements"
-                skip_next_row = True
                 continue
             
-            # 跳过表头行
-            if skip_next_row:
-                skip_next_row = False
+            # 跳过空行和表头行（更精确的判断）
+            if (not current_section 
+                or all(cell.strip() == "" for cell in row)  # 完全空行
+                or row[0] in ["Name", "Date"]):  # 表头行
                 continue
             
-            # 解析当前区域数据（严格区分区域）
-            if current_section == "members" and len(row) >= 4:
+            # 解析不同区域的数据
+            if current_section == "members":
                 data["members"].append({
                     "Name": row[0],
                     "StudentID": row[1],
                     "Position": row[2],
                     "Contact": row[3]
                 })
-            elif current_section == "earnings" and len(row) >= 3:
-                # 日期格式化处理
+            elif current_section == "earnings":
+                # 确保日期格式统一为YYYY-MM-DD
                 try:
                     date_obj = datetime.strptime(row[0], "%Y-%m-%d")
                     formatted_date = date_obj.strftime("%Y-%m-%d")
                 except ValueError:
-                    formatted_date = row[0]
-                    st.warning(f"收入日期格式错误: {row[0]}（建议YYYY-MM-DD）")
+                    formatted_date = row[0]  # 保留原始格式但提示警告
+                    st.warning(f"收入日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
                 
                 data["earnings"].append({
                     "Date": formatted_date,
                     "Amount": float(row[1]) if row[1] else 0.0,
                     "Description": row[2]
                 })
-            elif current_section == "reimbursements" and len(row) >= 4:
-                # 日期格式化处理
+            elif current_section == "reimbursements":
+                # 确保日期格式统一为YYYY-MM-DD
                 try:
                     date_obj = datetime.strptime(row[0], "%Y-%m-%d")
                     formatted_date = date_obj.strftime("%Y-%m-%d")
                 except ValueError:
-                    formatted_date = row[0]
-                    st.warning(f"报销日期格式错误: {row[0]}（建议YYYY-MM-DD）")
+                    formatted_date = row[0]  # 保留原始格式但提示警告
+                    st.warning(f"报销日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
                 
                 data["reimbursements"].append({
                     "Date": formatted_date,
                     "Amount": float(row[1]) if row[1] else 0.0,
                     "Description": row[2],
-                    "Status": row[3] if row[3] in ["Pending", "Approved", "Rejected"] else "Pending"
+                    "Status": row[3] or "Pending"
                 })
         
         return data
     except Exception as e:
-        st.error(f"数据解析失败: {str(e)}")
+        st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
 
-# ------------------------------
-# 3. 数据保存函数
-# ------------------------------
-def save_to_worksheet(worksheet, data):
-    """将数据保存到工作表，按区域结构化存储"""
-    if not worksheet:
-        st.error("无法保存数据：工作表连接失败")
-        return False
+def clear_section_data(worksheet, section_title):
+    """清空指定区域的数据（保留标题和表头），优化批量删除逻辑"""
+    all_data = worksheet.get_all_values()
+    start_row = None
+    end_row = None
     
+    # 找到目标区域的起止行
+    for i, row in enumerate(all_data):
+        if row[0] == section_title:
+            start_row = i + 2  # 标题行+1是表头，再+1是数据起始行
+        elif start_row and row[0] in ["Members", "Earnings", "Reimbursements"]:
+            end_row = i - 1  # 区域结束行
+            break
+    
+    # 处理最后一个区域的情况
+    if start_row and end_row is None:
+        end_row = len(all_data) - 1
+    
+    # 如果找到区域且有数据行，删除数据
+    if start_row and end_row is not None and end_row >= start_row:
+        # Google Sheets行索引从1开始，计算要删除的行数
+        worksheet.delete_rows(start_row + 1, end_row - start_row + 1)
+    return start_row
+
+def save_members(worksheet, members):
+    """保存成员数据到工作表"""
+    if not worksheet or not members:
+        return False
+        
     try:
-        # 清空现有数据
-        worksheet.clear()
-        all_rows = []
+        # 清空现有成员数据
+        start_row = clear_section_data(worksheet, "Members")
+        if start_row is None:
+            return False
         
-        # 添加成员区域
-        if data["members"]:
-            all_rows.append(["Members", "", "", ""])  # 区域标题
-            all_rows.append(["Name", "StudentID", "Position", "Contact"])  # 表头
-            for member in data["members"]:
-                all_rows.append([
-                    member["Name"],
-                    member["StudentID"],
-                    member["Position"],
-                    member["Contact"]
-                ])
-            all_rows.append(["", "", "", ""])  # 区域间隔
-        
-        # 添加收入区域
-        if data["earnings"]:
-            all_rows.append(["Earnings", "", "", ""])  # 区域标题
-            all_rows.append(["Date", "Amount", "Description", ""])  # 表头
-            for earning in data["earnings"]:
-                all_rows.append([
-                    earning["Date"],
-                    str(earning["Amount"]),
-                    earning["Description"],
-                    ""
-                ])
-            all_rows.append(["", "", "", ""])  # 区域间隔
-        
-        # 添加报销区域
-        if data["reimbursements"]:
-            all_rows.append(["Reimbursements", "", "", ""])  # 区域标题
-            all_rows.append(["Date", "Amount", "Description", "Status"])  # 表头
-            for reimbursement in data["reimbursements"]:
-                all_rows.append([
-                    reimbursement["Date"],
-                    str(reimbursement["Amount"]),
-                    reimbursement["Description"],
-                    reimbursement["Status"]
-                ])
-        
-        # 写入工作表
-        if all_rows:
-            worksheet.insert_rows(all_rows, row=1)
-        st.success("数据已成功保存！")
+        # 插入新成员数据
+        for member in members:
+            worksheet.insert_row(
+                [member["Name"], member["StudentID"], member["Position"], member["Contact"]],
+                start_row + 1  # 从数据起始行开始插入
+            )
         return True
     except Exception as e:
-        st.error(f"保存数据失败: {str(e)}")
+        st.error(f"保存成员数据失败: {str(e)}")
         return False
 
-# ------------------------------
-# 4. 主界面逻辑
-# ------------------------------
-if client:
-    # 选择或创建表格
-    spreadsheet_name = st.text_input("输入表格名称（如：GroupFinance）", "GroupFinance")
-    if st.button("确认/创建表格"):
-        try:
-            # 尝试打开表格，不存在则创建
-            spreadsheet = client.open(spreadsheet_name)
-            st.success(f"已打开表格: {spreadsheet_name}")
-        except gspread.exceptions.SpreadsheetNotFound:
-            spreadsheet = client.create(spreadsheet_name)
-            st.success(f"已创建新表格: {spreadsheet_name}")
-            # 共享表格（可选：添加编辑权限）
-            # spreadsheet.share("your-email@gmail.com", perm_type="user", role="writer")
+def save_earnings(worksheet, earnings):
+    """保存收入数据到工作表"""
+    if not worksheet or not earnings:
+        return False
         
-        # 存储表格信息到session_state
-        st.session_state["spreadsheet"] = spreadsheet
-        st.rerun()
-
-    # 选择工作表（标签页）
-    if "spreadsheet" in st.session_state:
-        spreadsheet = st.session_state["spreadsheet"]
-        worksheet_list = [ws.title for ws in spreadsheet.worksheets()]
-        selected_worksheet = st.selectbox("选择小组工作表", worksheet_list)
+    try:
+        start_row = clear_section_data(worksheet, "Earnings")
+        if start_row is None:
+            return False
         
-        # 创建新工作表
-        new_worksheet_name = st.text_input("创建新工作表（如：Group1）")
-        if st.button("创建新工作表") and new_worksheet_name:
-            if new_worksheet_name not in worksheet_list:
-                spreadsheet.add_worksheet(title=new_worksheet_name, rows=100, cols=20)
-                st.success(f"已创建工作表: {new_worksheet_name}")
-                st.rerun()
-            else:
-                st.warning("工作表名称已存在！")
+        for earning in earnings:
+            worksheet.insert_row(
+                [earning["Date"], earning["Amount"], earning["Description"], ""],
+                start_row + 1
+            )
+        return True
+    except Exception as e:
+        st.error(f"保存收入数据失败: {str(e)}")
+        return False
+
+def save_reimbursements(worksheet, reimbursements):
+    """保存报销数据到工作表"""
+    if not worksheet or not reimbursements:
+        return False
         
-        # 加载选中的工作表数据
-        worksheet = spreadsheet.worksheet(selected_worksheet)
-        if st.button("🔄 加载数据"):
-            st.session_state["group_data"] = load_group_data(worksheet)
-            st.success("数据加载完成！")
-            st.rerun()
-
-        # 初始化数据（如果未加载）
-        if "group_data" not in st.session_state:
-            st.session_state["group_data"] = {"members": [], "earnings": [], "reimbursements": []}
+    try:
+        start_row = clear_section_data(worksheet, "Reimbursements")
+        if start_row is None:
+            return False
         
-        group_data = st.session_state["group_data"]
+        for reimbursement in reimbursements:
+            worksheet.insert_row(
+                [reimbursement["Date"], reimbursement["Amount"], 
+                 reimbursement["Description"], reimbursement["Status"]],
+                start_row + 1
+            )
+        return True
+    except Exception as e:
+        st.error(f"保存报销数据失败: {str(e)}")
+        return False
 
-        # ------------------------------
-        # 5. 成员管理模块
-        # ------------------------------
-        st.subheader("👥 小组成员管理")
-        with st.expander("添加新成员", expanded=False):
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                new_name = st.text_input("姓名")
-            with col2:
-                new_student_id = st.text_input("学号")
-            with col3:
-                new_position = st.text_input("职位")
-            with col4:
-                new_contact = st.text_input("联系方式")
+def render_groups():
+    """渲染群组管理界面"""
+    add_custom_css()
+    st.header("👥 小组管理 (Groups Management)")
+    st.write("管理小组成员、收入和报销请求")
+    st.divider()
+
+    # 初始化Google Sheets连接（与Calendar模块共用逻辑）
+    sheet_handler = init_google_sheet_handler()
+    
+    # 创建8个小组的选项卡
+    group_names = [f"Group{i}" for i in range(1, 9)]
+    tabs = st.tabs(group_names)
+    
+    # 为每个小组渲染界面
+    for i, tab in enumerate(tabs):
+        group_name = group_names[i]
+        with tab:
+            # 初始化会话状态（使用唯一key：grp_{group_name}_xxx）
+            if f"grp_{group_name}_data" not in st.session_state:
+                st.session_state[f"grp_{group_name}_data"] = {
+                    "members": [],
+                    "earnings": [],
+                    "reimbursements": []
+                }
             
-            if st.button("添加成员") and all([new_name, new_student_id]):
-                group_data["members"].append({
-                    "Name": new_name,
-                    "StudentID": new_student_id,
-                    "Position": new_position,
-                    "Contact": new_contact
-                })
-                st.success(f"已添加成员: {new_name}")
-                st.session_state["group_data"] = group_data
-
-        # 显示成员列表
-        if group_data["members"]:
-            members_df = pd.DataFrame(group_data["members"])
-            st.dataframe(members_df, use_container_width=True)
+            # 获取当前小组的工作表（仅获取已存在的）
+            worksheet = get_group_worksheet(sheet_handler, group_name)
             
-            # 删除成员功能
-            del_idx = st.selectbox("选择要删除的成员索引", range(len(group_data["members"])), format_func=lambda x: group_data["members"][x]["Name"])
-            if st.button("删除选中成员"):
-                del group_data["members"][del_idx]
-                st.success("成员已删除")
-                st.session_state["group_data"] = group_data
-                st.rerun()
-        else:
-            st.info("暂无成员数据，请添加成员")
-
-        # ------------------------------
-        # 6. 收入管理模块
-        # ------------------------------
-        st.subheader("💰 收入管理")
-        with st.expander("添加新收入", expanded=False):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                earn_date = st.date_input("日期", datetime.today()).strftime("%Y-%m-%d")
-            with col2:
-                earn_amount = st.number_input("金额", min_value=0.0, step=0.01)
-            with col3:
-                earn_desc = st.text_input("描述")
+            # 加载数据按钮
+            col_refresh, col_empty = st.columns([1, 5])
+            with col_refresh:
+                if st.button("🔄 加载数据", key=f"grp_{group_name}_load_btn"):
+                    with st.spinner("正在从Google Sheets加载数据..."):
+                        data = load_group_data(worksheet)
+                        st.session_state[f"grp_{group_name}_data"] = data
+                        st.success("数据加载成功！")
             
-            if st.button("添加收入") and earn_amount > 0 and earn_desc:
-                group_data["earnings"].append({
-                    "Date": earn_date,
-                    "Amount": earn_amount,
-                    "Description": earn_desc
-                })
-                st.success(f"已添加收入: {earn_amount} 元")
-                st.session_state["group_data"] = group_data
-
-        # 显示收入列表
-        if group_data["earnings"]:
-            earnings_df = pd.DataFrame(group_data["earnings"])
-            st.dataframe(earnings_df, use_container_width=True)
-            total_earnings = sum(item["Amount"] for item in group_data["earnings"])
-            st.info(f"总收入: {total_earnings:.2f} 元")
+            # 获取当前小组数据
+            group_data = st.session_state[f"grp_{group_name}_data"]
             
-            # 删除收入功能
-            del_earn_idx = st.selectbox("选择要删除的收入索引", range(len(group_data["earnings"])), format_func=lambda x: f"{group_data['earnings'][x]['Date']} - {group_data['earnings'][x]['Amount']}元")
-            if st.button("删除选中收入"):
-                del group_data["earnings"][del_earn_idx]
-                st.success("收入记录已删除")
-                st.session_state["group_data"] = group_data
-                st.rerun()
-        else:
-            st.info("暂无收入数据，请添加收入")
-
-        # ------------------------------
-        # 7. 报销管理模块
-        # ------------------------------
-        st.subheader("🧾 报销管理")
-        with st.expander("添加新报销", expanded=False):
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                reimb_date = st.date_input("报销日期", datetime.today()).strftime("%Y-%m-%d")
-            with col2:
-                reimb_amount = st.number_input("报销金额", min_value=0.0, step=0.01)
-            with col3:
-                reimb_desc = st.text_input("报销描述")
-            with col4:
-                reimb_status = st.selectbox("状态", ["Pending", "Approved", "Rejected"])
+            # 1. 小组成员管理
+            st.subheader("👥 小组成员 (Group Members)")
+            with st.container(border=True):
+                # 显示成员列表
+                if group_data["members"]:
+                    st.dataframe(
+                        pd.DataFrame(group_data["members"]),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("当前小组暂无成员，请添加成员")
+                
+                # 添加成员表单
+                with st.expander("➕ 添加新成员", expanded=False):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_name = st.text_input("姓名", key=f"grp_{group_name}_member_name")
+                        new_student_id = st.text_input("学号", key=f"grp_{group_name}_member_id")
+                    with col2:
+                        new_position = st.text_input("职位", key=f"grp_{group_name}_member_pos")
+                        new_contact = st.text_input("联系方式", key=f"grp_{group_name}_member_contact")
+                    
+                    if st.button("确认添加", key=f"grp_{group_name}_add_member"):
+                        if not all([new_name, new_student_id, new_position]):
+                            st.error("请填写姓名、学号和职位（必填项）")
+                        else:
+                            # 检查学号重复
+                            duplicate = any(
+                                m["StudentID"] == new_student_id 
+                                for m in group_data["members"]
+                            )
+                            if duplicate:
+                                st.error("该学号已存在于成员列表中")
+                            else:
+                                # 更新本地数据
+                                group_data["members"].append({
+                                    "Name": new_name,
+                                    "StudentID": new_student_id,
+                                    "Position": new_position,
+                                    "Contact": new_contact
+                                })
+                                # 保存到Google Sheets
+                                if save_members(worksheet, group_data["members"]):
+                                    st.success("成员添加成功！")
+                                st.session_state[f"grp_{group_name}_data"] = group_data
             
-            if st.button("添加报销") and reimb_amount > 0 and reimb_desc:
-                group_data["reimbursements"].append({
-                    "Date": reimb_date,
-                    "Amount": reimb_amount,
-                    "Description": reimb_desc,
-                    "Status": reimb_status
-                })
-                st.success(f"已添加报销: {reimb_amount} 元")
-                st.session_state["group_data"] = group_data
-
-        # 显示报销列表
-        if group_data["reimbursements"]:
-            reimbursements_df = pd.DataFrame(group_data["reimbursements"])
-            st.dataframe(reimbursements_df, use_container_width=True)
-            total_reimbursed = sum(item["Amount"] for item in group_data["reimbursements"] if item["Status"] == "Approved")
-            st.info(f"已批准报销总额: {total_reimbursed:.2f} 元")
+            # 2. 小组收入管理
+            st.subheader("💰 小组收入 (Group Earnings)")
+            with st.container(border=True):
+                # 显示收入列表
+                if group_data["earnings"]:
+                    earnings_df = pd.DataFrame(group_data["earnings"])
+                    st.dataframe(earnings_df, use_container_width=True, hide_index=True)
+                    
+                    # 显示总收入
+                    total_earning = earnings_df["Amount"].sum()
+                    st.markdown(f"**总收入: ¥{total_earning:.2f}**")
+                else:
+                    st.info("当前小组暂无收入记录")
+                
+                # 添加收入表单
+                with st.expander("➕ 添加新收入", expanded=False):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        earn_date = st.date_input(
+                            "日期", 
+                            datetime.today(),
+                            key=f"grp_{group_name}_earn_date"
+                        )
+                    with col2:
+                        earn_amount = st.number_input(
+                            "金额", 
+                            min_value=0.01, 
+                            step=0.01,
+                            key=f"grp_{group_name}_earn_amt"
+                        )
+                    with col3:
+                        earn_desc = st.text_input(
+                            "描述",
+                            key=f"grp_{group_name}_earn_desc"
+                        )
+                    
+                    if st.button("确认添加", key=f"grp_{group_name}_add_earning"):
+                        if not earn_desc:
+                            st.error("请填写收入描述")
+                        else:
+                            # 更新本地数据（强制统一日期格式）
+                            group_data["earnings"].append({
+                                "Date": earn_date.strftime("%Y-%m-%d"),
+                                "Amount": earn_amount,
+                                "Description": earn_desc
+                            })
+                            # 保存到Google Sheets
+                            if save_earnings(worksheet, group_data["earnings"]):
+                                st.success("收入添加成功！")
+                            st.session_state[f"grp_{group_name}_data"] = group_data
+                
+                # 删除收入功能
+                if group_data["earnings"]:
+                    earn_to_delete = st.selectbox(
+                        "选择要删除的收入",
+                        [f"{e['Date']} - ¥{e['Amount']} - {e['Description']}" 
+                         for e in group_data["earnings"]],
+                        key=f"grp_{group_name}_del_earn",
+                        index=None,
+                        placeholder="选择收入项..."
+                    )
+                    
+                    if st.button("删除选中收入", key=f"grp_{group_name}_del_earn_btn"):
+                        if earn_to_delete:
+                            # 过滤掉要删除的收入
+                            group_data["earnings"] = [
+                                e for e in group_data["earnings"]
+                                if f"{e['Date']} - ¥{e['Amount']} - {e['Description']}" != earn_to_delete
+                            ]
+                            # 保存到Google Sheets
+                            if save_earnings(worksheet, group_data["earnings"]):
+                                st.success("收入删除成功！")
+                            st.session_state[f"grp_{group_name}_data"] = group_data
             
-            # 删除报销功能
-            del_reimb_idx = st.selectbox("选择要删除的报销索引", range(len(group_data["reimbursements"])), format_func=lambda x: f"{group_data['reimbursements'][x]['Date']} - {group_data['reimbursements'][x]['Amount']}元")
-            if st.button("删除选中报销"):
-                del group_data["reimbursements"][del_reimb_idx]
-                st.success("报销记录已删除")
-                st.session_state["group_data"] = group_data
-                st.rerun()
-        else:
-            st.info("暂无报销数据，请添加报销")
+            # 3. 报销请求管理
+            st.subheader("📋 报销请求 (Reimbursement Requests)")
+            with st.container(border=True):
+                # 显示报销列表
+                if group_data["reimbursements"]:
+                    st.dataframe(
+                        pd.DataFrame(group_data["reimbursements"]),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    # 显示总报销金额
+                    total_reimburse = sum(r["Amount"] for r in group_data["reimbursements"])
+                    st.markdown(f"**总报销金额: ¥{total_reimburse:.2f}**")
+                else:
+                    st.info("当前小组暂无报销请求")
+                
+                # 添加报销请求表单
+                with st.expander("➕ 提交新报销请求", expanded=False):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        req_date = st.date_input(
+                            "日期", 
+                            datetime.today(),
+                            key=f"grp_{group_name}_req_date"
+                        )
+                    with col2:
+                        req_amount = st.number_input(
+                            "金额", 
+                            min_value=0.01, 
+                            step=0.01,
+                            key=f"grp_{group_name}_req_amt"
+                        )
+                    with col3:
+                        req_desc = st.text_input(
+                            "描述",
+                            key=f"grp_{group_name}_req_desc"
+                        )
+                    
+                    if st.button("提交请求", key=f"grp_{group_name}_add_req"):
+                        if not req_desc:
+                            st.error("请填写报销描述")
+                        else:
+                            # 更新本地数据（强制统一日期格式）
+                            group_data["reimbursements"].append({
+                                "Date": req_date.strftime("%Y-%m-%d"),
+                                "Amount": req_amount,
+                                "Description": req_desc,
+                                "Status": "Pending"  # 默认状态为待处理
+                            })
+                            # 保存到Google Sheets
+                            if save_reimbursements(worksheet, group_data["reimbursements"]):
+                                st.success("报销请求提交成功！")
+                            st.session_state[f"grp_{group_name}_data"] = group_data
+                
+                # 更新报销状态功能
+                if group_data["reimbursements"]:
+                    req_to_update = st.selectbox(
+                        "选择要更新的报销请求",
+                        [f"{r['Date']} - ¥{r['Amount']} - {r['Description']} ({r['Status']})" 
+                         for r in group_data["reimbursements"]],
+                        key=f"grp_{group_name}_upd_req",
+                        index=None,
+                        placeholder="选择报销项..."
+                    )
+                    
+                    new_status = st.selectbox(
+                        "更新状态为",
+                        ["Pending", "Approved", "Rejected"],
+                        key=f"grp_{group_name}_req_status"
+                    )
+                    
+                    if st.button("更新状态", key=f"grp_{group_name}_upd_req_btn"):
+                        if req_to_update:
+                            # 更新状态
+                            for req in group_data["reimbursements"]:
+                                req_str = f"{req['Date']} - ¥{req['Amount']} - {req['Description']} ({req['Status']})"
+                                if req_str == req_to_update:
+                                    req["Status"] = new_status
+                                    break
+                            # 保存到Google Sheets
+                            if save_reimbursements(worksheet, group_data["reimbursements"]):
+                                st.success("报销状态更新成功！")
+                            st.session_state[f"grp_{group_name}_data"] = group_data
 
-        # 保存数据按钮
-        if st.button("💾 保存所有数据", type="primary"):
-            save_to_worksheet(worksheet, group_data)
-
-else:
-    st.error("请检查谷歌表格凭证配置后重试")
+# 调试用：直接运行模块时显示界面
+if __name__ == "__main__":
+    render_groups()
