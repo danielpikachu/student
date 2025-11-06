@@ -59,7 +59,7 @@ def get_or_create_worksheet(sheet_handler, group_name):
             
             # 初始化表头结构（三部分数据区域）
             worksheet.append_row(["Members", "", "", ""])
-            worksheet.append_row(["Name", "StudentID", "Position", "Contact"])  # 成员表头
+            worksheet.append_row(["Name", "", "", ""])  # 成员表头只保留姓名
             worksheet.append_row(["", "", "", ""])  # 分隔行
             worksheet.append_row(["Earnings", "", "", ""])
             worksheet.append_row(["Date", "Amount", "Description", ""])  # 收入表头
@@ -101,10 +101,7 @@ def load_group_data(worksheet):
             # 解析不同区域的数据
             if current_section == "members":
                 data["members"].append({
-                    "Name": row[0],
-                    "StudentID": row[1],
-                    "Position": row[2],
-                    "Contact": row[3]
+                    "Name": row[0]  # 只保留姓名
                 })
             elif current_section == "earnings":
                 data["earnings"].append({
@@ -147,7 +144,7 @@ def clear_section_data(worksheet, section_title):
     return start_row
 
 def save_members(worksheet, members):
-    """保存成员数据到工作表"""
+    """保存成员数据到工作表（只保存姓名）"""
     if not worksheet or not members:
         return False
         
@@ -157,10 +154,10 @@ def save_members(worksheet, members):
         if start_row is None:
             return False
         
-        # 插入新成员数据
+        # 插入新成员数据（只插入姓名）
         for member in members:
             worksheet.insert_row(
-                [member["Name"], member["StudentID"], member["Position"], member["Contact"]],
+                [member["Name"], "", "", ""],  # 只保存姓名，其他字段留空
                 start_row + 1  # 从数据起始行开始插入
             )
         return True
@@ -250,10 +247,10 @@ def render_groups():
             # 获取当前小组数据
             group_data = st.session_state[f"grp_{group_name}_data"]
             
-            # 1. 小组成员管理
+            # 1. 小组成员管理（只保留姓名）
             st.subheader("👥 小组成员 (Group Members)")
             with st.container(border=True):
-                # 显示成员列表
+                # 显示成员列表（只显示姓名）
                 if group_data["members"]:
                     st.dataframe(
                         pd.DataFrame(group_data["members"]),
@@ -263,41 +260,32 @@ def render_groups():
                 else:
                     st.info("当前小组暂无成员，请添加成员")
                 
-                # 添加成员表单
+                # 添加成员表单（只添加姓名）
                 with st.expander("➕ 添加新成员", expanded=False):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        new_name = st.text_input("姓名", key=f"grp_{group_name}_member_name")
-                        new_student_id = st.text_input("学号", key=f"grp_{group_name}_member_id")
-                    with col2:
-                        new_position = st.text_input("职位", key=f"grp_{group_name}_member_pos")
-                        new_contact = st.text_input("联系方式", key=f"grp_{group_name}_member_contact")
+                    new_name = st.text_input("姓名", key=f"grp_{group_name}_member_name")
                     
                     if st.button("确认添加", key=f"grp_{group_name}_add_member"):
-                        if not all([new_name, new_student_id, new_position]):
-                            st.error("请填写姓名、学号和职位（必填项）")
+                        if not new_name:
+                            st.error("请填写姓名")
                         else:
-                            # 检查学号重复
+                            # 检查姓名重复
                             duplicate = any(
-                                m["StudentID"] == new_student_id 
+                                m["Name"] == new_name 
                                 for m in group_data["members"]
                             )
                             if duplicate:
-                                st.error("该学号已存在于成员列表中")
+                                st.error("该姓名已存在于成员列表中")
                             else:
                                 # 更新本地数据
                                 group_data["members"].append({
-                                    "Name": new_name,
-                                    "StudentID": new_student_id,
-                                    "Position": new_position,
-                                    "Contact": new_contact
+                                    "Name": new_name
                                 })
                                 # 保存到Google Sheets
                                 if save_members(worksheet, group_data["members"]):
                                     st.success("成员添加成功！")
                                 st.session_state[f"grp_{group_name}_data"] = group_data
             
-            # 2. 小组收入管理
+            # 2. 小组收入管理（保持不变）
             st.subheader("💰 小组收入 (Group Earnings)")
             with st.container(border=True):
                 # 显示收入列表
@@ -371,7 +359,7 @@ def render_groups():
                                 st.success("收入删除成功！")
                             st.session_state[f"grp_{group_name}_data"] = group_data
             
-            # 3. 报销请求管理
+            # 3. 报销请求管理（保持不变）
             st.subheader("📋 报销请求 (Reimbursement Requests)")
             with st.container(border=True):
                 # 显示报销列表
