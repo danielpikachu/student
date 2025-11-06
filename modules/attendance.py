@@ -209,12 +209,6 @@ def render_attendance():
         with st.container():
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True)
-            
-            # 调试用：显示当前数据状态（可注释）
-            # with st.expander("当前数据状态"):
-            #     st.write("成员:", st.session_state.att_members)
-            #     st.write("会议:", st.session_state.att_meetings)
-            #     st.write("记录:", st.session_state.att_records)
 
     # 渲染表格（确保始终执行）
     render_attendance_table()
@@ -292,9 +286,9 @@ def render_attendance():
                 new_meeting_id = len(st.session_state.att_meetings) + 1
                 st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
                 
-                # 为每个成员添加默认记录
+                # 为每个成员添加默认记录（默认设置为PRESENT）
                 for member in st.session_state.att_members:
-                    st.session_state.att_records[(member["id"], new_meeting_id)] = False
+                    st.session_state.att_records[(member["id"], new_meeting_id)] = True
                 
                 st.success(f"Added meeting: {meeting_name}")
                 if not full_update_sheets():
@@ -342,16 +336,6 @@ def render_attendance():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
 
-            # 一键全缺
-            if st.button("Set All Absent", key="att_set_none"):
-                for member in st.session_state.att_members:
-                    st.session_state.att_records[(member["id"], selected_meeting["id"])] = False
-                
-                st.success(f"All absent for {selected_meeting['name']}")
-                if not full_update_sheets():
-                    st.warning("数据同步失败，请稍后重试")
-                st.session_state.att_needs_refresh = True
-
         # 单独更新成员状态
         if st.session_state.att_members and st.session_state.att_meetings:
             selected_member = st.selectbox(
@@ -362,10 +346,12 @@ def render_attendance():
             )
             
             current_status = st.session_state.att_records.get((selected_member["id"], selected_meeting["id"]), False)
-            is_present = st.checkbox("Present", value=current_status, key="att_is_present")
+            # 将复选框文字从Present改为Absent，勾选表示缺席
+            is_absent = st.checkbox("Absent", value=not current_status, key="att_is_absent")
             
             if st.button("Save Attendance", key="att_save_attendance"):
-                st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = is_present
+                # 勾选Absent表示缺席，所以实际状态是not is_absent
+                st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = not is_absent
                 
                 st.success(f"Updated {selected_member['name']}'s status")
                 if not full_update_sheets():
