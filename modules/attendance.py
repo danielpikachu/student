@@ -292,16 +292,14 @@ def render_attendance():
                 new_meeting_id = len(st.session_state.att_meetings) + 1
                 st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
                 
-                # 修复1：新增会议时默认所有成员为出席状态（将False改为True）
+                # 为每个成员添加默认记录
                 for member in st.session_state.att_members:
-                    st.session_state.att_records[(member["id"], new_meeting_id)] = True
+                    st.session_state.att_records[(member["id"], new_meeting_id)] = False
                 
                 st.success(f"Added meeting: {meeting_name}")
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
-                # 修复2：强制立即刷新页面，确保表格更新
-                st.rerun()
 
             # 删除会议
             if st.session_state.att_meetings:
@@ -321,7 +319,6 @@ def render_attendance():
                     if not full_update_sheets():
                         st.warning("数据同步失败，请稍后重试")
                     st.session_state.att_needs_refresh = True
-                    st.rerun()  # 同样添加删除后的立即刷新
 
     # 右侧：更新考勤
     with col_right.container(border=True):
@@ -344,7 +341,6 @@ def render_attendance():
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
-                st.rerun()
 
             # 一键全缺
             if st.button("Set All Absent", key="att_set_none"):
@@ -355,7 +351,6 @@ def render_attendance():
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
-                st.rerun()
 
         # 单独更新成员状态
         if st.session_state.att_members and st.session_state.att_meetings:
@@ -376,9 +371,8 @@ def render_attendance():
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
-                st.rerun()
 
-    # 刷新页面确保状态同步（作为备选刷新机制）
+    # 刷新页面确保状态同步
     if st.session_state.att_needs_refresh:
         st.session_state.att_needs_refresh = False
         st.rerun()
