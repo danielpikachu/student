@@ -18,7 +18,7 @@ def render_money_transfers():
     st.header("💸 Money Transfers")
     st.markdown("---")
 
-    # 添加自定义CSS样式优化表格显示
+    # 添加自定义CSS样式优化表格显示（新增滚动容器样式）
     st.markdown("""
     <style>
         /* 缩小行间距和整体高度 */
@@ -47,13 +47,14 @@ def render_money_transfers():
             padding: 0.2rem 0.4rem !important;
             font-size: 0.75rem !important;
         }
-        /* 滚动容器样式 */
+        /* 滚动容器样式（关键修改） */
         .scrollable-container {
-            max-height: 400px;  /* 设置最大高度，超出部分将滚动 */
-            overflow-y: auto;   /* 启用垂直滚动 */
-            padding-right: 10px; /* 预留滚动条空间 */
+            max-height: 250px;  /* 减小最大高度（原400px），7条数据更易触发滚动 */
+            overflow-y: auto;   /* 垂直溢出时显示滚动条 */
+            padding-right: 10px; /* 预留滚动条空间，避免内容被遮挡 */
+            margin-bottom: 1rem; /* 与下方汇总信息分隔 */
         }
-        /* 滚动条样式优化 */
+        /* 优化滚动条外观 */
         .scrollable-container::-webkit-scrollbar {
             width: 6px;
         }
@@ -129,7 +130,7 @@ def render_money_transfers():
     if "tra_records" not in st.session_state:
         st.session_state.tra_records = []
 
-    # ---------------------- 交易历史展示（带独立删除按钮） ----------------------
+    # ---------------------- 交易历史展示（带滚动条） ----------------------
     st.subheader("Transaction History")
     # 显示最后同步时间
     if st.session_state.tra_last_sync_time != datetime.min:
@@ -138,7 +139,7 @@ def render_money_transfers():
     if not st.session_state.tra_records:
         st.info("No financial transactions recorded yet")
     else:
-        # 创建滚动容器
+        # 用滚动容器包裹表格内容
         st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
         
         # 定义列宽比例
