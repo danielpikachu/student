@@ -25,7 +25,7 @@ except ImportError:
             self.uri = uri
 
 def render_attendance():
-    """渲染考勤模块界面（修复rerun函数错误）"""
+    """渲染考勤模块界面，确保Google Sheet与界面完全同步"""
     st.set_page_config(layout="wide")
     st.header("Meeting Attendance Records")
     st.markdown("---")
@@ -52,14 +52,32 @@ def render_attendance():
     if "att_needs_refresh" not in st.session_state:
         st.session_state.att_needs_refresh = False
 
-    # 批量写入数据到Google Sheets
-    def batch_write_to_sheets(rows, max_retries=3):
-        if not attendance_sheet or not sheet_handler or not rows:
+    # 全量更新Google Sheets数据（覆盖方式）
+    def full_update_sheets(max_retries=3):
+        if not attendance_sheet or not sheet_handler:
             return True
             
         retry_count = 0
         while retry_count < max_retries:
             try:
+                # 准备表头
+                rows = [["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]]
+                
+                # 准备所有考勤记录
+                for member in st.session_state.att_members:
+                    for meeting in st.session_state.att_meetings:
+                        is_present = st.session_state.att_records.get((member["id"], meeting["id"]), False)
+                        rows.append([
+                            str(member["id"]),
+                            member["name"],
+                            str(meeting["id"]),
+                            meeting["name"],
+                            "TRUE" if is_present else "FALSE",
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                
+                # 清除现有内容并写入新数据
+                attendance_sheet.clear()
                 attendance_sheet.append_rows(rows, value_input_option='RAW')
                 return True
             except HttpError as e:
@@ -69,56 +87,14 @@ def render_attendance():
                     time.sleep(retry_after)
                     retry_count += 1
                 else:
-                    st.error(f"批量写入失败: {str(e)}")
+                    st.error(f"更新失败: {str(e)}")
                     return False
             except Exception as e:
-                st.error(f"批量写入失败: {str(e)}")
+                st.error(f"更新失败: {str(e)}")
                 return False
         
         st.error("达到最大重试次数，同步失败")
         return False
-
-    # 批量删除行
-    def batch_delete_rows(row_indices):
-        if not attendance_sheet or not row_indices:
-            return True
-            
-        for i in sorted(row_indices, reverse=True):
-            try:
-                attendance_sheet.delete_rows(i)
-                time.sleep(0.5)
-            except Exception as e:
-                st.warning(f"删除行 {i} 失败: {str(e)}")
-                return False
-        return True
-
-    # 添加会议
-    def add_meeting_directly(meeting_name):
-        new_meeting_id = len(st.session_state.att_meetings) + 1
-        # 更新本地状态
-        st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
-        
-        # 为每个成员添加默认缺勤记录（本地）
-        for member in st.session_state.att_members:
-            st.session_state.att_records[(member["id"], new_meeting_id)] = False
-        
-        # 批量准备数据
-        if attendance_sheet and sheet_handler and st.session_state.att_members:
-            rows_to_add = []
-            for member in st.session_state.att_members:
-                rows_to_add.append([
-                    str(member["id"]),
-                    member["name"],
-                    str(new_meeting_id),
-                    meeting_name,
-                    "FALSE",
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                ])
-            
-            if not batch_write_to_sheets(rows_to_add):
-                st.warning("本地已添加会议，但同步到Google Sheets失败，请稍后重试")
-        
-        st.session_state.att_needs_refresh = True
 
     # 从Google Sheets同步数据
     def sync_from_sheets():
@@ -157,16 +133,13 @@ def render_attendance():
                     meeting_id = int(row[2])
                     records[(member_id, meeting_id)] = row[4].lower() == "true"
             
-            # 仅在本地状态为空时初始化
-            if not st.session_state.att_meetings:
-                st.session_state.att_meetings = meetings
-            if not st.session_state.att_members:
-                st.session_state.att_members = members
-            if not st.session_state.att_records:
-                st.session_state.att_records = records
+            # 更新本地状态
+            st.session_state.att_meetings = meetings
+            st.session_state.att_members = members
+            st.session_state.att_records = records
                 
         except Exception as e:
-            st.warning(f"后台同步忽略: {str(e)}")
+            st.warning(f"同步失败: {str(e)}")
 
     # 初始同步
     if not st.session_state.att_meetings or not st.session_state.att_members:
@@ -214,7 +187,6 @@ def render_attendance():
                     
                     new_members = [name.strip() for name in df["Member Name"].dropna().unique() if name.strip()]
                     added = 0
-                    rows_to_add = []
                     
                     for name in new_members:
                         if not any(m["name"] == name for m in st.session_state.att_members):
@@ -223,20 +195,12 @@ def render_attendance():
                             # 为现有会议添加默认记录（本地）
                             for meeting in st.session_state.att_meetings:
                                 st.session_state.att_records[(new_id, meeting["id"])] = False
-                                rows_to_add.append([
-                                    str(new_id),
-                                    name,
-                                    str(meeting["id"]),
-                                    meeting["name"],
-                                    "FALSE",
-                                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                ])
                             added += 1
                     
                     st.success(f"Added {added} new members")
-                    if rows_to_add:
-                        if not batch_write_to_sheets(rows_to_add):
-                            st.warning("部分数据同步失败")
+                    # 全量更新到Sheets
+                    if not full_update_sheets():
+                        st.warning("数据同步失败，请稍后重试")
                     st.session_state.att_needs_refresh = True
                 except Exception as e:
                     st.error(f"Import failed: {str(e)}")
@@ -260,8 +224,19 @@ def render_attendance():
                     st.error("Meeting already exists")
                     return
                 
-                add_meeting_directly(meeting_name)
+                new_meeting_id = len(st.session_state.att_meetings) + 1
+                # 更新本地状态
+                st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
+                
+                # 为每个成员添加默认缺勤记录（本地）
+                for member in st.session_state.att_members:
+                    st.session_state.att_records[(member["id"], new_meeting_id)] = False
+                
                 st.success(f"Added meeting: {meeting_name}")
+                # 全量更新到Sheets
+                if not full_update_sheets():
+                    st.warning("数据同步失败，请稍后重试")
+                st.session_state.att_needs_refresh = True
 
             # 删除会议
             if st.session_state.att_meetings:
@@ -277,21 +252,10 @@ def render_attendance():
                     st.session_state.att_meetings = [m for m in st.session_state.att_meetings if m["id"] != selected_meeting["id"]]
                     st.session_state.att_records = {(m_id, mt_id): v for (m_id, mt_id), v in st.session_state.att_records.items() if mt_id != selected_meeting["id"]}
                     
-                    # 批量删除Sheets中的记录
-                    if attendance_sheet and sheet_handler:
-                        try:
-                            all_rows = attendance_sheet.get_all_values()
-                            rows_to_delete = []
-                            for i, row in enumerate(all_rows[1:], start=2):
-                                if row[2] == str(selected_meeting["id"]):
-                                    rows_to_delete.append(i)
-                            
-                            if not batch_delete_rows(rows_to_delete):
-                                st.warning("部分记录删除失败")
-                        except Exception as e:
-                            st.warning(f"删除同步失败: {str(e)}")
-                    
                     st.success(f"Deleted meeting: {selected_meeting['name']}")
+                    # 全量更新到Sheets
+                    if not full_update_sheets():
+                        st.warning("数据同步失败，请稍后重试")
                     st.session_state.att_needs_refresh = True
 
     # 右侧：更新考勤
@@ -308,36 +272,14 @@ def render_attendance():
             
             # 一键全到
             if st.button("Set All Present", key="att_set_all"):
-                # 收集需要删除和添加的记录
-                rows_to_delete = []
-                rows_to_add = []
-                
-                if attendance_sheet and sheet_handler:
-                    all_rows = attendance_sheet.get_all_values()
-                    for i, row in enumerate(all_rows[1:], start=2):
-                        if row[2] == str(selected_meeting["id"]):
-                            rows_to_delete.append(i)
-                
                 # 更新本地状态
                 for member in st.session_state.att_members:
                     st.session_state.att_records[(member["id"], selected_meeting["id"])] = True
-                    rows_to_add.append([
-                        str(member["id"]),
-                        member["name"],
-                        str(selected_meeting["id"]),
-                        selected_meeting["name"],
-                        "TRUE",
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    ])
-                
-                # 执行批量操作
-                if attendance_sheet and sheet_handler:
-                    if rows_to_delete:
-                        batch_delete_rows(rows_to_delete)
-                    if not batch_write_to_sheets(rows_to_add):
-                        st.warning("部分数据同步失败")
                 
                 st.success(f"All present for {selected_meeting['name']}")
+                # 全量更新到Sheets
+                if not full_update_sheets():
+                    st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
 
         # 单独更新成员状态
@@ -356,36 +298,13 @@ def render_attendance():
                 # 更新本地状态
                 st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = is_present
                 
-                # 同步到Sheets
-                if attendance_sheet and sheet_handler:
-                    try:
-                        # 先删除旧记录
-                        all_rows = attendance_sheet.get_all_values()
-                        rows_to_delete = []
-                        for i, row in enumerate(all_rows[1:], start=2):
-                            if row[0] == str(selected_member["id"]) and row[2] == str(selected_meeting["id"]):
-                                rows_to_delete.append(i)
-                        
-                        if rows_to_delete:
-                            batch_delete_rows(rows_to_delete)
-                        
-                        # 再添加新记录
-                        batch_write_to_sheets([[
-                            str(selected_member["id"]),
-                            selected_member["name"],
-                            str(selected_meeting["id"]),
-                            selected_meeting["name"],
-                            "TRUE" if is_present else "FALSE",
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        ]])
-                    except Exception as e:
-                        st.warning(f"Sync warning: {str(e)}")
-                
                 st.success(f"Updated {selected_member['name']}'s status")
+                # 全量更新到Sheets
+                if not full_update_sheets():
+                    st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
 
-    # 关键修复：使用最新的rerun方法
+    # 刷新页面
     if st.session_state.att_needs_refresh:
         st.session_state.att_needs_refresh = False
-        # 替换过时的experimental_rerun为最新的rerun
         st.rerun()
