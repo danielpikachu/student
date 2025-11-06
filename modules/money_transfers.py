@@ -1,6 +1,6 @@
 # modules/money_transfers.py
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime
 import uuid
 import sys
 import os
@@ -18,43 +18,33 @@ def render_money_transfers():
     st.header("💸 Money Transfers")
     st.markdown("---")
 
-    # 添加自定义CSS样式优化表格显示
+    # 添加自定义CSS实现滚动表格
     st.markdown("""
     <style>
-        /* 缩小行间距和整体高度 */
-        .st-emotion-cache-16txtl3 {
-            padding-top: 0.1rem !important;
-            padding-bottom: 0.1rem !important;
+        .scrollable-table {
+            max-height: 400px;  /* 调整这个值控制表格高度 */
+            overflow-y: auto;
+            padding-right: 10px;  /* 防止滚动条遮挡内容 */
         }
-        .st-emotion-cache-1v0mbdj {
-            min-height: 0.3rem !important;
+        .scrollable-table::-webkit-scrollbar {
+            width: 8px;
         }
-        .stMarkdown {
-            margin: 0 !important;
+        .scrollable-table::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
         }
-        /* 缩小分隔线间距和高度 */
-        hr {
-            margin: 0.1rem 0 !important;
-            height: 1px !important;
+        .scrollable-table::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
         }
-        /* 缩小字体大小 */
-        .small-text {
-            font-size: 0.8rem !important;
-            margin: 0 !important;
+        .scrollable-table::-webkit-scrollbar-thumb:hover {
+            background: #555;
         }
-        /* 紧凑按钮样式 */
-        .stButton button {
-            padding: 0.2rem 0.4rem !important;
-            font-size: 0.75rem !important;
+        .table-row {
+            margin-bottom: 8px;
         }
     </style>
     """, unsafe_allow_html=True)
-
-    # 初始化缓存相关状态
-    if "tra_cache_time" not in st.session_state:
-        st.session_state.tra_cache_time = datetime.min
-    if "tra_last_sync_time" not in st.session_state:
-        st.session_state.tra_last_sync_time = datetime.min
 
     # 初始化Google Sheets连接
     sheet_handler = None
@@ -66,14 +56,10 @@ def render_money_transfers():
             worksheet_name="MoneyTransfers"
         )
     except Exception as e:
-        st.warning(f"Google Sheets 连接提示: {str(e)}")  # 改为警告不阻断流程
+        st.error(f"Google Sheets 初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据（使用缓存机制避免频繁请求）
-    current_time = datetime.now()
-    cache_valid = (current_time - st.session_state.tra_cache_time) < timedelta(minutes=5)
-    need_sync = transfers_sheet and sheet_handler and (not cache_valid or not st.session_state.get("tra_records"))
-
-    if need_sync:
+    # 从Google Sheets同步数据（使用tra_records状态）
+    if transfers_sheet and sheet_handler and (not st.session_state.get("tra_records")):
         try:
             all_data = transfers_sheet.get_all_values()
             expected_headers = ["uuid", "date", "type", "amount", "description", "handler"]
@@ -99,10 +85,8 @@ def render_money_transfers():
                 ]
             
             st.session_state.tra_records = records
-            st.session_state.tra_cache_time = current_time  # 更新缓存时间
-            st.session_state.tra_last_sync_time = current_time
         except Exception as e:
-            st.warning(f"数据同步失败，使用缓存数据: {str(e)}")
+            st.warning(f"数据同步失败: {str(e)}")
 
     # 初始化状态（防止首次加载时出错）
     if "tra_records" not in st.session_state:
@@ -110,77 +94,82 @@ def render_money_transfers():
 
     # ---------------------- 交易历史展示（带独立删除按钮） ----------------------
     st.subheader("Transaction History")
-    # 显示最后同步时间
-    if st.session_state.tra_last_sync_time != datetime.min:
-        st.caption(f"Last synced: {st.session_state.tra_last_sync_time.strftime('%Y-%m-%d %H:%M')}")
-    
     if not st.session_state.tra_records:
         st.info("No financial transactions recorded yet")
     else:
-        # 定义列宽比例
-        col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]
-        
-        # 显示表头（应用紧凑样式）
-        header_cols = st.columns(col_widths)
-        with header_cols[0]:
-            st.markdown('<p class="small-text"><strong>#</strong></p>', unsafe_allow_html=True)
-        with header_cols[1]:
-            st.markdown('<p class="small-text"><strong>Date</strong></p>', unsafe_allow_html=True)
-        with header_cols[2]:
-            st.markdown('<p class="small-text"><strong>Amount ($)</strong></p>', unsafe_allow_html=True)
-        with header_cols[3]:
-            st.markdown('<p class="small-text"><strong>Type</strong></p>', unsafe_allow_html=True)
-        with header_cols[4]:
-            st.markdown('<p class="small-text"><strong>Description</strong></p>', unsafe_allow_html=True)
-        with header_cols[5]:
-            st.markdown('<p class="small-text"><strong>Handled By</strong></p>', unsafe_allow_html=True)
-        with header_cols[6]:
-            st.markdown('<p class="small-text"><strong>Action</strong></p>', unsafe_allow_html=True)
-        
-        st.markdown("---")  # 表头分隔线
-        
-        # 遍历显示每笔交易
-        for idx, trans in enumerate(st.session_state.tra_records, 1):
-            unique_key = f"tra_delete_{idx}_{trans['uuid']}"
-            cols = st.columns(col_widths)
+        # 创建带滚动条的容器
+        with st.container():
+            st.markdown('<div class="scrollable-table">', unsafe_allow_html=True)
             
-            # 填充交易数据（应用紧凑样式）
-            with cols[0]:
-                st.markdown(f'<p class="small-text">{idx}</p>', unsafe_allow_html=True)
-            with cols[1]:
-                st.markdown(f'<p class="small-text">{trans["date"].strftime("%Y-%m-%d")}</p>', unsafe_allow_html=True)
-            with cols[2]:
-                st.markdown(f'<p class="small-text">${trans["amount"]:.2f}</p>', unsafe_allow_html=True)
-            with cols[3]:
-                st.markdown(f'<p class="small-text">{trans["type"]}</p>', unsafe_allow_html=True)
-            with cols[4]:
-                st.markdown(f'<p class="small-text">{trans["description"]}</p>', unsafe_allow_html=True)
-            with cols[5]:
-                st.markdown(f'<p class="small-text">{trans["handler"]}</p>', unsafe_allow_html=True)
-            with cols[6]:
-                # 删除按钮
-                if st.button(
-                    "🗑️ Delete", 
-                    key=unique_key,
-                    use_container_width=True,
-                    type="secondary"
-                ):
-                    # 从本地状态删除
-                    st.session_state.tra_records.pop(idx - 1)
-                    
-                    # 同步删除Google Sheets记录
-                    if transfers_sheet and sheet_handler:
-                        try:
-                            cell = transfers_sheet.find(trans["uuid"])
-                            if cell:
-                                transfers_sheet.delete_rows(cell.row)
-                            st.success(f"Transaction {idx} deleted successfully!")
-                            st.session_state.tra_cache_time = datetime.min  # 强制下次同步
-                            st.rerun()
-                        except Exception as e:
-                            st.warning(f"同步删除失败: {str(e)}")
+            # 定义列宽比例（确保最后一列足够放置删除按钮）
+            col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]  # 总和保持8.9，最后一列专门放删除键
             
-            st.markdown("---")  # 行分隔线
+            # 显示表头
+            header_cols = st.columns(col_widths)
+            with header_cols[0]:
+                st.write("**#**")
+            with header_cols[1]:
+                st.write("**Date**")
+            with header_cols[2]:
+                st.write("**Amount ($)**")
+            with header_cols[3]:
+                st.write("**Type**")
+            with header_cols[4]:
+                st.write("**Description**")
+            with header_cols[5]:
+                st.write("**Handled By**")
+            with header_cols[6]:
+                st.write("**Action**")  # 操作列标题
+            
+            st.markdown("---")  # 表头分隔线
+            
+            # 遍历显示每笔交易，右侧带删除按钮
+            for idx, trans in enumerate(st.session_state.tra_records, 1):
+                # 生成绝对唯一的key（结合模块名、功能、序号和UUID）
+                unique_key = f"tra_delete_{idx}_{trans['uuid']}"
+                
+                # 为每行创建相同比例的列
+                cols = st.columns(col_widths)
+                
+                # 填充交易数据
+                with cols[0]:
+                    st.write(idx)  # 序号
+                with cols[1]:
+                    st.write(trans["date"].strftime("%Y-%m-%d"))  # 日期
+                with cols[2]:
+                    st.write(f"${trans['amount']:.2f}")  # 金额
+                with cols[3]:
+                    st.write(trans["type"])  # 类型
+                with cols[4]:
+                    st.write(trans["description"])  # 描述
+                with cols[5]:
+                    st.write(trans["handler"])  # 处理人
+                with cols[6]:
+                    # 删除按钮 - 确保在每行最右侧且对齐
+                    if st.button(
+                        "🗑️ Delete", 
+                        key=unique_key,
+                        use_container_width=True,
+                        type="secondary"
+                    ):
+                        # 从本地状态删除
+                        st.session_state.tra_records.pop(idx - 1)
+                        
+                        # 同步删除Google Sheets记录
+                        if transfers_sheet and sheet_handler:
+                            try:
+                                cell = transfers_sheet.find(trans["uuid"])
+                                if cell:
+                                    transfers_sheet.delete_rows(cell.row)
+                                st.success(f"Transaction {idx} deleted successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.warning(f"同步删除失败: {str(e)}")
+                
+                # 行分隔线（增强可读性）
+                st.markdown("---")
+            
+            st.markdown('</div>', unsafe_allow_html=True)  # 关闭滚动容器
         
         # 显示汇总信息
         total_income = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Income")
@@ -237,14 +226,6 @@ def render_money_transfers():
             key="tra_input_handler"
         ).strip()
 
-    # 手动同步按钮（供用户主动刷新数据）
-    col_sync, _ = st.columns([1, 5])
-    with col_sync:
-        if st.button("🔄 Sync Data", key="tra_btn_sync") and transfers_sheet and sheet_handler:
-            st.session_state.tra_cache_time = datetime.min  # 强制同步
-            st.success("Syncing data...")
-            st.rerun()
-
     # 记录交易按钮
     if st.button("Record Transaction", key="tra_btn_record", use_container_width=True, type="primary"):
         # 验证必填字段
@@ -277,7 +258,6 @@ def render_money_transfers():
                     new_trans["handler"]
                 ])
                 st.success("Transaction recorded successfully!")
-                st.session_state.tra_cache_time = datetime.min  # 强制下次同步
                 st.rerun()
             except Exception as e:
                 st.warning(f"同步到Google Sheets失败: {str(e)}")
