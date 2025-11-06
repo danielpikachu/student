@@ -205,10 +205,11 @@ def render_attendance():
             
             data.append(row)
         
-        # 显示表格，添加index=False参数隐藏索引列
+        # 显示表格（使用pandas的to_html方法隐藏索引）
         with st.container():
             df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True, index=False)  # 关键修改：添加index=False
+            # 通过HTML方式显示表格，确保不显示索引列
+            st.markdown(df.to_html(index=False), unsafe_allow_html=True)
             
             # 调试用：显示当前数据状态（可注释）
             # with st.expander("当前数据状态"):
