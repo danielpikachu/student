@@ -208,6 +208,7 @@ def render_attendance():
         # 显示表格
         with st.container():
             df = pd.DataFrame(data)
+            df.index = df.index + 1
             st.dataframe(df, use_container_width=True)
             
             # 调试用：显示当前数据状态（可注释）
