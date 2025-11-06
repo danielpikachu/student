@@ -30,6 +30,22 @@ def render_attendance():
     st.header("Meeting Attendance Records")
     st.markdown("---")
 
+    # 新增：自定义CSS样式，隐藏索引列数字并设置浅灰色背景
+    st.markdown("""
+    <style>
+    /* 隐藏表格索引列的数字 */
+    .dataframe thead tr th:first-child,
+    .dataframe tbody tr td:first-child {
+        color: transparent !important;
+    }
+    /* 设置索引列浅灰色背景 */
+    .dataframe thead tr th:first-child,
+    .dataframe tbody tr td:first-child {
+        background-color: #f0f2f6 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     # 初始化Google Sheets连接
     sheet_handler = None
     attendance_sheet = None
@@ -51,12 +67,12 @@ def render_attendance():
         st.session_state.att_records = {}
     if "att_needs_refresh" not in st.session_state:
         st.session_state.att_needs_refresh = False
-    # 记录最后同步时间，用于控制同步频率
+    # 新增：记录最后同步时间，用于冲突检测
     if "last_sync_time" not in st.session_state:
         st.session_state.last_sync_time = None
 
     # 全量更新Google Sheets数据（覆盖方式）
-    def full_update_sheets(max_retries=5):
+    def full_update_sheets(max_retries=3):
         if not attendance_sheet or not sheet_handler:
             return True
             
@@ -99,8 +115,7 @@ def render_attendance():
                 return True
             except HttpError as e:
                 if e.resp.status == 429:
-                    # 指数退避策略，避免频繁重试
-                    retry_after = min(2 ** retry_count, 60)  # 最大等待60秒
+                    retry_after = int(e.resp.get('retry-after', 5))
                     st.warning(f"请求频率超限，将在 {retry_after} 秒后重试...")
                     time.sleep(retry_after)
                     retry_count += 1
@@ -117,12 +132,6 @@ def render_attendance():
     # 从Google Sheets同步数据（确保与界面结构一致）
     def sync_from_sheets(force=False):
         """从Google Sheet同步数据到本地，force=True强制覆盖本地状态"""
-        # 非强制同步时检查冷却时间（30秒内不重复同步）
-        if not force and st.session_state.last_sync_time:
-            if (datetime.now() - st.session_state.last_sync_time).total_seconds() < 30:
-                st.info("同步冷却中，30秒内已同步过数据")
-                return
-        
         if not attendance_sheet or not sheet_handler:
             return
         
@@ -182,21 +191,11 @@ def render_attendance():
             st.session_state.att_records = records
             st.session_state.last_sync_time = datetime.now()
                 
-        except HttpError as e:
-            if e.resp.status == 429:
-                retry_after = int(e.resp.get('retry-after', 5))
-                st.warning(f"同步请求频率超限，将在 {retry_after} 秒后重试...")
-                time.sleep(retry_after)
-                # 递归重试（限制次数）
-                if retry_count < 3:
-                    return sync_from_sheets(force)
-            st.warning(f"同步失败: {str(e)}")
         except Exception as e:
             st.warning(f"同步失败: {str(e)}")
 
-    # 初始同步（添加时间检查，避免频繁同步）
-    if not st.session_state.last_sync_time or (datetime.now() - st.session_state.last_sync_time).total_seconds() > 60:
-        sync_from_sheets(force=True)
+    # 初始同步（强制同步确保与Sheet一致）
+    sync_from_sheets(force=True)
 
     # 渲染考勤表格（与Sheet数据严格对应）
     def render_attendance_table():
@@ -226,6 +225,12 @@ def render_attendance():
         with st.container():
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True)
+            
+            # 调试用：显示当前数据状态（可注释）
+            # with st.expander("当前数据状态"):
+            #     st.write("成员:", st.session_state.att_members)
+            #     st.write("会议:", st.session_state.att_meetings)
+            #     st.write("记录:", st.session_state.att_records)
 
     # 渲染表格（确保始终执行）
     render_attendance_table()
