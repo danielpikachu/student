@@ -336,7 +336,7 @@ def render_attendance():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
 
-        # 单独更新成员状态
+        # 单独更新成员状态（修改为ABSENT选项）
         if st.session_state.att_members and st.session_state.att_meetings:
             selected_member = st.selectbox(
                 "Select Member",
@@ -345,13 +345,16 @@ def render_attendance():
                 key="att_update_member"
             )
             
-            current_status = st.session_state.att_records.get((selected_member["id"], selected_meeting["id"]), False)
-            is_present = st.checkbox("Present", value=current_status, key="att_is_present")
+            # 取当前出席状态的相反值来表示是否缺席
+            current_present = st.session_state.att_records.get((selected_member["id"], selected_meeting["id"]), False)
+            is_absent = st.checkbox("Absent", value=not current_present, key="att_is_absent")
             
             if st.button("Save Attendance", key="att_save_attendance"):
-                st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = is_present
+                # 勾选Absent表示缺席（present为False）
+                st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = not is_absent
                 
-                st.success(f"Updated {selected_member['name']}'s status")
+                status = "absent" if is_absent else "present"
+                st.success(f"Updated {selected_member['name']}'s status to {status}")
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
