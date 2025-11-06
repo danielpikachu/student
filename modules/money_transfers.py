@@ -14,7 +14,7 @@ if ROOT_DIR not in sys.path:
 from google_sheet_utils import GoogleSheetHandler
 
 def render_money_transfers():
-    """渲染转账模块界面（tra_前缀命名空间）"""
+    """渲染转账模块界面（带紧凑行距和滚动条）"""
     st.header("💸 Money Transfers")
     st.markdown("---")
 
@@ -61,126 +61,108 @@ def render_money_transfers():
     if "tra_records" not in st.session_state:
         st.session_state.tra_records = []
 
-    # ---------------------- 核心样式优化 - 确保生效 ----------------------
+    # ---------------------- 强制生效的CSS样式 ----------------------
     st.markdown("""
     <style>
-        /* 滚动容器样式 - 强制生效 */
-        .transaction-scroll {
-            max-height: 350px !important;
+        /* 滚动容器 - 直接作用于streamlit的容器元素 */
+        [data-testid="stVerticalBlock"] > div:nth-child(3) > div {
+            max-height: 300px !important;
             overflow-y: auto !important;
-            padding-right: 15px !important;
-            margin-bottom: 1rem !important;
-            border: 1px solid #eee !important;
-            border-radius: 4px !important;
+            padding: 10px !important;
+            border: 1px solid #e0e0e0 !important;
+            border-radius: 5px !important;
         }
         
-        /* 缩小行间距 - 覆盖默认样式 */
-        .transaction-row {
-            margin-top: 0.1rem !important;
-            margin-bottom: 0.1rem !important;
-            padding: 0.2rem 0 !important;
+        /* 缩小所有行元素的间距 */
+        [data-testid="stVerticalBlock"] > div:nth-child(3) .stMarkdown,
+        [data-testid="stVerticalBlock"] > div:nth-child(3) .stButton {
+            margin-top: 2px !important;
+            margin-bottom: 2px !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
         }
         
-        /* 缩小分隔线间距 */
-        .transaction-sep {
-            margin: 0.2rem 0 !important;
-            padding: 0 !important;
+        /* 缩小分隔线 */
+        [data-testid="stVerticalBlock"] > div:nth-child(3) hr {
+            margin: 4px 0 !important;
             height: 1px !important;
+            background-color: #f0f0f0 !important;
         }
         
-        /* 移除Streamlit默认的元素间距 */
-        .stBlockContainer > div {
-            margin-bottom: 0 !important;
-        }
-        
-        /* 按钮紧凑样式 */
-        .small-delete-btn {
+        /* 紧凑按钮样式 */
+        [data-testid="stVerticalBlock"] > div:nth-child(3) .stButton button {
             padding: 2px 8px !important;
-            font-size: 14px !important;
+            font-size: 12px !important;
+            height: 28px !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
-    # ---------------------- 交易历史展示（带滚动条和紧凑行距） ----------------------
+    # ---------------------- 交易历史展示（带滚动条） ----------------------
     st.subheader("Transaction History")
     
-    # 创建滚动容器（使用强制样式）
-    st.markdown('<div class="transaction-scroll">', unsafe_allow_html=True)
-    
-    if not st.session_state.tra_records:
-        st.info("No financial transactions recorded yet")
-    else:
-        # 列宽比例（优化空间利用）
-        col_widths = [0.2, 1.1, 1.1, 1.1, 2.4, 1.4, 0.8]
-        
-        # 表头
-        header_cols = st.columns(col_widths)
-        with header_cols[0]:
-            st.write("**#**")
-        with header_cols[1]:
-            st.write("**Date**")
-        with header_cols[2]:
-            st.write("**Amount**")
-        with header_cols[3]:
-            st.write("**Type**")
-        with header_cols[4]:
-            st.write("**Description**")
-        with header_cols[5]:
-            st.write("**Handled By**")
-        with header_cols[6]:
-            st.write("**Del**")  # 简化操作列标题
-        
-        st.markdown('<hr class="transaction-sep">', unsafe_allow_html=True)
-        
-        # 遍历交易记录
-        for idx, trans in enumerate(st.session_state.tra_records, 1):
-            # 生成唯一key（确保不重复）
-            unique_key = f"tra_del_{trans['uuid']}"  # 直接使用UUID确保唯一性
+    # 这是第3个垂直块容器（用于CSS定位）
+    with st.container():
+        if not st.session_state.tra_records:
+            st.info("No financial transactions recorded yet")
+        else:
+            # 列宽比例
+            col_widths = [0.2, 1.0, 1.0, 1.0, 2.2, 1.3, 0.7]
             
-            # 紧凑行容器
-            st.markdown('<div class="transaction-row">', unsafe_allow_html=True)
-            cols = st.columns(col_widths)
+            # 表头
+            header_cols = st.columns(col_widths)
+            with header_cols[0]:
+                st.write("**#**")
+            with header_cols[1]:
+                st.write("**Date**")
+            with header_cols[2]:
+                st.write("**Amount**")
+            with header_cols[3]:
+                st.write("**Type**")
+            with header_cols[4]:
+                st.write("**Description**")
+            with header_cols[5]:
+                st.write("**Handled By**")
+            with header_cols[6]:
+                st.write("**Del**")
             
-            with cols[0]:
-                st.write(idx)
-            with cols[1]:
-                st.write(trans["date"].strftime("%Y-%m-%d"))
-            with cols[2]:
-                st.write(f"${trans['amount']:.2f}")
-            with cols[3]:
-                st.write(trans["type"])
-            with cols[4]:
-                st.write(trans["description"])
-            with cols[5]:
-                st.write(trans["handler"])
-            with cols[6]:
-                # 紧凑删除按钮
-                if st.button(
-                    "🗑️",
-                    key=unique_key,
-                    use_container_width=True,
-                    help="Delete this transaction"
-                ):
-                    # 本地删除
-                    st.session_state.tra_records = [t for t in st.session_state.tra_records if t["uuid"] != trans["uuid"]]
-                    
-                    # 同步到Google Sheets
-                    if transfers_sheet and sheet_handler:
-                        try:
-                            cell = transfers_sheet.find(trans["uuid"])
-                            if cell:
-                                transfers_sheet.delete_rows(cell.row)
-                            st.success("Transaction deleted successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.warning(f"同步删除失败: {str(e)}")
+            st.markdown("<hr>", unsafe_allow_html=True)
             
-            st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown('<hr class="transaction-sep">', unsafe_allow_html=True)
-    
-    # 关闭滚动容器
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+            # 遍历交易记录
+            for idx, trans in enumerate(st.session_state.tra_records, 1):
+                unique_key = f"tra_del_{trans['uuid']}"
+                
+                cols = st.columns(col_widths)
+                with cols[0]:
+                    st.write(idx)
+                with cols[1]:
+                    st.write(trans["date"].strftime("%Y-%m-%d"))
+                with cols[2]:
+                    st.write(f"${trans['amount']:.2f}")
+                with cols[3]:
+                    st.write(trans["type"])
+                with cols[4]:
+                    st.write(trans["description"])
+                with cols[5]:
+                    st.write(trans["handler"])
+                with cols[6]:
+                    if st.button("🗑️", key=unique_key, use_container_width=True):
+                        # 本地删除
+                        st.session_state.tra_records = [t for t in st.session_state.tra_records if t["uuid"] != trans["uuid"]]
+                        
+                        # 同步删除
+                        if transfers_sheet and sheet_handler:
+                            try:
+                                cell = transfers_sheet.find(trans["uuid"])
+                                if cell:
+                                    transfers_sheet.delete_rows(cell.row)
+                                st.success("Deleted successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.warning(f"同步失败: {str(e)}")
+            
+                st.markdown("<hr>", unsafe_allow_html=True)
+
     # 汇总信息
     if st.session_state.tra_records:
         total_income = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Income")
@@ -263,7 +245,7 @@ def render_money_transfers():
                     new_trans["description"],
                     new_trans["handler"]
                 ])
-                st.success("Transaction recorded successfully!")
+                st.success("Recorded successfully!")
                 st.rerun()
             except Exception as e:
-                st.warning(f"同步到Google Sheets失败: {str(e)}")
+                st.warning(f"同步失败: {str(e)}")
