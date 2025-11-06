@@ -38,42 +38,23 @@ def init_google_sheet_handler():
         st.error(f"Google Sheets初始化失败: {str(e)}")
         return None
 
-def get_or_create_worksheet(sheet_handler, group_name):
-    """获取或创建指定小组在Student表格中的子工作表"""
+def get_group_worksheet(sheet_handler, group_name):
+    """获取指定小组在Student表格中已存在的子工作表（仅获取不创建）"""
     if not sheet_handler:
         return None
     
     try:
-        # 尝试获取Student表格中已存在的小组工作表
+        # 直接获取已存在的工作表
         return sheet_handler.get_worksheet(
-            spreadsheet_name="Student",  # 复用已存在的Student主表格
-            worksheet_name=group_name    # 子工作表名为Group1~Group8
+            spreadsheet_name="Student",
+            worksheet_name=group_name
         )
     except Exception as e:
-        # 子工作表不存在时，在Student表格中创建新的
-        try:
-            worksheet = sheet_handler.create_worksheet(
-                spreadsheet_name="Student",
-                worksheet_name=group_name
-            )
-            
-            # 初始化表头结构（三部分数据区域）
-            worksheet.append_row(["Members", "", "", ""])
-            worksheet.append_row(["Name", "StudentID", "Position", "Contact"])  # 成员表头
-            worksheet.append_row(["", "", "", ""])  # 分隔行
-            worksheet.append_row(["Earnings", "", "", ""])
-            worksheet.append_row(["Date", "Amount", "Description", ""])  # 收入表头
-            worksheet.append_row(["", "", "", ""])  # 分隔行
-            worksheet.append_row(["Reimbursements", "", "", ""])
-            worksheet.append_row(["Date", "Amount", "Description", "Status"])  # 报销表头
-            
-            return worksheet
-        except Exception as e:
-            st.error(f"在Student表格中创建{group_name}子工作表失败: {str(e)}")
-            return None
+        st.error(f"获取{group_name}工作表失败，请确认该工作表已存在: {str(e)}")
+        return None
 
 def load_group_data(worksheet):
-    """从工作表加载小组数据（成员、收入、报销）"""
+    """从工作表加载小组数据（成员、收入、报销），优化边界判断"""
     if not worksheet:
         return {"members": [], "earnings": [], "reimbursements": []}
     
@@ -94,8 +75,10 @@ def load_group_data(worksheet):
                 current_section = "reimbursements"
                 continue
             
-            # 跳过空行和表头行
-            if not current_section or not row[0] or row[0] in ["Name", "Date"]:
+            # 跳过空行和表头行（更精确的判断）
+            if (not current_section 
+                or all(cell.strip() == "" for cell in row)  # 完全空行
+                or row[0] in ["Name", "Date"]):  # 表头行
                 continue
             
             # 解析不同区域的数据
@@ -107,14 +90,30 @@ def load_group_data(worksheet):
                     "Contact": row[3]
                 })
             elif current_section == "earnings":
+                # 确保日期格式统一为YYYY-MM-DD
+                try:
+                    date_obj = datetime.strptime(row[0], "%Y-%m-%d")
+                    formatted_date = date_obj.strftime("%Y-%m-%d")
+                except ValueError:
+                    formatted_date = row[0]  # 保留原始格式但提示警告
+                    st.warning(f"收入日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
+                
                 data["earnings"].append({
-                    "Date": row[0],
+                    "Date": formatted_date,
                     "Amount": float(row[1]) if row[1] else 0.0,
                     "Description": row[2]
                 })
             elif current_section == "reimbursements":
+                # 确保日期格式统一为YYYY-MM-DD
+                try:
+                    date_obj = datetime.strptime(row[0], "%Y-%m-%d")
+                    formatted_date = date_obj.strftime("%Y-%m-%d")
+                except ValueError:
+                    formatted_date = row[0]  # 保留原始格式但提示警告
+                    st.warning(f"报销日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
+                
                 data["reimbursements"].append({
-                    "Date": row[0],
+                    "Date": formatted_date,
                     "Amount": float(row[1]) if row[1] else 0.0,
                     "Description": row[2],
                     "Status": row[3] or "Pending"
@@ -126,7 +125,7 @@ def load_group_data(worksheet):
         return {"members": [], "earnings": [], "reimbursements": []}
 
 def clear_section_data(worksheet, section_title):
-    """清空指定区域的数据（保留标题和表头）"""
+    """清空指定区域的数据（保留标题和表头），优化批量删除逻辑"""
     all_data = worksheet.get_all_values()
     start_row = None
     end_row = None
@@ -135,14 +134,17 @@ def clear_section_data(worksheet, section_title):
     for i, row in enumerate(all_data):
         if row[0] == section_title:
             start_row = i + 2  # 标题行+1是表头，再+1是数据起始行
-        elif start_row and row[0] in ["Members", "Earnings", "Reimbursements", ""]:
+        elif start_row and row[0] in ["Members", "Earnings", "Reimbursements"]:
             end_row = i - 1  # 区域结束行
             break
     
+    # 处理最后一个区域的情况
+    if start_row and end_row is None:
+        end_row = len(all_data) - 1
+    
     # 如果找到区域且有数据行，删除数据
-    if start_row and (end_row is None or end_row >= start_row):
-        end_row = end_row if end_row is not None else len(all_data) - 1
-        # Google Sheets行索引从1开始，需要+1转换
+    if start_row and end_row is not None and end_row >= start_row:
+        # Google Sheets行索引从1开始，计算要删除的行数
         worksheet.delete_rows(start_row + 1, end_row - start_row + 1)
     return start_row
 
@@ -235,8 +237,8 @@ def render_groups():
                     "reimbursements": []
                 }
             
-            # 获取当前小组的工作表
-            worksheet = get_or_create_worksheet(sheet_handler, group_name)
+            # 获取当前小组的工作表（仅获取已存在的）
+            worksheet = get_group_worksheet(sheet_handler, group_name)
             
             # 加载数据按钮
             col_refresh, col_empty = st.columns([1, 5])
@@ -337,7 +339,7 @@ def render_groups():
                         if not earn_desc:
                             st.error("请填写收入描述")
                         else:
-                            # 更新本地数据
+                            # 更新本地数据（强制统一日期格式）
                             group_data["earnings"].append({
                                 "Date": earn_date.strftime("%Y-%m-%d"),
                                 "Amount": earn_amount,
@@ -414,7 +416,7 @@ def render_groups():
                         if not req_desc:
                             st.error("请填写报销描述")
                         else:
-                            # 更新本地数据
+                            # 更新本地数据（强制统一日期格式）
                             group_data["reimbursements"].append({
                                 "Date": req_date.strftime("%Y-%m-%d"),
                                 "Amount": req_amount,
