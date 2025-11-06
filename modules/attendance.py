@@ -4,9 +4,8 @@ import pandas as pd
 from datetime import datetime
 import sys
 import os
-import time
 
-# 解决根目录模块导入问题
+# 解决根目录导入问题
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
@@ -14,44 +13,22 @@ if ROOT_DIR not in sys.path:
 # 导入Google Sheets工具类
 from google_sheet_utils import GoogleSheetHandler
 
-# 处理Google API错误
-try:
-    from googleapiclient.errors import HttpError
-except ImportError:
-    class HttpError(Exception):
-        def __init__(self, resp, content, uri=None):
-            self.resp = resp
-            self.content = content
-            self.uri = uri
-
 def render_attendance():
-    """保持界面不变，仅同步数据格式到Google Sheet"""
-    # 界面布局完全不变
+    # 界面设置（完全不变）
     st.set_page_config(layout="wide")
     st.header("Meeting Attendance Records")
     st.markdown("---")
 
-    # 初始化Google Sheets连接
+    # 初始化Google Sheets连接（简化版）
     sheet_handler = None
     attendance_sheet = None
-    sheet_available = False
     try:
         sheet_handler = GoogleSheetHandler(credentials_path="")
-        # 尝试获取工作表
-        try:
-            attendance_sheet = sheet_handler.get_worksheet(
-                spreadsheet_name="Student",
-                worksheet_name="Attendance"
-            )
-            sheet_available = True
-        except:
-            # 不提示创建信息，避免界面干扰
-            pass
+        attendance_sheet = sheet_handler.get_worksheet("Student", "Attendance")
     except:
-        # 静默失败，不显示错误干扰界面
-        pass
+        pass  # 连接失败不提示，避免影响界面
 
-    # 初始化会话状态（保持原样）
+    # 会话状态初始化（与原界面一致）
     if "att_members" not in st.session_state:
         st.session_state.att_members = []
     if "att_meetings" not in st.session_state:
@@ -61,82 +38,42 @@ def render_attendance():
     if "att_needs_refresh" not in st.session_state:
         st.session_state.att_needs_refresh = False
 
-    # 核心同步函数：仅同步数据，不改变界面
-    def sync_to_sheet_silently():
-        """静默同步数据到Google Sheet，不显示额外提示"""
-        if not sheet_available or not attendance_sheet:
+    # 核心：同步表格到Google Sheet（仅做这件事，不影响界面）
+    def sync_to_sheet():
+        if not attendance_sheet:
             return
 
-        try:
-            # 1. 准备与界面表格完全一致的数据
-            # 表头：成员名 + 会议名 + 出勤率
-            headers = ["Member Name"] + [m["name"] for m in st.session_state.att_meetings] + ["Attendance Rates"]
-            
-            # 表格内容
-            rows = []
-            for member in st.session_state.att_members:
-                row = [member["name"]]
-                # 各会议出勤状态（✓/✗）
-                for meeting in st.session_state.att_meetings:
-                    row.append("✓" if st.session_state.att_records.get((member["id"], meeting["id"]), False) else "✗")
-                # 出勤率
-                attended = sum(1 for m in st.session_state.att_meetings if st.session_state.att_records.get((member["id"], m["id"]), False))
-                total = len(st.session_state.att_meetings)
-                row.append(f"{(attended/total*100):.1f}%" if total > 0 else "0%")
-                rows.append(row)
+        # 1. 准备与界面完全相同的表格数据
+        # 表头：成员名 + 所有会议名 + 出勤率
+        headers = ["Member Name"]
+        for meeting in st.session_state.att_meetings:
+            headers.append(meeting["name"])
+        headers.append("Attendance Rates")
 
-            # 2. 清空并写入新数据（确保格式一致）
-            attendance_sheet.clear()
-            attendance_sheet.append_row(headers)
+        # 表格内容
+        rows = []
+        for member in st.session_state.att_members:
+            row = [member["name"]]
+            # 各会议出勤状态（✓/✗）
+            for meeting in st.session_state.att_meetings:
+                row.append("✓" if st.session_state.att_records.get((member["id"], meeting["id"]), False) else "✗")
+            # 出勤率计算
+            attended = sum(1 for m in st.session_state.att_meetings if st.session_state.att_records.get((member["id"], m["id"]), False))
+            total = len(st.session_state.att_meetings)
+            row.append(f"{(attended/total*100):.1f}%" if total > 0 else "0%")
+            rows.append(row)
+
+        # 2. 写入Google Sheet（先清空再写入，确保一致）
+        try:
+            attendance_sheet.clear()  # 清空旧数据
+            attendance_sheet.append_row(headers)  # 写入表头
             if rows:
-                attendance_sheet.append_rows(rows)
-                # 设置表头加粗（不影响界面）
-                attendance_sheet.format("1:1", {"textFormat": {"bold": True}})
-
+                attendance_sheet.append_rows(rows)  # 写入内容
+                attendance_sheet.format("1:1", {"textFormat": {"bold": True}})  # 表头加粗
         except:
-            # 同步失败不提示，避免干扰界面
-            pass
+            pass  # 同步失败不影响界面
 
-    # 从Sheet加载数据（不影响界面）
-    def load_from_sheet_silently():
-        """静默从Sheet加载数据，仅在首次启动时执行"""
-        if not sheet_available or not attendance_sheet or (st.session_state.att_members or st.session_state.att_meetings):
-            return
-
-        try:
-            all_data = attendance_sheet.get_all_values()
-            if not all_data or len(all_data) < 2:
-                return
-
-            headers = all_data[0]
-            if headers[0] != "Member Name":
-                return
-
-            # 提取会议
-            meetings = headers[1:-1] if len(headers) > 2 else []
-            st.session_state.att_meetings = [{"id": i+1, "name": name} for i, name in enumerate(meetings)]
-
-            # 提取成员和记录
-            members = []
-            records = {}
-            for row in all_data[1:]:
-                if not row or not row[0]:
-                    continue
-                member_id = len(members) + 1
-                members.append({"id": member_id, "name": row[0].strip()})
-                for i, meeting in enumerate(st.session_state.att_meetings):
-                    if i+1 < len(row):
-                        records[(member_id, meeting["id"])] = (row[i+1].strip() == "✓")
-
-            st.session_state.att_members = members
-            st.session_state.att_records = records
-        except:
-            pass
-
-    # 初始加载（不影响界面）
-    load_from_sheet_silently()
-
-    # 渲染考勤表格（完全保持原界面）
+    # 渲染考勤表格（与原界面完全一致）
     def render_attendance_table():
         if st.session_state.att_members and st.session_state.att_meetings:
             data = []
@@ -157,12 +94,12 @@ def render_attendance():
 
     st.markdown("---")
 
-    # 操作区域（完全保持原界面布局和功能）
+    # 操作区域（与原界面完全一致）
     st.header("Attendance Management Tools")
     col_left, col_right = st.columns(2)
 
     with col_left:
-        # 1. 导入成员（保持原界面）
+        # 1. 导入成员（原界面逻辑）
         with st.container(border=True):
             st.subheader("Import Members")
             if st.button("Import from members.xlsx", key="att_import_members"):
@@ -171,7 +108,6 @@ def render_attendance():
                     if "Member Name" not in df.columns:
                         st.error("Excel must have 'Member Name' column!")
                         return
-                    
                     new_members = [name.strip() for name in df["Member Name"].dropna().unique() if name.strip()]
                     added = 0
                     for name in new_members:
@@ -182,19 +118,15 @@ def render_attendance():
                                 st.session_state.att_records[(new_id, meeting["id"])] = False
                             added += 1
                     st.success(f"Added {added} new members")
-                    sync_to_sheet_silently()  # 仅添加同步逻辑
+                    sync_to_sheet()  # 同步到Sheet
                     st.session_state.att_needs_refresh = True
                 except Exception as e:
                     st.error(f"Import failed: {str(e)}")
 
-        # 2. 会议管理（保持原界面）
+        # 2. 会议管理（原界面逻辑）
         with st.container(border=True):
             st.subheader("Manage Meetings")
-            meeting_name = st.text_input(
-                "Enter meeting name", 
-                placeholder="e.g., Weekly Sync",
-                key="att_meeting_name"
-            )
+            meeting_name = st.text_input("Enter meeting name", placeholder="e.g., Weekly Sync", key="att_meeting_name")
             
             if st.button("Add Meeting", key="att_add_meeting"):
                 meeting_name = meeting_name.strip()
@@ -211,7 +143,7 @@ def render_attendance():
                     st.session_state.att_records[(member["id"], new_meeting_id)] = False
                 
                 st.success(f"Added meeting: {meeting_name}")
-                sync_to_sheet_silently()  # 仅添加同步逻辑
+                sync_to_sheet()  # 同步到Sheet
                 st.session_state.att_needs_refresh = True
 
             if st.session_state.att_meetings:
@@ -227,7 +159,7 @@ def render_attendance():
                     st.session_state.att_records = {(m_id, mt_id): v for (m_id, mt_id), v in st.session_state.att_records.items() if mt_id != selected_meeting["id"]}
                     
                     st.success(f"Deleted meeting: {selected_meeting['name']}")
-                    sync_to_sheet_silently()  # 仅添加同步逻辑
+                    sync_to_sheet()  # 同步到Sheet
                     st.session_state.att_needs_refresh = True
 
     with col_right.container(border=True):
@@ -246,7 +178,7 @@ def render_attendance():
                     st.session_state.att_records[(member["id"], selected_meeting["id"])] = True
                 
                 st.success(f"All present for {selected_meeting['name']}")
-                sync_to_sheet_silently()  # 仅添加同步逻辑
+                sync_to_sheet()  # 同步到Sheet
                 st.session_state.att_needs_refresh = True
 
         if st.session_state.att_members and st.session_state.att_meetings:
@@ -264,7 +196,7 @@ def render_attendance():
                 st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = is_present
                 
                 st.success(f"Updated {selected_member['name']}'s status")
-                sync_to_sheet_silently()  # 仅添加同步逻辑
+                sync_to_sheet()  # 同步到Sheet
                 st.session_state.att_needs_refresh = True
 
     # 刷新逻辑（保持不变）
