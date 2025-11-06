@@ -156,7 +156,7 @@ def render_money_transfers():
         
         amount = st.number_input(
             "Amount ($)", 
-            min_value=0.01, 
+            min_value=10, 
             step=0.01, 
             value=100.00,
             key="tra_input_amount"
