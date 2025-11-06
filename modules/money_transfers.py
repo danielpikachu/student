@@ -69,10 +69,13 @@ def render_money_transfers():
     if not st.session_state.tra_records:
         st.info("No financial transactions recorded yet")
     else:
+        # 定义列宽比例（确保最后一列足够放置删除按钮）
+        col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]  # 总和保持8.9，最后一列专门放删除键
+        
         # 显示表头
-        header_cols = st.columns([0.5, 2, 2, 2, 3, 2, 1.5])
+        header_cols = st.columns(col_widths)
         with header_cols[0]:
-            st.write("**No.**")
+            st.write("**#**")
         with header_cols[1]:
             st.write("**Date**")
         with header_cols[2]:
@@ -84,35 +87,36 @@ def render_money_transfers():
         with header_cols[5]:
             st.write("**Handled By**")
         with header_cols[6]:
-            st.write("**Action**")  # 空表头占位
+            st.write("**Action**")  # 操作列标题
         
-        st.markdown("---")
+        st.markdown("---")  # 表头分隔线
         
         # 遍历显示每笔交易，右侧带删除按钮
         for idx, trans in enumerate(st.session_state.tra_records, 1):
-            # 生成层级化唯一key（模块_功能_序号_uuid）
-            trans_key = f"tra_trans_{idx}_{trans['uuid']}"
+            # 生成绝对唯一的key（结合模块名、功能、序号和UUID）
+            unique_key = f"tra_delete_{idx}_{trans['uuid']}"
             
-            # 创建平行列布局
-            cols = st.columns([0.5, 2, 2, 2, 3, 2, 1.5])
+            # 为每行创建相同比例的列
+            cols = st.columns(col_widths)
             
+            # 填充交易数据
             with cols[0]:
-                st.write(idx)
+                st.write(idx)  # 序号
             with cols[1]:
-                st.write(trans["date"].strftime("%Y-%m-%d"))
+                st.write(trans["date"].strftime("%Y-%m-%d"))  # 日期
             with cols[2]:
-                st.write(f"${trans['amount']:.2f}")
+                st.write(f"${trans['amount']:.2f}")  # 金额
             with cols[3]:
-                st.write(trans["type"])
+                st.write(trans["type"])  # 类型
             with cols[4]:
-                st.write(trans["description"])
+                st.write(trans["description"])  # 描述
             with cols[5]:
-                st.write(trans["handler"])
+                st.write(trans["handler"])  # 处理人
             with cols[6]:
-                # 删除按钮（使用层级化key确保唯一性）
+                # 删除按钮 - 确保在每行最右侧且对齐
                 if st.button(
-                    "Delete", 
-                    key=f"tra_btn_delete_{trans_key}",
+                    "🗑️ Delete", 
+                    key=unique_key,
                     use_container_width=True,
                     type="secondary"
                 ):
@@ -129,8 +133,9 @@ def render_money_transfers():
                             st.rerun()
                         except Exception as e:
                             st.warning(f"同步删除失败: {str(e)}")
-        
-        st.markdown("---")
+            
+            # 行分隔线（增强可读性）
+            st.markdown("---")
         
         # 显示汇总信息
         total_income = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Income")
@@ -156,7 +161,7 @@ def render_money_transfers():
         trans_date = st.date_input(
             "Transaction Date", 
             value=datetime.today(),
-            key="tra_input_date"  # 层级化Key：模块_输入组件_功能
+            key="tra_input_date"
         )
         
         amount = st.number_input(
