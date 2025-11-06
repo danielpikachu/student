@@ -21,27 +21,24 @@ def render_money_transfers():
     # 添加自定义CSS实现滚动表格
     st.markdown("""
     <style>
-        .scrollable-table {
-            max-height: 400px;  /* 调整这个值控制表格高度 */
+        .scrollable-container {
+            max-height: 450px;  /* 刚好能容纳5条记录的高度 */
             overflow-y: auto;
-            padding-right: 10px;  /* 防止滚动条遮挡内容 */
+            padding-right: 10px;
         }
-        .scrollable-table::-webkit-scrollbar {
+        .scrollable-container::-webkit-scrollbar {
             width: 8px;
         }
-        .scrollable-table::-webkit-scrollbar-track {
+        .scrollable-container::-webkit-scrollbar-track {
             background: #f1f1f1;
             border-radius: 4px;
         }
-        .scrollable-table::-webkit-scrollbar-thumb {
+        .scrollable-container::-webkit-scrollbar-thumb {
             background: #888;
             border-radius: 4px;
         }
-        .scrollable-table::-webkit-scrollbar-thumb:hover {
+        .scrollable-container::-webkit-scrollbar-thumb:hover {
             background: #555;
-        }
-        .table-row {
-            margin-bottom: 8px;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -98,78 +95,69 @@ def render_money_transfers():
         st.info("No financial transactions recorded yet")
     else:
         # 创建带滚动条的容器
-        with st.container():
-            st.markdown('<div class="scrollable-table">', unsafe_allow_html=True)
+        st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
+        
+        # 定义列宽比例
+        col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]
+        
+        # 显示表头
+        header_cols = st.columns(col_widths)
+        with header_cols[0]:
+            st.write("**#**")
+        with header_cols[1]:
+            st.write("**Date**")
+        with header_cols[2]:
+            st.write("**Amount ($)**")
+        with header_cols[3]:
+            st.write("**Type**")
+        with header_cols[4]:
+            st.write("**Description**")
+        with header_cols[5]:
+            st.write("**Handled By**")
+        with header_cols[6]:
+            st.write("**Action**")
+        
+        st.markdown("---")
+        
+        # 遍历显示每笔交易
+        for idx, trans in enumerate(st.session_state.tra_records, 1):
+            unique_key = f"tra_delete_{idx}_{trans['uuid']}"
+            cols = st.columns(col_widths)
             
-            # 定义列宽比例（确保最后一列足够放置删除按钮）
-            col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]  # 总和保持8.9，最后一列专门放删除键
+            with cols[0]:
+                st.write(idx)
+            with cols[1]:
+                st.write(trans["date"].strftime("%Y-%m-%d"))
+            with cols[2]:
+                st.write(f"${trans['amount']:.2f}")
+            with cols[3]:
+                st.write(trans["type"])
+            with cols[4]:
+                st.write(trans["description"])
+            with cols[5]:
+                st.write(trans["handler"])
+            with cols[6]:
+                if st.button(
+                    "🗑️ Delete", 
+                    key=unique_key,
+                    use_container_width=True,
+                    type="secondary"
+                ):
+                    st.session_state.tra_records.pop(idx - 1)
+                    if transfers_sheet and sheet_handler:
+                        try:
+                            cell = transfers_sheet.find(trans["uuid"])
+                            if cell:
+                                transfers_sheet.delete_rows(cell.row)
+                            st.success(f"Transaction {idx} deleted successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.warning(f"同步删除失败: {str(e)}")
             
-            # 显示表头
-            header_cols = st.columns(col_widths)
-            with header_cols[0]:
-                st.write("**#**")
-            with header_cols[1]:
-                st.write("**Date**")
-            with header_cols[2]:
-                st.write("**Amount ($)**")
-            with header_cols[3]:
-                st.write("**Type**")
-            with header_cols[4]:
-                st.write("**Description**")
-            with header_cols[5]:
-                st.write("**Handled By**")
-            with header_cols[6]:
-                st.write("**Action**")  # 操作列标题
-            
-            st.markdown("---")  # 表头分隔线
-            
-            # 遍历显示每笔交易，右侧带删除按钮
-            for idx, trans in enumerate(st.session_state.tra_records, 1):
-                # 生成绝对唯一的key（结合模块名、功能、序号和UUID）
-                unique_key = f"tra_delete_{idx}_{trans['uuid']}"
-                
-                # 为每行创建相同比例的列
-                cols = st.columns(col_widths)
-                
-                # 填充交易数据
-                with cols[0]:
-                    st.write(idx)  # 序号
-                with cols[1]:
-                    st.write(trans["date"].strftime("%Y-%m-%d"))  # 日期
-                with cols[2]:
-                    st.write(f"${trans['amount']:.2f}")  # 金额
-                with cols[3]:
-                    st.write(trans["type"])  # 类型
-                with cols[4]:
-                    st.write(trans["description"])  # 描述
-                with cols[5]:
-                    st.write(trans["handler"])  # 处理人
-                with cols[6]:
-                    # 删除按钮 - 确保在每行最右侧且对齐
-                    if st.button(
-                        "🗑️ Delete", 
-                        key=unique_key,
-                        use_container_width=True,
-                        type="secondary"
-                    ):
-                        # 从本地状态删除
-                        st.session_state.tra_records.pop(idx - 1)
-                        
-                        # 同步删除Google Sheets记录
-                        if transfers_sheet and sheet_handler:
-                            try:
-                                cell = transfers_sheet.find(trans["uuid"])
-                                if cell:
-                                    transfers_sheet.delete_rows(cell.row)
-                                st.success(f"Transaction {idx} deleted successfully!")
-                                st.rerun()
-                            except Exception as e:
-                                st.warning(f"同步删除失败: {str(e)}")
-                
-                # 行分隔线（增强可读性）
-                st.markdown("---")
-            
-            st.markdown('</div>', unsafe_allow_html=True)  # 关闭滚动容器
+            st.markdown("---")
+        
+        # 关闭滚动容器
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # 显示汇总信息
         total_income = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Income")
@@ -226,16 +214,13 @@ def render_money_transfers():
             key="tra_input_handler"
         ).strip()
 
-    # 记录交易按钮
     if st.button("Record Transaction", key="tra_btn_record", use_container_width=True, type="primary"):
-        # 验证必填字段
         if not description or not handler:
             st.error("Description and Handled By are required fields!")
             return
         
-        # 创建新交易记录
         new_trans = {
-            "uuid": str(uuid.uuid4()),  # 生成唯一标识
+            "uuid": str(uuid.uuid4()),
             "date": trans_date,
             "type": trans_type,
             "amount": round(amount, 2),
@@ -243,10 +228,8 @@ def render_money_transfers():
             "handler": handler
         }
         
-        # 更新本地状态
         st.session_state.tra_records.append(new_trans)
         
-        # 同步到Google Sheets
         if transfers_sheet and sheet_handler:
             try:
                 transfers_sheet.append_row([
