@@ -31,7 +31,7 @@ def render_money_transfers():
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
     # 从Google Sheets同步数据（使用tra_records状态）
-    if transfers_sheet and sheet_handler and (not st.session_state.tra_records):
+    if transfers_sheet and sheet_handler and (not st.session_state.get("tra_records")):
         try:
             all_data = transfers_sheet.get_all_values()
             expected_headers = ["uuid", "date", "type", "amount", "description", "handler"]
@@ -60,54 +60,78 @@ def render_money_transfers():
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # ---------------------- 删除最后一笔交易 ----------------------
-    if st.button("Delete Last Transaction", key="tra_btn_delete_last", use_container_width=True):
-        if not st.session_state.tra_records:
-            st.warning("No transactions to delete!")
-            return
-        
-        # 删除本地最后一笔记录
-        deleted_trans = st.session_state.tra_records.pop()
-        
-        # 同步删除Google Sheets记录
-        if transfers_sheet and sheet_handler:
-            try:
-                # 根据UUID查找并删除行
-                cell = transfers_sheet.find(deleted_trans["uuid"])
-                if cell:
-                    transfers_sheet.delete_rows(cell.row)
-                st.success("Last transaction deleted successfully!")
-                st.rerun()
-            except Exception as e:
-                st.warning(f"同步删除失败: {str(e)}")
+    # 初始化状态（防止首次加载时出错）
+    if "tra_records" not in st.session_state:
+        st.session_state.tra_records = []
 
-    st.markdown("---")
-
-    # ---------------------- 交易历史展示 ----------------------
+    # ---------------------- 交易历史展示（带独立删除按钮） ----------------------
     st.subheader("Transaction History")
     if not st.session_state.tra_records:
         st.info("No financial transactions recorded yet")
     else:
-        # 准备表格数据
-        table_data = []
-        for idx, trans in enumerate(st.session_state.tra_records, 1):
-            table_data.append({
-                "No.": idx,
-                "Date": trans["date"].strftime("%Y-%m-%d"),
-                "Amount ($)": trans["amount"],
-                "Type": trans["type"],
-                "Description": trans["description"],
-                "Handled By": trans["handler"]
-            })
+        # 显示表头
+        header_cols = st.columns([0.5, 2, 2, 2, 3, 2, 1.5])
+        with header_cols[0]:
+            st.write("**No.**")
+        with header_cols[1]:
+            st.write("**Date**")
+        with header_cols[2]:
+            st.write("**Amount ($)**")
+        with header_cols[3]:
+            st.write("**Type**")
+        with header_cols[4]:
+            st.write("**Description**")
+        with header_cols[5]:
+            st.write("**Handled By**")
+        with header_cols[6]:
+            st.write("**Action**")  # 空表头占位
         
-        # 渲染表格（带货币格式化）
-        st.dataframe(
-            table_data,
-            column_config={"Amount ($)": st.column_config.NumberColumn(format="$%.2f")},
-            hide_index=True,
-            use_container_width=True
-        )
-
+        st.markdown("---")
+        
+        # 遍历显示每笔交易，右侧带删除按钮
+        for idx, trans in enumerate(st.session_state.tra_records, 1):
+            # 生成层级化唯一key（模块_功能_序号_uuid）
+            trans_key = f"tra_trans_{idx}_{trans['uuid']}"
+            
+            # 创建平行列布局
+            cols = st.columns([0.5, 2, 2, 2, 3, 2, 1.5])
+            
+            with cols[0]:
+                st.write(idx)
+            with cols[1]:
+                st.write(trans["date"].strftime("%Y-%m-%d"))
+            with cols[2]:
+                st.write(f"${trans['amount']:.2f}")
+            with cols[3]:
+                st.write(trans["type"])
+            with cols[4]:
+                st.write(trans["description"])
+            with cols[5]:
+                st.write(trans["handler"])
+            with cols[6]:
+                # 删除按钮（使用层级化key确保唯一性）
+                if st.button(
+                    "Delete", 
+                    key=f"tra_btn_delete_{trans_key}",
+                    use_container_width=True,
+                    type="secondary"
+                ):
+                    # 从本地状态删除
+                    st.session_state.tra_records.pop(idx - 1)
+                    
+                    # 同步删除Google Sheets记录
+                    if transfers_sheet and sheet_handler:
+                        try:
+                            cell = transfers_sheet.find(trans["uuid"])
+                            if cell:
+                                transfers_sheet.delete_rows(cell.row)
+                            st.success(f"Transaction {idx} deleted successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.warning(f"同步删除失败: {str(e)}")
+        
+        st.markdown("---")
+        
         # 显示汇总信息
         total_income = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Income")
         total_expense = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Expense")
@@ -132,7 +156,7 @@ def render_money_transfers():
         trans_date = st.date_input(
             "Transaction Date", 
             value=datetime.today(),
-            key="tra_input_date"  # 层级化Key：tra_模块_输入组件_日期
+            key="tra_input_date"  # 层级化Key：模块_输入组件_功能
         )
         
         amount = st.number_input(
@@ -140,27 +164,27 @@ def render_money_transfers():
             min_value=0.01, 
             step=0.01, 
             value=100.00,
-            key="tra_input_amount"  # 层级化Key：tra_模块_输入组件_金额
+            key="tra_input_amount"
         )
         
         trans_type = st.radio(
             "Transaction Type", 
             ["Income", "Expense"], 
             index=0,
-            key="tra_radio_type"  # 层级化Key：tra_模块_单选框_类型
+            key="tra_radio_type"
         )
     
     with col2:
         description = st.text_input(
             "Description", 
             value="Fundraiser proceeds",
-            key="tra_input_desc"  # 层级化Key：tra_模块_输入组件_描述
+            key="tra_input_desc"
         ).strip()
         
         handler = st.text_input(
             "Handled By", 
             value="",
-            key="tra_input_handler"  # 层级化Key：tra_模块_输入组件_处理人
+            key="tra_input_handler"
         ).strip()
 
     # 记录交易按钮
