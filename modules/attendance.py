@@ -209,12 +209,6 @@ def render_attendance():
         with st.container():
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True)
-            
-            # 调试用：显示当前数据状态（可注释）
-            # with st.expander("当前数据状态"):
-            #     st.write("成员:", st.session_state.att_members)
-            #     st.write("会议:", st.session_state.att_meetings)
-            #     st.write("记录:", st.session_state.att_records)
 
     # 渲染表格（确保始终执行）
     render_attendance_table()
@@ -338,16 +332,6 @@ def render_attendance():
                     st.session_state.att_records[(member["id"], selected_meeting["id"])] = True
                 
                 st.success(f"All present for {selected_meeting['name']}")
-                if not full_update_sheets():
-                    st.warning("数据同步失败，请稍后重试")
-                st.session_state.att_needs_refresh = True
-
-            # 一键全缺
-            if st.button("Set All Absent", key="att_set_none"):
-                for member in st.session_state.att_members:
-                    st.session_state.att_records[(member["id"], selected_meeting["id"])] = False
-                
-                st.success(f"All absent for {selected_meeting['name']}")
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
