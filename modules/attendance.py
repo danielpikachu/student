@@ -14,7 +14,7 @@ if ROOT_DIR not in sys.path:
 # 导入Google Sheets工具类
 from google_sheet_utils import GoogleSheetHandler
 
-# 处理Google API错误（避免未安装库导致的导入错误）
+# 处理Google API错误
 try:
     from googleapiclient.errors import HttpError
 except ImportError:
@@ -25,7 +25,7 @@ except ImportError:
             self.uri = uri
 
 def render_attendance():
-    """渲染考勤模块界面（修复重复表格问题）"""
+    """渲染考勤模块界面（修复rerun函数错误）"""
     st.set_page_config(layout="wide")
     st.header("Meeting Attendance Records")
     st.markdown("---")
@@ -172,7 +172,7 @@ def render_attendance():
     if not st.session_state.att_meetings or not st.session_state.att_members:
         sync_from_sheets()
 
-    # 渲染考勤表格（只渲染一次）
+    # 渲染考勤表格
     def render_attendance_table():
         if st.session_state.att_members and st.session_state.att_meetings:
             data = []
@@ -186,14 +186,12 @@ def render_attendance():
                 total_meetings = len(st.session_state.att_meetings)
                 row["Attendance Rates"] = f"{(attended_count / total_meetings * 100):.1f}%" if total_meetings > 0 else "0%"
                 data.append(row)
-            # 使用同一个容器渲染表格，确保只存在一个
-            table_container = st.container()
-            with table_container:
+            with st.container():
                 st.dataframe(pd.DataFrame(data), use_container_width=True)
         else:
             st.info("No members or meetings found. Please add data first.")
 
-    # 只在页面上方渲染一次表格
+    # 渲染表格
     render_attendance_table()
 
     st.markdown("---")
@@ -386,8 +384,8 @@ def render_attendance():
                 st.success(f"Updated {selected_member['name']}'s status")
                 st.session_state.att_needs_refresh = True
 
-    # 关键修复：使用Streamlit的rerun机制刷新表格，而不是重新渲染
+    # 关键修复：使用最新的rerun方法
     if st.session_state.att_needs_refresh:
         st.session_state.att_needs_refresh = False
-        # 通过重新运行整个脚本刷新表格，确保只有一个表格存在
-        st.experimental_rerun()
+        # 替换过时的experimental_rerun为最新的rerun
+        st.rerun()
