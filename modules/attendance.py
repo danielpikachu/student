@@ -187,12 +187,8 @@ def render_attendance():
         data = []
         members_to_render = st.session_state.att_members if st.session_state.att_members else [{"id": 0, "name": "No members"}]
         
-        # 使用enumerate添加从1开始的序号列
-        for index, member in enumerate(members_to_render, start=1):
-            row = {
-                "序号": index,  # 序号从1开始
-                "Member Name": member["name"]
-            }
+        for member in members_to_render:
+            row = {"Member Name": member["name"]}
             if st.session_state.att_meetings:
                 for meeting in st.session_state.att_meetings:
                     # 严格使用记录中的值，不存在则默认为False
@@ -213,6 +209,12 @@ def render_attendance():
         with st.container():
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True)
+            
+            # 调试用：显示当前数据状态（可注释）
+            # with st.expander("当前数据状态"):
+            #     st.write("成员:", st.session_state.att_members)
+            #     st.write("会议:", st.session_state.att_meetings)
+            #     st.write("记录:", st.session_state.att_records)
 
     # 渲染表格（确保始终执行）
     render_attendance_table()
