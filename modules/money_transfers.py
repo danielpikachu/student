@@ -28,7 +28,7 @@ def render_money_transfers():
     <style>
         /* 滚动容器核心样式 - 确保优先级最高 */
         .scrollable-transactions {
-            max-height: 250px !important;  /* 控制滚动触发的高度 */
+            max-height: 150px !important;  /* 控制滚动触发的高度 */
             overflow-y: auto !important;   /* 强制垂直滚动 */
             padding: 10px !important;
             margin: 10px 0 !important;
