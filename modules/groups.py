@@ -54,7 +54,7 @@ def get_group_worksheet(sheet_handler, group_name):
         return None
 
 def load_group_data(worksheet):
-    """从工作表加载小组数据（成员、收入、报销），优化边界判断"""
+    """从工作表加载小组数据（成员、收入、报销），修复区域解析错误"""
     if not worksheet:
         return {"members": [], "earnings": [], "reimbursements": []}
     
@@ -64,60 +64,66 @@ def load_group_data(worksheet):
         current_section = None  # 用于标记当前解析的区域
         
         for row in all_data:
-            # 识别数据区域的标题行
-            if row[0] == "Members":
+            # 跳过空行（更严格的判断）
+            if all(cell.strip() == "" for cell in row):
+                continue
+                
+            # 识别数据区域的标题行（精确匹配，忽略空格干扰）
+            if row[0].strip() == "Members":
                 current_section = "members"
                 continue
-            elif row[0] == "Earnings":
+            elif row[0].strip() == "Earnings":
                 current_section = "earnings"
                 continue
-            elif row[0] == "Reimbursements":
+            elif row[0].strip() == "Reimbursements":
                 current_section = "reimbursements"
                 continue
             
-            # 跳过空行和表头行（更精确的判断）
-            if (not current_section 
-                or all(cell.strip() == "" for cell in row)  # 完全空行
-                or row[0] in ["Name", "Date"]):  # 表头行
+            # 跳过表头行（精确匹配）
+            if row[0].strip() in ["Name", "Date"]:
                 continue
             
-            # 解析不同区域的数据
+            # 只处理已识别区域的数据
             if current_section == "members":
-                data["members"].append({
-                    "Name": row[0],
-                    "StudentID": row[1],
-                    "Position": row[2],
-                    "Contact": row[3]
-                })
+                # 成员数据需要至少包含姓名和学号
+                if row[0].strip() and row[1].strip():
+                    data["members"].append({
+                        "Name": row[0],
+                        "StudentID": row[1],
+                        "Position": row[2],
+                        "Contact": row[3]
+                    })
             elif current_section == "earnings":
-                # 确保日期格式统一为YYYY-MM-DD
-                try:
-                    date_obj = datetime.strptime(row[0], "%Y-%m-%d")
-                    formatted_date = date_obj.strftime("%Y-%m-%d")
-                except ValueError:
-                    formatted_date = row[0]  # 保留原始格式但提示警告
-                    st.warning(f"收入日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
-                
-                data["earnings"].append({
-                    "Date": formatted_date,
-                    "Amount": float(row[1]) if row[1] else 0.0,
-                    "Description": row[2]
-                })
+                # 收入数据需要至少包含日期和金额
+                if row[0].strip() and row[1].strip():
+                    try:
+                        date_obj = datetime.strptime(row[0], "%Y-%m-%d")
+                        formatted_date = date_obj.strftime("%Y-%m-%d")
+                    except ValueError:
+                        formatted_date = row[0]
+                        st.warning(f"收入日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
+                    
+                    data["earnings"].append({
+                        "Date": formatted_date,
+                        "Amount": float(row[1]) if row[1] else 0.0,
+                        "Description": row[2]
+                    })
             elif current_section == "reimbursements":
-                # 确保日期格式统一为YYYY-MM-DD
-                try:
-                    date_obj = datetime.strptime(row[0], "%Y-%m-%d")
-                    formatted_date = date_obj.strftime("%Y-%m-%d")
-                except ValueError:
-                    formatted_date = row[0]  # 保留原始格式但提示警告
-                    st.warning(f"报销日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
-                
-                data["reimbursements"].append({
-                    "Date": formatted_date,
-                    "Amount": float(row[1]) if row[1] else 0.0,
-                    "Description": row[2],
-                    "Status": row[3] or "Pending"
-                })
+                # 报销数据需要至少包含日期和金额
+                if row[0].strip() and row[1].strip():
+                    try:
+                        date_obj = datetime.strptime(row[0], "%Y-%m-%d")
+                        formatted_date = date_obj.strftime("%Y-%m-%d")
+                    except ValueError:
+                        formatted_date = row[0]
+                        st.warning(f"报销日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
+                    
+                    data["reimbursements"].append({
+                        "Date": formatted_date,
+                        "Amount": float(row[1]) if row[1] else 0.0,
+                        "Description": row[2],
+                        "Status": row[3] or "Pending"
+                    })
         
         return data
     except Exception as e:
