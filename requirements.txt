@@ -4,3 +4,4 @@ gspread>=5.10.0
 oauth2client>=4.1.3   
 streamlit-calendar
 openpyxl
+google-api-python-client>=2.0.0
