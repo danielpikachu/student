@@ -51,11 +51,8 @@ def render_attendance():
         st.session_state.att_records = {}
     if "att_needs_refresh" not in st.session_state:
         st.session_state.att_needs_refresh = False
-    # 新增：记录最后同步时间，用于冲突检测
-    if "last_sync_time" not in st.session_state:
-        st.session_state.last_sync_time = None
 
-    # 全量更新Google Sheets数据（覆盖方式）
+    # 核心修复：全量更新Google Sheets（严格匹配界面数据结构）
     def full_update_sheets(max_retries=3):
         if not attendance_sheet or not sheet_handler:
             return True
@@ -63,39 +60,27 @@ def render_attendance():
         retry_count = 0
         while retry_count < max_retries:
             try:
-                # 准备表头
+                # 准备表头（与界面数据字段完全一致）
                 rows = [["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]]
                 
-                # 准备所有考勤记录（精确匹配界面显示内容）
+                # 遍历所有成员和会议，生成完整考勤记录
                 for member in st.session_state.att_members:
-                    if st.session_state.att_meetings:
-                        for meeting in st.session_state.att_meetings:
-                            is_present = st.session_state.att_records.get((member["id"], meeting["id"]), False)
-                            rows.append([
-                                str(member["id"]),
-                                member["name"],
-                                str(meeting["id"]),
-                                meeting["name"],
-                                "TRUE" if is_present else "FALSE",
-                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            ])
-                    else:
-                        # 没有会议时仅保留成员基础信息
+                    for meeting in st.session_state.att_meetings:
+                        # 严格获取本地状态中的考勤记录，默认False
+                        is_present = st.session_state.att_records.get((member["id"], meeting["id"]), False)
                         rows.append([
                             str(member["id"]),
                             member["name"],
-                            "", "", "FALSE",
+                            str(meeting["id"]),
+                            meeting["name"],
+                            "TRUE" if is_present else "FALSE",
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         ])
                 
-                # 先清除所有内容再写入，确保完全一致
+                # 关键步骤：先清除工作表所有内容，再写入新数据（避免残留）
                 attendance_sheet.clear()
-                # 确保写入所有行（包括空状态下的表头）
                 if rows:
                     attendance_sheet.append_rows(rows, value_input_option='RAW')
-                
-                # 更新最后同步时间
-                st.session_state.last_sync_time = datetime.now()
                 return True
             except HttpError as e:
                 if e.resp.status == 429:
@@ -113,16 +98,14 @@ def render_attendance():
         st.error("达到最大重试次数，同步失败")
         return False
 
-    # 从Google Sheets同步数据（确保与界面结构一致）
+    # 从Google Sheets同步数据（严格还原到本地状态）
     def sync_from_sheets(force=False):
-        """从Google Sheet同步数据到本地，force=True强制覆盖本地状态"""
         if not attendance_sheet or not sheet_handler:
             return
         
         try:
             all_data = attendance_sheet.get_all_values()
             if not all_data:
-                # 工作表为空时，清空本地状态
                 if force:
                     st.session_state.att_members = []
                     st.session_state.att_meetings = []
@@ -131,70 +114,77 @@ def render_attendance():
                 
             headers = all_data[0] if len(all_data) > 0 else []
             if headers != ["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]:
-                st.warning("Google Sheet格式不正确，使用本地数据")
+                st.warning("Google Sheet格式不正确，已自动校正")
+                # 强制使用本地结构重建Sheet
+                full_update_sheets()
                 return
 
-            # 提取会议数据（去重）
+            # 提取会议数据（去重+格式校验）
             meetings = []
             meeting_ids = set()
             for row in all_data[1:]:
                 if len(row) >= 4 and row[2] and row[3] and row[2] not in meeting_ids:
-                    meeting_ids.add(row[2])
                     try:
-                        meetings.append({"id": int(row[2]), "name": row[3]})
+                        meeting_id = int(row[2])
+                        meeting_name = row[3].strip()
+                        meetings.append({"id": meeting_id, "name": meeting_name})
+                        meeting_ids.add(row[2])
                     except (ValueError, IndexError):
-                        continue  # 跳过格式错误的行
+                        continue
             
-            # 提取成员数据（去重）
+            # 提取成员数据（去重+格式校验）
             members = []
             member_ids = set()
             for row in all_data[1:]:
                 if len(row) >= 2 and row[0] and row[1] and row[0] not in member_ids:
-                    member_ids.add(row[0])
                     try:
-                        members.append({"id": int(row[0]), "name": row[1]})
+                        member_id = int(row[0])
+                        member_name = row[1].strip()
+                        members.append({"id": member_id, "name": member_name})
+                        member_ids.add(row[0])
                     except (ValueError, IndexError):
-                        continue  # 跳过格式错误的行
+                        continue
             
-            # 提取考勤记录
+            # 提取考勤记录（仅保留存在的成员和会议组合）
             records = {}
             for row in all_data[1:]:
                 if len(row) >= 5 and row[0] and row[2]:
                     try:
                         member_id = int(row[0])
                         meeting_id = int(row[2])
-                        # 确保记录只来自存在的成员和会议
-                        if any(m["id"] == member_id for m in members) and any(mt["id"] == meeting_id for mt in meetings):
+                        # 验证成员和会议是否存在
+                        member_exists = any(m["id"] == member_id for m in members)
+                        meeting_exists = any(mt["id"] == meeting_id for mt in meetings)
+                        if member_exists and meeting_exists:
                             records[(member_id, meeting_id)] = row[4].lower() == "true"
                     except (ValueError, IndexError):
-                        continue  # 跳过格式错误的行
+                        continue
             
-            # 强制更新本地状态
+            # 强制覆盖本地状态，确保与Sheet一致
             st.session_state.att_meetings = meetings
             st.session_state.att_members = members
             st.session_state.att_records = records
-            st.session_state.last_sync_time = datetime.now()
                 
         except Exception as e:
             st.warning(f"同步失败: {str(e)}")
 
-    # 初始同步（强制同步确保与Sheet一致）
+    # 初始强制同步（确保启动时数据一致）
     sync_from_sheets(force=True)
 
-    # 渲染考勤表格（与Sheet数据严格对应）
+    # 渲染考勤表格（与Sheet数据1:1对应）
     def render_attendance_table():
-        # 构建与Sheet结构一致的表格数据
         data = []
+        # 处理无成员情况
         members_to_render = st.session_state.att_members if st.session_state.att_members else [{"id": 0, "name": "No members"}]
         
         for member in members_to_render:
             row = {"Member Name": member["name"]}
+            # 处理有会议的情况（严格显示每个会议的考勤状态）
             if st.session_state.att_meetings:
                 for meeting in st.session_state.att_meetings:
-                    # 严格使用记录中的值，不存在则默认为False
                     row[meeting["name"]] = "✓" if st.session_state.att_records.get((member["id"], meeting["id"]), False) else "✗"
                 
-                # 计算出勤率（与Sheet数据对应）
+                # 计算出勤率（与Sheet记录严格对应）
                 attended_count = sum(1 for m in st.session_state.att_meetings 
                                    if st.session_state.att_records.get((member["id"], m["id"]), False))
                 total_meetings = len(st.session_state.att_meetings)
@@ -209,22 +199,17 @@ def render_attendance():
         with st.container():
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True)
-            
-            # 调试用：显示当前数据状态（可注释）
-            # with st.expander("当前数据状态"):
-            #     st.write("成员:", st.session_state.att_members)
-            #     st.write("会议:", st.session_state.att_meetings)
-            #     st.write("记录:", st.session_state.att_records)
 
     # 渲染表格（确保始终执行）
     render_attendance_table()
 
-    # 添加手动同步按钮
+    # 手动同步按钮（方便用户主动校准）
     col_sync, _ = st.columns([1, 5])
     with col_sync:
         if st.button("🔄 同步数据", key="sync_button"):
             with st.spinner("正在与Google Sheet同步..."):
                 sync_from_sheets(force=True)
+                full_update_sheets()
                 st.success("已与Google Sheet同步完成")
                 st.session_state.att_needs_refresh = True
 
@@ -236,39 +221,33 @@ def render_attendance():
 
     # 左侧：成员导入 + 会议管理
     with col_left:
-        # 1. 导入成员
+        # 1. 成员导入（支持上传文件+本地读取）
         with st.container(border=True):
             st.subheader("Import Members")
-            # 允许上传Excel文件
+            # 支持上传Excel文件
             uploaded_file = st.file_uploader("Upload members.xlsx", type=["xlsx"], key="member_uploader")
-            import_btn = st.button("Import Members", key="att_import_members")
+            # 保留本地文件导入按钮
+            local_import_btn = st.button("Import from local members.xlsx", key="att_import_local_members")
+            # 上传文件导入按钮
+            upload_import_btn = st.button("Import from uploaded file", key="att_import_uploaded_members")
             
-            if import_btn and uploaded_file:
+            # 本地文件导入逻辑
+            if local_import_btn:
+                try:
+                    df = pd.read_excel("members.xlsx")
+                    process_member_import(df)
+                except FileNotFoundError:
+                    st.error("Local members.xlsx not found! Please upload a file instead.")
+                except Exception as e:
+                    st.error(f"Local import failed: {str(e)}")
+            
+            # 上传文件导入逻辑
+            if upload_import_btn and uploaded_file:
                 try:
                     df = pd.read_excel(uploaded_file)
-                    if "Member Name" not in df.columns:
-                        st.error("Excel must have 'Member Name' column!")
-                        return
-                    
-                    new_members = [name.strip() for name in df["Member Name"].dropna().unique() if name.strip()]
-                    added = 0
-                    
-                    for name in new_members:
-                        if not any(m["name"] == name for m in st.session_state.att_members):
-                            new_id = len(st.session_state.att_members) + 1
-                            st.session_state.att_members.append({"id": new_id, "name": name})
-                            # 为现有会议添加默认记录
-                            for meeting in st.session_state.att_meetings:
-                                st.session_state.att_records[(new_id, meeting["id"])] = False
-                            added += 1
-                    
-                    st.success(f"Added {added} new members")
-                    # 立即同步到Sheet
-                    if not full_update_sheets():
-                        st.warning("数据同步失败，请稍后重试")
-                    st.session_state.att_needs_refresh = True
+                    process_member_import(df)
                 except Exception as e:
-                    st.error(f"Import failed: {str(e)}")
+                    st.error(f"Upload import failed: {str(e)}")
 
         # 2. 会议管理
         with st.container(border=True):
@@ -292,11 +271,12 @@ def render_attendance():
                 new_meeting_id = len(st.session_state.att_meetings) + 1
                 st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
                 
-                # 为每个成员添加默认记录
+                # 为所有成员添加默认缺勤记录
                 for member in st.session_state.att_members:
                     st.session_state.att_records[(member["id"], new_meeting_id)] = False
                 
                 st.success(f"Added meeting: {meeting_name}")
+                # 立即同步到Sheet
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
@@ -316,6 +296,7 @@ def render_attendance():
                     st.session_state.att_records = {(m_id, mt_id): v for (m_id, mt_id), v in st.session_state.att_records.items() if mt_id != selected_meeting["id"]}
                     
                     st.success(f"Deleted meeting: {selected_meeting['name']}")
+                    # 立即同步到Sheet
                     if not full_update_sheets():
                         st.warning("数据同步失败，请稍后重试")
                     st.session_state.att_needs_refresh = True
@@ -332,22 +313,12 @@ def render_attendance():
                 key="att_update_meeting"
             )
             
-            # 一键全到
+            # 一键全到（保留）
             if st.button("Set All Present", key="att_set_all"):
                 for member in st.session_state.att_members:
                     st.session_state.att_records[(member["id"], selected_meeting["id"])] = True
                 
                 st.success(f"All present for {selected_meeting['name']}")
-                if not full_update_sheets():
-                    st.warning("数据同步失败，请稍后重试")
-                st.session_state.att_needs_refresh = True
-
-            # 一键全缺
-            if st.button("Set All Absent", key="att_set_none"):
-                for member in st.session_state.att_members:
-                    st.session_state.att_records[(member["id"], selected_meeting["id"])] = False
-                
-                st.success(f"All absent for {selected_meeting['name']}")
                 if not full_update_sheets():
                     st.warning("数据同步失败，请稍后重试")
                 st.session_state.att_needs_refresh = True
@@ -376,3 +347,30 @@ def render_attendance():
     if st.session_state.att_needs_refresh:
         st.session_state.att_needs_refresh = False
         st.rerun()
+
+# 提取成员导入公共逻辑
+def process_member_import(df):
+    if "Member Name" not in df.columns:
+        st.error("Excel must have 'Member Name' column!")
+        return
+    
+    new_members = [name.strip() for name in df["Member Name"].dropna().unique() if name.strip()]
+    added = 0
+    
+    for name in new_members:
+        if not any(m["name"] == name for m in st.session_state.att_members):
+            new_id = len(st.session_state.att_members) + 1
+            st.session_state.att_members.append({"id": new_id, "name": name})
+            # 为现有会议添加默认记录
+            for meeting in st.session_state.att_meetings:
+                st.session_state.att_records[(new_id, meeting["id"])] = False
+            added += 1
+    
+    st.success(f"Added {added} new members")
+    # 立即同步到Sheet
+    if not full_update_sheets():
+        st.warning("数据同步失败，请稍后重试")
+    st.session_state.att_needs_refresh = True
+
+if __name__ == "__main__":
+    render_attendance()
