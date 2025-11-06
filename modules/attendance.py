@@ -25,21 +25,33 @@ except ImportError:
             self.uri = uri
 
 def render_attendance():
-    """渲染考勤模块界面（确保Google Sheet与界面显示一致）"""
+    """渲染考勤模块界面（修复GoogleSheetHandler方法错误）"""
     st.set_page_config(layout="wide")
     st.header("Meeting Attendance Records")
     st.markdown("---")
 
-    # 初始化Google Sheets连接
+    # 初始化Google Sheets连接 - 修复部分
     sheet_handler = None
     attendance_sheet = None
     try:
         sheet_handler = GoogleSheetHandler(credentials_path="")
-        # 确保工作表存在
-        attendance_sheet = sheet_handler.get_or_create_worksheet(
-            spreadsheet_name="Student",
-            worksheet_name="Attendance"
-        )
+        
+        # 尝试获取工作表，如果不存在则创建（兼容没有get_or_create_worksheet的情况）
+        try:
+            # 先尝试获取工作表
+            attendance_sheet = sheet_handler.get_worksheet(
+                spreadsheet_name="Student",
+                worksheet_name="Attendance"
+            )
+        except Exception as e:
+            # 如果获取失败，尝试创建新工作表
+            st.info(f"Attendance工作表不存在，正在创建...")
+            attendance_sheet = sheet_handler.create_worksheet(
+                spreadsheet_name="Student",
+                worksheet_name="Attendance",
+                rows=100,  # 初始行数
+                cols=20    # 初始列数
+            )
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
