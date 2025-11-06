@@ -18,26 +18,26 @@ def render_money_transfers():
     st.header("💸 Money Transfers")
     st.markdown("---")
 
-    # 添加自定义CSS实现滚动表格
+    # 添加滚动条样式
     st.markdown("""
     <style>
-        .scrollable-container {
-            max-height: 450px;  /* 刚好能容纳5条记录的高度 */
-            overflow-y: auto;
+        .transaction-container {
+            max-height: 400px;  /* 限制高度，大约可容纳4条记录 */
+            overflow-y: auto;   /* 超出高度时显示垂直滚动条 */
             padding-right: 10px;
         }
-        .scrollable-container::-webkit-scrollbar {
-            width: 8px;
+        .transaction-container::-webkit-scrollbar {
+            width: 6px;
         }
-        .scrollable-container::-webkit-scrollbar-track {
+        .transaction-container::-webkit-scrollbar-track {
             background: #f1f1f1;
-            border-radius: 4px;
+            border-radius: 3px;
         }
-        .scrollable-container::-webkit-scrollbar-thumb {
+        .transaction-container::-webkit-scrollbar-thumb {
             background: #888;
-            border-radius: 4px;
+            border-radius: 3px;
         }
-        .scrollable-container::-webkit-scrollbar-thumb:hover {
+        .transaction-container::-webkit-scrollbar-thumb:hover {
             background: #555;
         }
     </style>
@@ -89,13 +89,13 @@ def render_money_transfers():
     if "tra_records" not in st.session_state:
         st.session_state.tra_records = []
 
-    # ---------------------- 交易历史展示（带独立删除按钮） ----------------------
+    # ---------------------- 交易历史展示（带滚动条和删除按钮） ----------------------
     st.subheader("Transaction History")
     if not st.session_state.tra_records:
         st.info("No financial transactions recorded yet")
     else:
-        # 创建带滚动条的容器
-        st.markdown('<div class="scrollable-container">', unsafe_allow_html=True)
+        # 创建带滚动条的容器，所有交易记录都放在这个容器里
+        st.markdown('<div class="transaction-container">', unsafe_allow_html=True)
         
         # 定义列宽比例
         col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]
@@ -214,13 +214,16 @@ def render_money_transfers():
             key="tra_input_handler"
         ).strip()
 
+    # 记录交易按钮
     if st.button("Record Transaction", key="tra_btn_record", use_container_width=True, type="primary"):
+        # 验证必填字段
         if not description or not handler:
             st.error("Description and Handled By are required fields!")
             return
         
+        # 创建新交易记录
         new_trans = {
-            "uuid": str(uuid.uuid4()),
+            "uuid": str(uuid.uuid4()),  # 生成唯一标识
             "date": trans_date,
             "type": trans_type,
             "amount": round(amount, 2),
@@ -228,8 +231,10 @@ def render_money_transfers():
             "handler": handler
         }
         
+        # 更新本地状态
         st.session_state.tra_records.append(new_trans)
         
+        # 同步到Google Sheets
         if transfers_sheet and sheet_handler:
             try:
                 transfers_sheet.append_row([
