@@ -205,10 +205,10 @@ def render_attendance():
             
             data.append(row)
         
-        # 显示表格
+        # 显示表格，添加index=False参数隐藏索引列
         with st.container():
             df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, use_container_width=True, index=False)  # 关键修改：添加index=False
             
             # 调试用：显示当前数据状态（可注释）
             # with st.expander("当前数据状态"):
