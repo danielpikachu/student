@@ -49,7 +49,7 @@ def render_money_transfers():
         }
         /* 滚动容器样式（关键修改） */
         .scrollable-container {
-            max-height: 150px;  /* 减小最大高度（原400px），7条数据更易触发滚动 */
+            max-height: 50px;  /* 减小最大高度（原400px），7条数据更易触发滚动 */
             overflow-y: auto;   /* 垂直溢出时显示滚动条 */
             padding-right: 10px; /* 预留滚动条空间，避免内容被遮挡 */
             margin-bottom: 1rem; /* 与下方汇总信息分隔 */
