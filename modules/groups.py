@@ -90,7 +90,7 @@ def render_groups():
     # 初始化本地状态
     if "members" not in st.session_state:
         st.session_state.members = []
-    if "incomes" not in st.session_state:  # 初始化收入数据状态
+    if "incomes" not in st.session_state:
         st.session_state.incomes = []
 
     # ---------------------- 成员管理模块 ----------------------
@@ -169,15 +169,17 @@ def render_groups():
                     st.write(f"{m['name']}（学生ID：{m['student_id']}）")
                 with col2:
                     if st.button("删除", key=f"del_mem_{m['uuid']}", use_container_width=True):
+                        # 删除本地数据
                         st.session_state.members.pop(idx)
                         
+                        # 同步删除Google Sheets数据
                         if group_sheet and sheet_handler:
                             try:
                                 cell = group_sheet.find(m["uuid"])
                                 if cell:
                                     group_sheet.delete_rows(cell.row)
                                 st.success(f"成员 {m['name']} 删除成功！")
-                                st.rerun()
+                                st.rerun()  # 重新加载页面确保UI更新
                             except Exception as e:
                                 st.warning(f"同步删除失败: {str(e)}")
 
@@ -237,31 +239,44 @@ def render_groups():
     if not st.session_state.incomes:
         st.info("暂无收入信息，请在上方添加", icon="ℹ️")
     else:
+        # 创建收入数据框
         income_df = pd.DataFrame([
             {"序号": i+1, "日期": m["date"], "金额(元)": m["amount"], "描述": m["description"]}
             for i, m in enumerate(st.session_state.incomes)
         ])
         st.dataframe(income_df, use_container_width=True, height=min(300, 50 + len(st.session_state.incomes)*35))
 
-        # 收入删除功能
+        # 收入删除功能（优化版）
         with st.expander("管理收入（删除）", expanded=False):
-            for idx, income in enumerate(st.session_state.incomes):
+            # 为每个收入项创建唯一标识的删除按钮
+            for income in st.session_state.incomes:
+                # 使用uuid作为键确保按钮唯一性
                 col1, col2 = st.columns([5, 1])
                 with col1:
                     st.write(f"{income['date']} - {income['amount']}元：{income['description']}")
                 with col2:
                     if st.button("删除", key=f"del_income_{income['uuid']}", use_container_width=True):
-                        st.session_state.incomes.pop(idx)
+                        # 查找要删除的收入索引
+                        index_to_remove = None
+                        for i, item in enumerate(st.session_state.incomes):
+                            if item["uuid"] == income["uuid"]:
+                                index_to_remove = i
+                                break
                         
-                        if income_sheet and sheet_handler:
-                            try:
-                                cell = income_sheet.find(income["uuid"])
-                                if cell:
-                                    income_sheet.delete_rows(cell.row)
-                                st.success(f"收入记录删除成功！")
-                                st.rerun()
-                            except Exception as e:
-                                st.warning(f"收入同步删除失败: {str(e)}")
+                        if index_to_remove is not None:
+                            # 删除本地数据
+                            st.session_state.incomes.pop(index_to_remove)
+                            
+                            # 同步删除Google Sheets数据
+                            if income_sheet and sheet_handler:
+                                try:
+                                    cell = income_sheet.find(income["uuid"])
+                                    if cell:
+                                        income_sheet.delete_rows(cell.row)
+                                    st.success("收入记录删除成功！")
+                                    st.rerun()  # 重新加载页面确保UI更新
+                                except Exception as e:
+                                    st.warning(f"同步删除失败: {str(e)}")
 
     st.markdown("---")
 
