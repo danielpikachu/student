@@ -246,37 +246,28 @@ def render_groups():
         ])
         st.dataframe(income_df, use_container_width=True, height=min(300, 50 + len(st.session_state.incomes)*35))
 
-        # 收入删除功能（优化版）
+        # 收入删除功能（完全参考成员管理逻辑）
         with st.expander("管理收入（删除）", expanded=False):
-            # 为每个收入项创建唯一标识的删除按钮
-            for income in st.session_state.incomes:
-                # 使用uuid作为键确保按钮唯一性
+            # 与成员管理保持一致，使用索引+uuid的方式
+            for idx, income in enumerate(st.session_state.incomes):
                 col1, col2 = st.columns([5, 1])
                 with col1:
                     st.write(f"{income['date']} - {income['amount']}元：{income['description']}")
                 with col2:
                     if st.button("删除", key=f"del_income_{income['uuid']}", use_container_width=True):
-                        # 查找要删除的收入索引
-                        index_to_remove = None
-                        for i, item in enumerate(st.session_state.incomes):
-                            if item["uuid"] == income["uuid"]:
-                                index_to_remove = i
-                                break
+                        # 直接使用索引删除，与成员管理逻辑完全一致
+                        st.session_state.incomes.pop(idx)
                         
-                        if index_to_remove is not None:
-                            # 删除本地数据
-                            st.session_state.incomes.pop(index_to_remove)
-                            
-                            # 同步删除Google Sheets数据
-                            if income_sheet and sheet_handler:
-                                try:
-                                    cell = income_sheet.find(income["uuid"])
-                                    if cell:
-                                        income_sheet.delete_rows(cell.row)
-                                    st.success("收入记录删除成功！")
-                                    st.rerun()  # 重新加载页面确保UI更新
-                                except Exception as e:
-                                    st.warning(f"同步删除失败: {str(e)}")
+                        # 同步删除Google Sheets数据
+                        if income_sheet and sheet_handler:
+                            try:
+                                cell = income_sheet.find(income["uuid"])
+                                if cell:
+                                    income_sheet.delete_rows(cell.row)
+                                st.success("收入记录删除成功！")
+                                st.rerun()  # 立即刷新页面，确保UI同步
+                            except Exception as e:
+                                st.warning(f"同步删除失败: {str(e)}")
 
     st.markdown("---")
 
