@@ -34,12 +34,6 @@ def add_custom_css():
         color: #666;
         margin-top: 5px;
     }
-    .quota-warning {
-        background-color: #fff3cd;
-        padding: 10px;
-        border-radius: 4px;
-        margin: 10px 0;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -63,19 +57,24 @@ def init_google_sheet_handler():
     retry=retry_if_exception_type((HttpError, ConnectionError))
 )
 def get_worksheet_with_retry(sheet_handler, spreadsheet_name, worksheet_name):
-    """带重试机制的工作表获取方法"""
-    return sheet_handler.get_worksheet(
-        spreadsheet_name=spreadsheet_name,
-        worksheet_name=worksheet_name
-    )
+    """带重试机制的工作表获取方法，增加429错误处理"""
+    try:
+        return sheet_handler.get_worksheet(
+            spreadsheet_name=spreadsheet_name,
+            worksheet_name=worksheet_name
+        )
+    except HttpError as e:
+        if e.resp.status == 429:
+            st.error("API请求过于频繁，请稍后再试（Google Sheets API限制每分钟60次读取请求）")
+        raise
 
 def get_group_worksheet(sheet_handler, group_name):
-    """获取指定小组的子工作表（带缓存机制）"""
+    """获取指定小组的子工作表（带缓存机制，延长缓存时间至10分钟）"""
     cache_key = f"worksheet_{group_name}"
     
-    # 延长缓存时间至10分钟减少请求
     if cache_key in st.session_state:
         cache_entry = st.session_state[cache_key]
+        # 延长缓存时间从5分钟到10分钟
         if datetime.now() - cache_entry["time"] < timedelta(minutes=10):
             return cache_entry["worksheet"]
     
@@ -93,30 +92,16 @@ def get_group_worksheet(sheet_handler, group_name):
             "time": datetime.now()
         }
         return worksheet
-    except HttpError as e:
-        # 更精确的错误分类提示
-        if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            获取{group_name}工作表失败: API请求配额已用尽
-            原因: Google Sheets API每分钟有请求次数限制
-            建议: 等待1-2分钟后再尝试，或减少操作频率
-            """)
-        elif "404" in str(e):
-            st.error(f"获取{group_name}工作表失败: 工作表不存在，请确认名称正确")
-        else:
-            st.error(f"获取{group_name}工作表失败: {str(e)}")
-        return None
     except Exception as e:
-        st.error(f"获取{group_name}工作表失败: {str(e)}")
+        st.error(f"获取{group_name}工作表失败，请确认该工作表已存在: {str(e)}")
         return None
 
 def load_group_data(worksheet):
-    """从工作表加载小组数据（成员、收入、报销）- 批量获取减少请求"""
+    """从工作表加载小组数据（成员、收入、报销）"""
     if not worksheet:
         return {"members": [], "earnings": [], "reimbursements": []}
     
     try:
-        # 一次性获取所有数据，减少API调用
         all_data = worksheet.get_all_values()
         data = {"members": [], "earnings": [], "reimbursements": []}
         current_section = None
@@ -178,77 +163,63 @@ def load_group_data(worksheet):
                     })
         
         return data
-    except HttpError as e:
-        if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            加载数据失败: API请求配额已用尽
-            请等待1-2分钟后点击刷新按钮重试
-            """)
-        else:
-            st.error(f"加载小组数据失败: {str(e)}")
-        return {"members": [], "earnings": [], "reimbursements": []}
     except Exception as e:
         st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
 
-# 精确计算删除范围，避免endIndex < startIndex错误
+# 【核心修复点】精确计算删除范围，避免endIndex < startIndex错误
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     retry=retry_if_exception_type((HttpError, ConnectionError))
 )
 def update_worksheet_section(worksheet, section_title, new_data):
-    """安全更新工作表区域的方法"""
-    try:
-        all_values = worksheet.get_all_values()  # 0-based索引
-        total_rows = len(all_values)
-        section_row = None  # 区域标题所在行（1-based）
-        
-        # 查找区域标题行（1-based索引）
-        for i, row in enumerate(all_values, 1):
-            if row[0].strip() == section_title:
-                section_row = i
-                break
-        
-        if not section_row:
-            st.error(f"未找到区域: {section_title}")
-            return False
-        
-        # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
-        data_start_1based = section_row + 2
-        
-        # 计算数据区域结束行（1-based）
-        data_end_1based = None
-        # 从数据起始行开始查找下一个区域标题
-        for i in range(data_start_1based - 1, total_rows):  # 转换为0-based索引
-            if all_values[i][0].strip() in ["Members", "Earnings", "Reimbursements"]:
-                data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based转1-based）
-                break
-        # 如果没找到其他区域标题，结束行就是表格最后一行
-        if data_end_1based is None:
-            data_end_1based = total_rows  # 0-based转1-based
-        
-        # 确保删除范围有效（只有start <= end时才执行删除）
-        if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
-            rows_to_delete = data_end_1based - data_start_1based + 1
-            if rows_to_delete > 0:
-                worksheet.delete_rows(data_start_1based, rows_to_delete)
-        
-        # 插入新数据
-        if new_data:
-            # 批量插入减少API调用
-            worksheet.insert_rows(new_data, data_start_1based)
-        
-        return True
-    except HttpError as e:
-        if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            更新数据失败: API请求配额已用尽
-            请等待1-2分钟后重试
-            """)
-        else:
-            st.error(f"更新区域失败: {str(e)}")
+    """
+    安全更新工作表区域的方法
+    1. 精确定位区域标题行和数据范围
+    2. 确保删除操作的startIndex <= endIndex
+    3. 插入新数据
+    """
+    all_values = worksheet.get_all_values()  # 0-based索引
+    total_rows = len(all_values)
+    section_row = None  # 区域标题所在行（1-based）
+    
+    # 查找区域标题行（1-based索引）
+    for i, row in enumerate(all_values, 1):
+        if row[0].strip() == section_title:
+            section_row = i
+            break
+    
+    if not section_row:
+        st.error(f"未找到区域: {section_title}")
         return False
+    
+    # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
+    data_start_1based = section_row + 2
+    
+    # 计算数据区域结束行（1-based）
+    data_end_1based = None
+    # 从数据起始行开始查找下一个区域标题
+    for i in range(data_start_1based - 1, total_rows):  # 转换为0-based索引
+        if all_values[i][0].strip() in ["Members", "Earnings", "Reimbursements"]:
+            data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based转1-based）
+            break
+    # 如果没找到其他区域标题，结束行就是表格最后一行
+    if data_end_1based is None:
+        data_end_1based = total_rows  # 0-based转1-based
+    
+    # 确保删除范围有效（只有start <= end时才执行删除）
+    if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
+        rows_to_delete = data_end_1based - data_start_1based + 1
+        if rows_to_delete > 0:
+            worksheet.delete_rows(data_start_1based, rows_to_delete)
+    
+    # 插入新数据
+    if new_data:
+        for i, row in enumerate(new_data):
+            worksheet.insert_row(row, data_start_1based + i)
+    
+    return True
 
 # 保持原有函数接口不变
 def save_members(worksheet, members):
@@ -297,15 +268,7 @@ def render_groups():
     add_custom_css()
     st.header("👥 小组管理 (Groups Management)")
     st.write("管理小组成员、收入和报销请求")
-    
-    # 增加配额提示
-    st.markdown("""
-    <div class="quota-warning">
-    <strong>注意:</strong> Google Sheets API有请求频率限制（每分钟读取请求数），请避免频繁操作。
-    如遇配额超限，请等待1-2分钟后再操作。
-    </div>
-    """, unsafe_allow_html=True)
-    
+    st.caption("提示：Google Sheets API有严格的请求频率限制（每分钟最多60次读取请求），请避免频繁操作")
     st.divider()
 
     sheet_handler = init_google_sheet_handler()
@@ -313,9 +276,21 @@ def render_groups():
     group_names = [f"Group{i}" for i in range(1, 9)]
     tabs = st.tabs(group_names)
     
+    # 跟踪当前活跃标签
+    if "active_tab" not in st.session_state:
+        st.session_state["active_tab"] = group_names[0]
+    
+    # 更新活跃标签状态
+    for i, group_name in enumerate(group_names):
+        if st.session_state.get(f"tab_{group_name}_active", False):
+            st.session_state["active_tab"] = group_name
+    
     for i, tab in enumerate(tabs):
         group_name = group_names[i]
         with tab:
+            # 标记当前标签为活跃状态
+            st.session_state[f"tab_{group_name}_active"] = True
+            
             if f"grp_{group_name}_data" not in st.session_state:
                 st.session_state[f"grp_{group_name}_data"] = {
                     "members": [], "earnings": [], "reimbursements": []
@@ -327,23 +302,27 @@ def render_groups():
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
             now = datetime.now()
-            # 延长自动加载间隔至10分钟
-            if (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=10) or 
-                f"grp_{group_name}_loaded" not in st.session_state):
-                with st.spinner(f"正在自动加载{group_name}的数据..."):
+            # 只加载活跃标签的数据，并且延长缓存时间到10分钟
+            if (st.session_state["active_tab"] == group_name and 
+                (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=10) or 
+                 f"grp_{group_name}_loaded" not in st.session_state)):
+                with st.spinner(f"正在加载{group_name}的数据..."):
                     data = load_group_data(worksheet)
                     st.session_state[f"grp_{group_name}_data"] = data
                     st.session_state[f"grp_{group_name}_loaded"] = True
                     st.session_state[f"grp_{group_name}_last_loaded"] = now
                     st.success(f"{group_name}数据加载成功！")
+            elif st.session_state["active_tab"] != group_name:
+                st.info(f"切换到{group_name}标签将加载数据")
+                continue  # 跳过非活跃标签的数据加载
             
             col_refresh, col_empty = st.columns([1, 5])
             with col_refresh:
                 if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
                     last_refresh = st.session_state.get(f"grp_{group_name}_last_refresh", datetime.min)
-                    # 延长刷新间隔至15秒
-                    if now - last_refresh < timedelta(seconds=15):
-                        st.warning("请不要频繁刷新，至少间隔15秒")
+                    # 延长刷新间隔从10秒到30秒
+                    if now - last_refresh < timedelta(seconds=30):
+                        st.warning("请不要频繁刷新，至少间隔30秒")
                     else:
                         with st.spinner("正在从Google Sheets刷新数据..."):
                             data = load_group_data(worksheet)
