@@ -258,7 +258,7 @@ def save_reimbursements(worksheet, reimbursements):
         st.error(f"保存报销数据到Google Sheet失败: {str(e)}")
         return False
 
-# 以下界面和业务逻辑代码完全未变动
+# 以下界面和业务逻辑代码有修改
 def render_groups():
     add_custom_css()
     st.header("👥 小组管理 (Groups Management)")
@@ -325,15 +325,16 @@ def render_groups():
                 with st.expander("➕ 添加新成员", expanded=False):
                     col1, col2 = st.columns(2)
                     with col1:
-                        new_name = st.text_input("姓名", key=f"grp_{group_name}_member_name")
-                        new_student_id = st.text_input("学号", key=f"grp_{group_name}_member_id")
+                        new_name = st.text_input("姓名 *", key=f"grp_{group_name}_member_name")  # 标记必填
+                        new_student_id = st.text_input("学号 *", key=f"grp_{group_name}_member_id")  # 标记必填
                     with col2:
-                        new_position = st.text_input("职位", key=f"grp_{group_name}_member_pos")
-                        new_contact = st.text_input("联系方式", key=f"grp_{group_name}_member_contact")
+                        new_position = st.text_input("职位（可选）", key=f"grp_{group_name}_member_pos")  # 标记可选
+                        new_contact = st.text_input("联系方式（可选）", key=f"grp_{group_name}_member_contact")  # 标记可选
                     
                     if st.button("确认添加", key=f"grp_{group_name}_add_member"):
-                        if not all([new_name, new_student_id, new_position]):
-                            st.error("请填写姓名、学号和职位（必填项）")
+                        # 仅验证姓名和学号为必填项
+                        if not all([new_name, new_student_id]):
+                            st.error("请填写姓名和学号（带*的为必填项）")
                         else:
                             duplicate = any(m["StudentID"] == new_student_id for m in group_data["members"])
                             if duplicate:
@@ -349,6 +350,32 @@ def render_groups():
                                 with st.spinner("正在同步到Google Sheet..."):
                                     if save_members(worksheet, group_data["members"]):
                                         st.success("成员已成功同步到Google Sheet！")
+            
+                # 增加成员删除功能（与收入删除方式相同）
+                if group_data["members"]:
+                    member_to_delete = st.selectbox(
+                        "选择要删除的成员",
+                        [f"{m['Name']} - {m['StudentID']}" for m in group_data["members"]],
+                        key=f"grp_{group_name}_del_member",
+                        index=None,
+                        placeholder="选择成员..."
+                    )
+                    
+                    if st.button("删除选中成员", key=f"grp_{group_name}_del_member_btn"):
+                        if member_to_delete:
+                            original_count = len(group_data["members"])
+                            group_data["members"] = [
+                                m for m in group_data["members"]
+                                if f"{m['Name']} - {m['StudentID']}" != member_to_delete
+                            ]
+                            
+                            if len(group_data["members"]) < original_count:
+                                st.session_state[f"grp_{group_name}_data"] = group_data
+                                st.success("成员已从界面移除，正在同步到Google Sheet...")
+                                
+                                with st.spinner("正在同步到Google Sheet..."):
+                                    if save_members(worksheet, group_data["members"]):
+                                        st.success("成员已成功从Google Sheet删除！")
             
             # 小组收入管理
             st.subheader("💰 小组收入 (Group Earnings)")
