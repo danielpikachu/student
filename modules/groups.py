@@ -109,8 +109,8 @@ def load_group_data(worksheet):
                 data["members"].append({
                     "Name": row[0],
                     "StudentID": row[1],
-                    "Position": row[2],
-                    "Contact": row[3]
+                    "Position": row[2] if len(row) > 2 else "",  # 可选字段
+                    "Contact": row[3] if len(row) > 3 else ""    # 可选字段
                 })
             elif current_section == "earnings" and row[0].strip() and row[1].strip():
                 try:
@@ -253,7 +253,7 @@ def render_groups():
             # 获取当前数据
             group_data = st.session_state[state_key]
             
-            # 1. 小组成员管理
+            # 1. 小组成员管理（核心修改部分）
             st.subheader("👥 小组成员")
             with st.container(border=True):
                 # 显示成员表格
@@ -263,49 +263,52 @@ def render_groups():
                     hide_index=True
                 ) if group_data["members"] else st.info("暂无成员")
                 
-                # 添加成员表单
+                # 添加成员表单（简化为姓名和学号必填，其他可选）
                 with st.expander("➕ 添加新成员"):
-                    # 定义输入框key
-                    name_key = f"{group_name}_member_name"
-                    id_key = f"{group_name}_member_id"
-                    pos_key = f"{group_name}_member_pos"
-                    contact_key = f"{group_name}_member_contact"
+                    # 定义输入框key（使用更简单的命名避免键错误）
+                    name_key = f"name_{group_name}"
+                    id_key = f"id_{group_name}"
+                    pos_key = f"pos_{group_name}"
+                    contact_key = f"contact_{group_name}"
                     
-                    # 确保输入框状态存在
+                    # 确保所有输入框key都已初始化
                     for key in [name_key, id_key, pos_key, contact_key]:
                         if key not in st.session_state:
                             st.session_state[key] = ""
                     
+                    # 输入表单 - 姓名和学号为必填，其他为可选
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.text_input("姓名", key=name_key)
-                        st.text_input("学号", key=id_key)
+                        st.text_input("姓名 *", key=name_key, placeholder="请输入姓名（必填）")
+                        st.text_input("学号 *", key=id_key, placeholder="请输入学号（必填）")
                     with col2:
-                        st.text_input("职位", key=pos_key)
-                        st.text_input("联系方式", key=contact_key)
+                        st.text_input("职位", key=pos_key, placeholder="请输入职位（可选）")
+                        st.text_input("联系方式", key=contact_key, placeholder="请输入联系方式（可选）")
                     
-                    # 成员添加处理函数
-                    if st.button("确认添加", key=f"{group_name}_add_member_btn"):
-                        # 从session_state获取输入值
+                    # 确认添加按钮逻辑
+                    if st.button("确认添加", key=f"add_{group_name}"):
+                        # 获取输入值（去除前后空格）
                         new_name = st.session_state[name_key].strip()
                         new_student_id = st.session_state[id_key].strip()
-                        new_position = st.session_state[pos_key].strip()
-                        new_contact = st.session_state[contact_key].strip()
+                        new_position = st.session_state[pos_key].strip()  # 可选
+                        new_contact = st.session_state[contact_key].strip()  # 可选
                         
-                        # 验证输入
-                        if not all([new_name, new_student_id, new_position]):
-                            st.error("请填写姓名、学号和职位（必填项）")
+                        # 仅验证必填项
+                        if not new_name:
+                            st.error("请填写姓名（必填项）")
+                        elif not new_student_id:
+                            st.error("请填写学号（必填项）")
                         else:
                             # 检查学号重复
                             if any(m["StudentID"] == new_student_id for m in group_data["members"]):
                                 st.error("该学号已存在于成员列表中")
                             else:
-                                # 1. 更新本地状态
+                                # 1. 立即更新本地状态
                                 new_member = {
                                     "Name": new_name,
                                     "StudentID": new_student_id,
-                                    "Position": new_position,
-                                    "Contact": new_contact
+                                    "Position": new_position,  # 可选，可为空
+                                    "Contact": new_contact     # 可选，可为空
                                 }
                                 group_data["members"].append(new_member)
                                 st.session_state[state_key] = group_data  # 强制状态更新
@@ -314,7 +317,7 @@ def render_groups():
                                 with st.spinner("正在同步到Google Sheet..."):
                                     if worksheet and save_members(worksheet, group_data["members"]):
                                         st.success("成员已添加并同步到Google Sheet！")
-                                        # 安全清空输入框（只清空已存在的key）
+                                        # 安全清空输入框（只操作已初始化的key）
                                         for key in [name_key, id_key, pos_key, contact_key]:
                                             if key in st.session_state:
                                                 st.session_state[key] = ""
@@ -332,9 +335,9 @@ def render_groups():
                     st.info("暂无收入记录")
                 
                 with st.expander("➕ 添加新收入"):
-                    earn_date_key = f"{group_name}_earn_date"
-                    earn_amt_key = f"{group_name}_earn_amt"
-                    earn_desc_key = f"{group_name}_earn_desc"
+                    earn_date_key = f"e_date_{group_name}"
+                    earn_amt_key = f"e_amt_{group_name}"
+                    earn_desc_key = f"e_desc_{group_name}"
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
@@ -344,7 +347,7 @@ def render_groups():
                     with col3:
                         st.text_input("描述", key=earn_desc_key)
                     
-                    if st.button("确认添加", key=f"{group_name}_add_earn_btn"):
+                    if st.button("确认添加", key=f"add_earn_{group_name}"):
                         earn_desc = st.session_state[earn_desc_key].strip()
                         if not earn_desc:
                             st.error("请填写收入描述")
@@ -370,12 +373,12 @@ def render_groups():
                     earn_to_delete = st.selectbox(
                         "选择要删除的收入",
                         [f"{e['Date']} - ¥{e['Amount']} - {e['Description']}" for e in group_data["earnings"]],
-                        key=f"{group_name}_del_earn_sel",
+                        key=f"del_earn_{group_name}",
                         index=None,
                         placeholder="选择收入项..."
                     )
                     
-                    if st.button("删除选中收入", key=f"{group_name}_del_earn_btn"):
+                    if st.button("删除选中收入", key=f"del_earn_btn_{group_name}"):
                         if earn_to_delete:
                             original_count = len(group_data["earnings"])
                             group_data["earnings"] = [
@@ -405,9 +408,9 @@ def render_groups():
                     st.info("暂无报销请求")
                 
                 with st.expander("➕ 提交新报销请求"):
-                    req_date_key = f"{group_name}_req_date"
-                    req_amt_key = f"{group_name}_req_amt"
-                    req_desc_key = f"{group_name}_req_desc"
+                    req_date_key = f"r_date_{group_name}"
+                    req_amt_key = f"r_amt_{group_name}"
+                    req_desc_key = f"r_desc_{group_name}"
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
@@ -417,7 +420,7 @@ def render_groups():
                     with col3:
                         st.text_input("描述", key=req_desc_key)
                     
-                    if st.button("提交请求", key=f"{group_name}_add_req_btn"):
+                    if st.button("提交请求", key=f"add_req_{group_name}"):
                         req_desc = st.session_state[req_desc_key].strip()
                         if not req_desc:
                             st.error("请填写报销描述")
@@ -444,7 +447,7 @@ def render_groups():
                     req_to_update = st.selectbox(
                         "选择要更新的报销请求",
                         [f"{r['Date']} - ¥{r['Amount']} - {r['Description']} ({r['Status']})" for r in group_data["reimbursements"]],
-                        key=f"{group_name}_upd_req_sel",
+                        key=f"upd_req_{group_name}",
                         index=None,
                         placeholder="选择报销项..."
                     )
@@ -452,10 +455,10 @@ def render_groups():
                     new_status = st.selectbox(
                         "更新状态为",
                         ["Pending", "Approved", "Rejected"],
-                        key=f"{group_name}_upd_req_status"
+                        key=f"upd_status_{group_name}"
                     )
                     
-                    if st.button("更新状态", key=f"{group_name}_upd_req_btn"):
+                    if st.button("更新状态", key=f"upd_req_btn_{group_name}"):
                         if req_to_update:
                             updated = False
                             for req in group_data["reimbursements"]:
