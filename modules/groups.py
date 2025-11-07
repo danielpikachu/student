@@ -12,77 +12,135 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 from google_sheet_utils import GoogleSheetHandler
 
+# 定义允许的访问码与对应组名
+ACCESS_CODES = {
+    "GROUP001": "第一组",
+    "GROUP002": "第二组",
+    "GROUP003": "第三组",
+    "GROUP004": "第四组",
+    "GROUP005": "第五组",
+    "GROUP006": "第六组",
+    "GROUP007": "第七组",
+    "GROUP008": "第八组"
+}
+
 def render_groups():
     st.set_page_config(page_title="学生事务管理", layout="wide")
+    
+    # 初始化会话状态
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    if "current_group" not in st.session_state:
+        st.session_state.current_group = None
+    if "current_access_code" not in st.session_state:
+        st.session_state.current_access_code = None
+
+    # 登录界面
+    if not st.session_state.logged_in:
+        st.markdown(
+            "<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统</p>",
+            unsafe_allow_html=True
+        )
+        st.caption("请输入访问码进入对应组别管理")
+        st.divider()
+        
+        access_code = st.text_input("访问码", placeholder="输入组访问码", type="password")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("登录", use_container_width=True):
+                if access_code in ACCESS_CODES:
+                    st.session_state.logged_in = True
+                    st.session_state.current_group = ACCESS_CODES[access_code]
+                    st.session_state.current_access_code = access_code
+                    st.success(f"登录成功，欢迎进入 {ACCESS_CODES[access_code]}")
+                    st.rerun()
+                else:
+                    st.error("无效的访问码，请重新输入")
+        with col2:
+            if st.button("清除", use_container_width=True):
+                st.session_state.logged_in = False
+                st.session_state.current_group = None
+                st.session_state.current_access_code = None
+                st.rerun()
+        return
+
+    # 已登录状态 - 显示组名
     st.markdown(
-        "<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统</p>",
+        f"<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统 - {st.session_state.current_group}</p>",
         unsafe_allow_html=True
     )
     st.caption("包含成员管理、收入管理和报销管理三个功能模块")
     st.divider()
 
+    # 登出按钮
+    if st.button("切换组别", key="logout_btn"):
+        st.session_state.logged_in = False
+        st.session_state.current_group = None
+        st.session_state.current_access_code = None
+        st.session_state.members = []
+        st.session_state.incomes = []
+        st.rerun()
+
     # 初始化Google Sheets连接
     sheet_handler = None
-    group_sheet = None
-    income_sheet = None  # 收入管理表格
+    main_sheet = None  # 主表格包含所有组的数据
     try:
         sheet_handler = GoogleSheetHandler(credentials_path="")
-        group_sheet = sheet_handler.get_worksheet(
+        # 所有组数据存放在同一个工作表
+        main_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
-            worksheet_name="Group1"
-        )
-        # 初始化收入管理表格
-        income_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="Student",
-            worksheet_name="Income"
+            worksheet_name="AllGroupsData"
         )
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
-    # 从Google Sheets同步成员数据
-    if group_sheet and sheet_handler and (not st.session_state.get("members")):
+    # 从Google Sheets同步当前组的成员数据
+    current_group_code = st.session_state.current_access_code
+    if main_sheet and sheet_handler and (not st.session_state.get("members")):
         try:
-            all_data = group_sheet.get_all_values()
-            expected_headers = ["uuid", "id", "name", "student_id", "created_at"]
+            all_data = main_sheet.get_all_values()
+            # 主表包含组标识列
+            expected_headers = ["group_code", "data_type", "uuid", "id", "name", "student_id", "date", "amount", "description", "created_at"]
             
             if not all_data or all_data[0] != expected_headers:
-                group_sheet.clear()
-                group_sheet.append_row(expected_headers)
+                main_sheet.clear()
+                main_sheet.append_row(expected_headers)
                 st.session_state.members = []
             else:
+                # 筛选当前组的成员数据
                 st.session_state.members = [
                     {
-                        "uuid": row[0],
-                        "id": row[1],
-                        "name": row[2],
-                        "student_id": row[3]
+                        "uuid": row[2],
+                        "id": row[3],
+                        "name": row[4],
+                        "student_id": row[5]
                     } 
                     for row in all_data[1:] 
-                    if row[0]
+                    if row[0] == current_group_code and row[1] == "member" and row[2]
                 ]
         except Exception as e:
             st.warning(f"成员数据同步失败: {str(e)}")
 
-    # 从Google Sheets同步收入数据
-    if income_sheet and sheet_handler and (not st.session_state.get("incomes")):
+    # 从Google Sheets同步当前组的收入数据
+    if main_sheet and sheet_handler and (not st.session_state.get("incomes")):
         try:
-            all_data = income_sheet.get_all_values()
-            expected_headers = ["uuid", "date", "amount", "description", "created_at"]
+            all_data = main_sheet.get_all_values()
+            expected_headers = ["group_code", "data_type", "uuid", "id", "name", "student_id", "date", "amount", "description", "created_at"]
             
             if not all_data or all_data[0] != expected_headers:
-                income_sheet.clear()
-                income_sheet.append_row(expected_headers)
+                # 表头已在成员同步部分处理，这里不再重复处理
                 st.session_state.incomes = []
             else:
+                # 筛选当前组的收入数据
                 st.session_state.incomes = [
                     {
-                        "uuid": row[0],
-                        "date": row[1],
-                        "amount": row[2],
-                        "description": row[3]
+                        "uuid": row[2],
+                        "date": row[6],
+                        "amount": row[7],
+                        "description": row[8]
                     } 
                     for row in all_data[1:] 
-                    if row[0]
+                    if row[0] == current_group_code and row[1] == "income" and row[2]
                 ]
         except Exception as e:
             st.warning(f"收入数据同步失败: {str(e)}")
@@ -124,7 +182,8 @@ def render_groups():
 
             if valid:
                 member_uuid = str(uuid.uuid4())
-                member_id = f"M{len(st.session_state.members) + 1:03d}"
+                # 生成组内唯一ID
+                member_id = f"{current_group_code[5:]}_{len(st.session_state.members) + 1:03d}"
                 new_member = {
                     "uuid": member_uuid,
                     "id": member_id,
@@ -134,13 +193,19 @@ def render_groups():
                 
                 st.session_state.members.append(new_member)
                 
-                if group_sheet and sheet_handler:
+                if main_sheet and sheet_handler:
                     try:
-                        group_sheet.append_row([
+                        # 插入带组标识和数据类型的记录
+                        main_sheet.append_row([
+                            current_group_code,  # 组标识
+                            "member",  # 数据类型
                             member_uuid,
                             member_id,
                             name.strip(),
                             student_id.strip(),
+                            "",  # 空日期（成员数据用不到）
+                            "",  # 空金额（成员数据用不到）
+                            "",  # 空描述（成员数据用不到）
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         ])
                         st.success(f"成功添加：{name}（ID：{student_id}）", icon="✅")
@@ -173,11 +238,12 @@ def render_groups():
                         st.session_state.members.pop(idx)
                         
                         # 同步删除Google Sheets数据
-                        if group_sheet and sheet_handler:
+                        if main_sheet and sheet_handler:
                             try:
-                                cell = group_sheet.find(m["uuid"])
-                                if cell:
-                                    group_sheet.delete_rows(cell.row)
+                                # 查找特定组和UUID的记录
+                                cell = main_sheet.find(m["uuid"])
+                                if cell and main_sheet.row_values(cell.row)[0] == current_group_code:
+                                    main_sheet.delete_rows(cell.row)
                                 st.success(f"成员 {m['name']} 删除成功！")
                                 st.rerun()  # 重新加载页面确保UI更新
                             except Exception as e:
@@ -218,10 +284,16 @@ def render_groups():
                 
                 st.session_state.incomes.append(new_income)
                 
-                if income_sheet and sheet_handler:
+                if main_sheet and sheet_handler:
                     try:
-                        income_sheet.append_row([
+                        # 插入带组标识和数据类型的记录
+                        main_sheet.append_row([
+                            current_group_code,  # 组标识
+                            "income",  # 数据类型
                             income_uuid,
+                            "",  # 空ID（收入数据用不到）
+                            "",  # 空姓名（收入数据用不到）
+                            "",  # 空学生ID（收入数据用不到）
                             new_income["date"],
                             new_income["amount"],
                             new_income["description"],
@@ -246,24 +318,23 @@ def render_groups():
         ])
         st.dataframe(income_df, use_container_width=True, height=min(300, 50 + len(st.session_state.incomes)*35))
 
-        # 收入删除功能（完全参考成员管理逻辑）
+        # 收入删除功能
         with st.expander("管理收入（删除）", expanded=False):
-            # 与成员管理保持一致，使用索引+uuid的方式
             for idx, income in enumerate(st.session_state.incomes):
                 col1, col2 = st.columns([5, 1])
                 with col1:
                     st.write(f"{income['date']} - {income['amount']}元：{income['description']}")
                 with col2:
                     if st.button("删除", key=f"del_income_{income['uuid']}", use_container_width=True):
-                        # 直接使用索引删除，与成员管理逻辑完全一致
+                        # 删除本地数据
                         st.session_state.incomes.pop(idx)
                         
                         # 同步删除Google Sheets数据
-                        if income_sheet and sheet_handler:
+                        if main_sheet and sheet_handler:
                             try:
-                                cell = income_sheet.find(income["uuid"])
-                                if cell:
-                                    income_sheet.delete_rows(cell.row)
+                                cell = main_sheet.find(income["uuid"])
+                                if cell and main_sheet.row_values(cell.row)[0] == current_group_code:
+                                    main_sheet.delete_rows(cell.row)
                                 st.success("收入记录删除成功！")
                                 st.rerun()  # 立即刷新页面，确保UI同步
                             except Exception as e:
