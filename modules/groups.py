@@ -202,21 +202,23 @@ def update_worksheet_section(worksheet, section_title, new_data):
     if data_end_1based is None:
         data_end_1based = total_rows  # 0-based转1-based
     
-    # 【收入模块特殊处理】确保删除范围有效且正确计算
-    if section_title == "Earnings":
-        # 检查当前数据行中实际有内容的行
-        non_empty_rows = 0
-        for i in range(data_start_1based - 1, total_rows):
-            if any(cell.strip() != "" for cell in all_values[i]):
-                non_empty_rows += 1
-            else:
-                break  # 遇到空行则停止计数
-        
-        # 重新计算结束行，考虑实际有数据的行
-        if non_empty_rows > 0:
-            data_end_1based = data_start_1based + non_empty_rows - 1
+    # 【关键修复】所有区域统一处理空数据行，确保结束索引不小于开始索引
+    # 检查当前数据行中实际有内容的行
+    non_empty_rows = 0
+    for i in range(data_start_1based - 1, total_rows):
+        if any(cell.strip() != "" for cell in all_values[i]):
+            non_empty_rows += 1
         else:
-            data_end_1based = data_start_1based - 1  # 没有数据行
+            break  # 遇到空行则停止计数
+    
+    # 重新计算结束行，考虑实际有数据的行
+    if non_empty_rows > 0:
+        data_end_1based = data_start_1based + non_empty_rows - 1
+    else:
+        data_end_1based = data_start_1based - 1  # 没有数据行
+    
+    # 【最终保障】强制确保结束索引不小于开始索引
+    data_end_1based = max(data_start_1based - 1, data_end_1based)
     
     # 确保删除范围有效（只有start <= end时才执行删除）
     if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
