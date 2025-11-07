@@ -256,7 +256,7 @@ def render_groups():
             # 1. 小组成员管理
             st.subheader("👥 小组成员")
             with st.container(border=True):
-                # 显示成员表格（使用最新状态数据）
+                # 显示成员表格
                 st.dataframe(
                     pd.DataFrame(group_data["members"]),
                     use_container_width=True,
@@ -265,84 +265,61 @@ def render_groups():
                 
                 # 添加成员表单
                 with st.expander("➕ 添加新成员"):
-                    # 初始化输入框状态变量
-                    input_keys = {
-                        "name": f"{group_name}_member_name",
-                        "id": f"{group_name}_member_id",
-                        "pos": f"{group_name}_member_pos",
-                        "contact": f"{group_name}_member_contact"
-                    }
+                    # 定义输入框key
+                    name_key = f"{group_name}_member_name"
+                    id_key = f"{group_name}_member_id"
+                    pos_key = f"{group_name}_member_pos"
+                    contact_key = f"{group_name}_member_contact"
                     
                     # 确保输入框状态存在
-                    for key in input_keys.values():
+                    for key in [name_key, id_key, pos_key, contact_key]:
                         if key not in st.session_state:
                             st.session_state[key] = ""
                     
                     col1, col2 = st.columns(2)
                     with col1:
-                        # 输入框直接绑定到session_state
-                        st.text_input(
-                            "姓名", 
-                            key=input_keys["name"],
-                            value=st.session_state[input_keys["name"]]
-                        )
-                        st.text_input(
-                            "学号", 
-                            key=input_keys["id"],
-                            value=st.session_state[input_keys["id"]]
-                        )
+                        st.text_input("姓名", key=name_key)
+                        st.text_input("学号", key=id_key)
                     with col2:
-                        st.text_input(
-                            "职位", 
-                            key=input_keys["pos"],
-                            value=st.session_state[input_keys["pos"]]
-                        )
-                        st.text_input(
-                            "联系方式", 
-                            key=input_keys["contact"],
-                            value=st.session_state[input_keys["contact"]]
-                        )
+                        st.text_input("职位", key=pos_key)
+                        st.text_input("联系方式", key=contact_key)
                     
-                    # 成员添加处理函数（使用session_state获取输入值）
-                    def add_member():
+                    # 成员添加处理函数
+                    if st.button("确认添加", key=f"{group_name}_add_member_btn"):
                         # 从session_state获取输入值
-                        new_name = st.session_state[input_keys["name"]].strip()
-                        new_student_id = st.session_state[input_keys["id"]].strip()
-                        new_position = st.session_state[input_keys["pos"]].strip()
-                        new_contact = st.session_state[input_keys["contact"]].strip()
+                        new_name = st.session_state[name_key].strip()
+                        new_student_id = st.session_state[id_key].strip()
+                        new_position = st.session_state[pos_key].strip()
+                        new_contact = st.session_state[contact_key].strip()
                         
                         # 验证输入
                         if not all([new_name, new_student_id, new_position]):
                             st.error("请填写姓名、学号和职位（必填项）")
-                            return
-                            
-                        # 检查学号重复
-                        if any(m["StudentID"] == new_student_id for m in group_data["members"]):
-                            st.error("该学号已存在于成员列表中")
-                            return
-                            
-                        # 1. 更新本地状态
-                        new_member = {
-                            "Name": new_name,
-                            "StudentID": new_student_id,
-                            "Position": new_position,
-                            "Contact": new_contact
-                        }
-                        group_data["members"].append(new_member)
-                        st.session_state[state_key] = group_data  # 强制状态更新
-                        
-                        # 2. 同步到Google Sheet
-                        if worksheet and save_members(worksheet, group_data["members"]):
-                            st.success("成员已添加并同步到Google Sheet！")
-                            # 清空输入框
-                            for key in input_keys.values():
-                                st.session_state[key] = ""
                         else:
-                            st.warning("成员已在本地添加，但同步到Google Sheet失败，请稍后再试")
-                    
-                    # 直接使用按钮点击执行函数（不使用on_click回调）
-                    if st.button("确认添加", key=f"{group_name}_add_member_btn"):
-                        add_member()
+                            # 检查学号重复
+                            if any(m["StudentID"] == new_student_id for m in group_data["members"]):
+                                st.error("该学号已存在于成员列表中")
+                            else:
+                                # 1. 更新本地状态
+                                new_member = {
+                                    "Name": new_name,
+                                    "StudentID": new_student_id,
+                                    "Position": new_position,
+                                    "Contact": new_contact
+                                }
+                                group_data["members"].append(new_member)
+                                st.session_state[state_key] = group_data  # 强制状态更新
+                                
+                                # 2. 同步到Google Sheet
+                                with st.spinner("正在同步到Google Sheet..."):
+                                    if worksheet and save_members(worksheet, group_data["members"]):
+                                        st.success("成员已添加并同步到Google Sheet！")
+                                        # 安全清空输入框（只清空已存在的key）
+                                        for key in [name_key, id_key, pos_key, contact_key]:
+                                            if key in st.session_state:
+                                                st.session_state[key] = ""
+                                    else:
+                                        st.warning("成员已在本地添加，但同步到Google Sheet失败，请稍后再试")
             
             # 2. 小组收入管理
             st.subheader("💰 小组收入")
@@ -355,42 +332,38 @@ def render_groups():
                     st.info("暂无收入记录")
                 
                 with st.expander("➕ 添加新收入"):
-                    earn_keys = {
-                        "date": f"{group_name}_earn_date",
-                        "amount": f"{group_name}_earn_amt",
-                        "desc": f"{group_name}_earn_desc"
-                    }
+                    earn_date_key = f"{group_name}_earn_date"
+                    earn_amt_key = f"{group_name}_earn_amt"
+                    earn_desc_key = f"{group_name}_earn_desc"
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        earn_date = st.date_input("日期", datetime.today(), key=earn_keys["date"])
+                        earn_date = st.date_input("日期", datetime.today(), key=earn_date_key)
                     with col2:
-                        earn_amount = st.number_input("金额", min_value=0.01, step=0.01, key=earn_keys["amount"])
+                        earn_amount = st.number_input("金额", min_value=0.01, step=0.01, key=earn_amt_key)
                     with col3:
-                        earn_desc = st.text_input("描述", key=earn_keys["desc"])
-                    
-                    def add_earning():
-                        desc = st.session_state[earn_keys["desc"]].strip()
-                        if not desc:
-                            st.error("请填写收入描述")
-                            return
-                            
-                        new_earning = {
-                            "Date": earn_date.strftime("%Y-%m-%d"),
-                            "Amount": earn_amount,
-                            "Description": desc
-                        }
-                        group_data["earnings"].append(new_earning)
-                        st.session_state[state_key] = group_data
-                        
-                        if worksheet and save_earnings(worksheet, group_data["earnings"]):
-                            st.success("收入已添加并同步！")
-                            st.session_state[earn_keys["desc"]] = ""  # 清空描述
-                        else:
-                            st.warning("收入已在本地添加，同步失败")
+                        st.text_input("描述", key=earn_desc_key)
                     
                     if st.button("确认添加", key=f"{group_name}_add_earn_btn"):
-                        add_earning()
+                        earn_desc = st.session_state[earn_desc_key].strip()
+                        if not earn_desc:
+                            st.error("请填写收入描述")
+                        else:
+                            new_earning = {
+                                "Date": earn_date.strftime("%Y-%m-%d"),
+                                "Amount": earn_amount,
+                                "Description": earn_desc
+                            }
+                            group_data["earnings"].append(new_earning)
+                            st.session_state[state_key] = group_data
+                            
+                            with st.spinner("正在同步到Google Sheet..."):
+                                if worksheet and save_earnings(worksheet, group_data["earnings"]):
+                                    st.success("收入已添加并同步！")
+                                    if earn_desc_key in st.session_state:
+                                        st.session_state[earn_desc_key] = ""
+                                else:
+                                    st.warning("收入已在本地添加，同步失败")
                 
                 # 删除收入功能
                 if group_data["earnings"]:
@@ -412,10 +385,11 @@ def render_groups():
                             
                             if len(group_data["earnings"]) < original_count:
                                 st.session_state[state_key] = group_data
-                                if worksheet and save_earnings(worksheet, group_data["earnings"]):
-                                    st.success("收入已删除并同步！")
-                                else:
-                                    st.warning("收入已在本地删除，同步失败")
+                                with st.spinner("正在同步到Google Sheet..."):
+                                    if worksheet and save_earnings(worksheet, group_data["earnings"]):
+                                        st.success("收入已删除并同步！")
+                                    else:
+                                        st.warning("收入已在本地删除，同步失败")
             
             # 3. 报销请求管理
             st.subheader("📋 报销请求")
@@ -431,43 +405,39 @@ def render_groups():
                     st.info("暂无报销请求")
                 
                 with st.expander("➕ 提交新报销请求"):
-                    req_keys = {
-                        "date": f"{group_name}_req_date",
-                        "amount": f"{group_name}_req_amt",
-                        "desc": f"{group_name}_req_desc"
-                    }
+                    req_date_key = f"{group_name}_req_date"
+                    req_amt_key = f"{group_name}_req_amt"
+                    req_desc_key = f"{group_name}_req_desc"
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        req_date = st.date_input("日期", datetime.today(), key=req_keys["date"])
+                        req_date = st.date_input("日期", datetime.today(), key=req_date_key)
                     with col2:
-                        req_amount = st.number_input("金额", min_value=0.01, step=0.01, key=req_keys["amount"])
+                        req_amount = st.number_input("金额", min_value=0.01, step=0.01, key=req_amt_key)
                     with col3:
-                        req_desc = st.text_input("描述", key=req_keys["desc"])
-                    
-                    def add_reimbursement():
-                        desc = st.session_state[req_keys["desc"]].strip()
-                        if not desc:
-                            st.error("请填写报销描述")
-                            return
-                            
-                        new_reimbursement = {
-                            "Date": req_date.strftime("%Y-%m-%d"),
-                            "Amount": req_amount,
-                            "Description": desc,
-                            "Status": "Pending"
-                        }
-                        group_data["reimbursements"].append(new_reimbursement)
-                        st.session_state[state_key] = group_data
-                        
-                        if worksheet and save_reimbursements(worksheet, group_data["reimbursements"]):
-                            st.success("报销请求已添加并同步！")
-                            st.session_state[req_keys["desc"]] = ""
-                        else:
-                            st.warning("报销请求已在本地添加，同步失败")
+                        st.text_input("描述", key=req_desc_key)
                     
                     if st.button("提交请求", key=f"{group_name}_add_req_btn"):
-                        add_reimbursement()
+                        req_desc = st.session_state[req_desc_key].strip()
+                        if not req_desc:
+                            st.error("请填写报销描述")
+                        else:
+                            new_reimbursement = {
+                                "Date": req_date.strftime("%Y-%m-%d"),
+                                "Amount": req_amount,
+                                "Description": req_desc,
+                                "Status": "Pending"
+                            }
+                            group_data["reimbursements"].append(new_reimbursement)
+                            st.session_state[state_key] = group_data
+                            
+                            with st.spinner("正在同步到Google Sheet..."):
+                                if worksheet and save_reimbursements(worksheet, group_data["reimbursements"]):
+                                    st.success("报销请求已添加并同步！")
+                                    if req_desc_key in st.session_state:
+                                        st.session_state[req_desc_key] = ""
+                                else:
+                                    st.warning("报销请求已在本地添加，同步失败")
                 
                 # 更新报销状态
                 if group_data["reimbursements"]:
@@ -497,10 +467,11 @@ def render_groups():
                             
                             if updated:
                                 st.session_state[state_key] = group_data
-                                if worksheet and save_reimbursements(worksheet, group_data["reimbursements"]):
-                                    st.success("报销状态已更新并同步！")
-                                else:
-                                    st.warning("报销状态已在本地更新，同步失败")
+                                with st.spinner("正在同步到Google Sheet..."):
+                                    if worksheet and save_reimbursements(worksheet, group_data["reimbursements"]):
+                                        st.success("报销状态已更新并同步！")
+                                    else:
+                                        st.warning("报销状态已在本地更新，同步失败")
 
 if __name__ == "__main__":
     render_groups()
