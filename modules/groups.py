@@ -226,15 +226,76 @@ def load_group_data(worksheet):
         st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
 
-# 增强的更新重试机制
+# 新增成员专用 - 在现有数据后追加
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=3, max=20),
     retry=retry_if_exception_type((HttpError, ConnectionError)),
     reraise=True
 )
-def update_worksheet_section(worksheet, section_title, new_data, is_member=False):
-    """安全更新工作表区域的方法 - 修复成员重复添加问题"""
+def append_new_member(worksheet, new_member):
+    """在Google Sheet的Members区域末尾追加新成员，不影响现有数据"""
+    try:
+        # 控制API调用频率
+        if "last_api_call" in st.session_state:
+            elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
+            if elapsed < 3:
+                time.sleep(3 - elapsed)
+        
+        all_values = worksheet.get_all_values()  # 0-based索引
+        section_row = None  # 区域标题所在行（1-based）
+        
+        # 查找Members区域标题行（1-based索引）
+        for i, row in enumerate(all_values, 1):
+            if row[0].strip() == "Members":
+                section_row = i
+                break
+        
+        if not section_row:
+            st.error("未找到Members区域")
+            return False
+        
+        # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
+        data_start_1based = section_row + 2
+        total_rows = len(all_values)
+        
+        # 查找数据区域的最后一行
+        last_data_row = data_start_1based - 1  # 默认为表头行下方
+        for i in range(data_start_1based - 1, total_rows):  # 0-based遍历
+            if all(cell.strip() == "" for cell in all_values[i]):
+                break
+            last_data_row = i + 1  # 转换为1-based
+        
+        # 准备新成员数据
+        new_row = [
+            new_member["Name"],
+            new_member["StudentID"],
+            new_member["Position"],
+            new_member["Contact"]
+        ]
+        
+        # 在最后一行后面插入新成员
+        worksheet.insert_rows([new_row], last_data_row + 1)
+        st.session_state["last_api_call"] = datetime.now()
+        return True
+    except HttpError as e:
+        st.session_state["last_api_call"] = datetime.now()
+        if "429" in str(e):
+            st.warning("检测到配额限制，将在重试时延长等待时间...")
+        raise
+    except Exception as e:
+        st.session_state["last_api_call"] = datetime.now()
+        raise
+
+# 增强的更新重试机制（用于删除和其他更新操作）
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=3, max=20),
+    retry=retry_if_exception_type((HttpError, ConnectionError)),
+    reraise=True
+)
+def update_worksheet_section(worksheet, section_title, new_data):
+    """安全更新工作表区域的方法（用于删除等操作）"""
     try:
         # 控制API调用频率
         if "last_api_call" in st.session_state:
@@ -258,30 +319,14 @@ def update_worksheet_section(worksheet, section_title, new_data, is_member=False
         # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
         data_start_1based = section_row + 2
         
-        # 处理成员数据特殊逻辑：先读取现有成员ID避免重复
-        existing_ids = set()
-        if is_member:
-            # 从当前工作表读取已存在的StudentID
-            for i in range(data_start_1based - 1, len(all_values)):  # 转换为0-based
-                row = all_values[i]
-                if len(row) >= 2 and row[1].strip():  # 确保StudentID存在
-                    existing_ids.add(row[1].strip())
-        
         # 强制删除从起始行到表格末尾的所有旧数据（彻底清除旧记录）
         total_rows = len(all_values)
         if data_start_1based <= total_rows:
             worksheet.delete_rows(data_start_1based, total_rows - data_start_1based + 1)
         
-        # 插入新数据 - 仅插入有效数据行，成员数据额外过滤重复ID
+        # 插入新数据 - 仅插入有效数据行
         if new_data:
-            non_empty_rows = []
-            for row in new_data:
-                if any(cell.strip() for cell in row):
-                    # 成员数据需要检查StudentID是否已存在于工作表中
-                    if is_member and len(row) >= 2 and row[1].strip() in existing_ids:
-                        continue  # 跳过工作表中已存在的成员
-                    non_empty_rows.append(row)
-            
+            non_empty_rows = [row for row in new_data if any(cell.strip() for cell in row)]
             if non_empty_rows:
                 worksheet.insert_rows(non_empty_rows, data_start_1based)
         
@@ -297,6 +342,7 @@ def update_worksheet_section(worksheet, section_title, new_data, is_member=False
         raise
 
 def save_members(worksheet, members):
+    """保存成员数据（用于删除操作）"""
     if not worksheet or not members:
         return False
         
@@ -305,8 +351,7 @@ def save_members(worksheet, members):
             [m["Name"], m["StudentID"], m["Position"], m["Contact"]]
             for m in members
         ]
-        # 标记为成员数据，启用重复ID过滤
-        return update_worksheet_section(worksheet, "Members", rows_to_insert, is_member=True)
+        return update_worksheet_section(worksheet, "Members", rows_to_insert)
     except HttpError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
             st.error(f"""
@@ -485,18 +530,22 @@ def render_groups():
                             if duplicate:
                                 st.error("该学号已存在于成员列表中")
                             else:
-                                # 临时保存新增成员信息
+                                # 创建新成员对象
                                 new_member = {
-                                    "Name": new_name, "StudentID": new_student_id,
-                                    "Position": new_position, "Contact": new_contact
+                                    "Name": new_name, 
+                                    "StudentID": new_student_id,
+                                    "Position": new_position, 
+                                    "Contact": new_contact
                                 }
+                                # 更新本地缓存
                                 group_data["members"].append(new_member)
                                 st.session_state[f"grp_{group_name}_data"] = group_data
                                 st.success("成员已添加到界面，正在同步到Google Sheet...")
                                 
+                                # 调用新增专用方法，在现有数据后追加
                                 with st.spinner("正在同步到Google Sheet..."):
-                                    if save_members(worksheet, group_data["members"]):
-                                        st.success("成员已成功同步到Google Sheet！")
+                                    if append_new_member(worksheet, new_member):
+                                        st.success("成员已成功添加到Google Sheet！")
             
             # 小组收入管理
             st.subheader("💰 小组收入 (Group Earnings)")
