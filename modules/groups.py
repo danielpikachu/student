@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import sys
 import os
 import time
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, retry_if_result
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from googleapiclient.errors import HttpError
 
 # 解决根目录模块导入问题
@@ -29,21 +29,11 @@ def add_custom_css():
     .stExpander {
         margin-bottom: 10px;
     }
-    .api-hint {
-        font-size: 0.85rem;
-        color: #666;
-        margin-top: 5px;
-    }
     .quota-warning {
         background-color: #fff3cd;
         padding: 10px;
         border-radius: 4px;
         margin: 10px 0;
-    }
-    .request-delay {
-        font-size: 0.8rem;
-        color: #28a745;
-        margin-top: 5px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -66,8 +56,7 @@ def init_google_sheet_handler():
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=3, max=20),
-    retry=(retry_if_exception_type((HttpError, ConnectionError)) | 
-           retry_if_result(lambda x: x is None)),
+    retry=retry_if_exception_type((HttpError, ConnectionError)),
     reraise=True
 )
 def get_worksheet_with_retry(sheet_handler, spreadsheet_name, worksheet_name):
@@ -115,10 +104,7 @@ def get_group_worksheet(sheet_handler, group_name):
         return worksheet
     except HttpError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            获取{group_name}工作表失败: API请求配额已用尽
-            建议: 等待1-2分钟后再尝试
-            """)
+            st.error(f"""获取{group_name}工作表失败: API请求配额已用尽，请等待1-2分钟后再尝试""")
         elif "404" in str(e):
             st.error(f"获取{group_name}工作表失败: 工作表不存在")
         else:
@@ -177,10 +163,10 @@ def load_group_data(worksheet):
             if current_section == "members":
                 if row[0].strip() and row[1].strip():
                     data["members"].append({
-                        "Name": row[0],
-                        "StudentID": row[1],
-                        "Position": row[2],
-                        "Contact": row[3]
+                        "Name": row[0].strip(),
+                        "StudentID": row[1].strip(),
+                        "Position": row[2].strip() if len(row) > 2 else "",
+                        "Contact": row[3].strip() if len(row) > 3 else ""
                     })
             elif current_section == "earnings":
                 if row[0].strip() and row[1].strip():
@@ -188,13 +174,13 @@ def load_group_data(worksheet):
                         date_obj = datetime.strptime(row[0], "%Y-%m-%d")
                         formatted_date = date_obj.strftime("%Y-%m-%d")
                     except ValueError:
-                        formatted_date = row[0]
+                        formatted_date = row[0].strip()
                         st.warning(f"收入日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
                     
                     data["earnings"].append({
                         "Date": formatted_date,
                         "Amount": float(row[1]) if row[1] else 0.0,
-                        "Description": row[2]
+                        "Description": row[2].strip() if len(row) > 2 else ""
                     })
             elif current_section == "reimbursements":
                 if row[0].strip() and row[1].strip():
@@ -202,23 +188,20 @@ def load_group_data(worksheet):
                         date_obj = datetime.strptime(row[0], "%Y-%m-%d")
                         formatted_date = date_obj.strftime("%Y-%m-%d")
                     except ValueError:
-                        formatted_date = row[0]
+                        formatted_date = row[0].strip()
                         st.warning(f"报销日期格式不正确: {row[0]}, 建议使用YYYY-MM-DD")
                     
                     data["reimbursements"].append({
                         "Date": formatted_date,
                         "Amount": float(row[1]) if row[1] else 0.0,
-                        "Description": row[2],
-                        "Status": row[3] or "Pending"
+                        "Description": row[2].strip() if len(row) > 2 else "",
+                        "Status": row[3].strip() if len(row) > 3 else "Pending"
                     })
         
         return data
     except HttpError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            加载数据失败: API请求配额已用尽
-            请等待1-2分钟后点击刷新按钮重试
-            """)
+            st.error(f"加载数据失败: API请求配额已用尽，请等待1-2分钟后点击刷新按钮重试")
         else:
             st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
@@ -296,10 +279,11 @@ def delete_specific_member(worksheet, student_id_to_delete):
             if elapsed < 3:
                 time.sleep(3 - elapsed)
         
+        # 1. 获取当前所有数据
         all_values = worksheet.get_all_values()  # 0-based索引
         section_row = None  # 区域标题所在行（1-based）
         
-        # 查找Members区域标题行
+        # 2. 查找Members区域标题行
         for i, row in enumerate(all_values, 1):
             if row[0].strip() == "Members":
                 section_row = i
@@ -309,11 +293,11 @@ def delete_specific_member(worksheet, student_id_to_delete):
             st.error("未找到Members区域")
             return False
         
-        # 数据区域起始行（0-based）：标题行+2（跳过标题和表头）
-        data_start_0based = section_row + 1  # 转换为0-based
+        # 3. 确定数据区域范围（0-based）
+        data_start_0based = section_row + 1  # 标题行+1是表头，+2是数据行（转换为0-based）
         rows_to_delete = []
         
-        # 精确查找要删除的成员行（通过StudentID匹配）
+        # 4. 精确查找要删除的成员行（通过StudentID匹配）
         for i in range(data_start_0based, len(all_values)):
             row = all_values[i]
             if len(row) >= 2 and row[1].strip() == student_id_to_delete:
@@ -324,11 +308,10 @@ def delete_specific_member(worksheet, student_id_to_delete):
             st.warning(f"未找到学号为 {student_id_to_delete} 的成员")
             return False
         
-        # 从下往上删除，避免行号偏移导致错误
+        # 5. 从下往上删除，避免行号偏移导致错误
         for row_num in reversed(rows_to_delete):
             worksheet.delete_rows(row_num)
-            # 删除后等待短暂时间，确保行号稳定
-            time.sleep(1)
+            time.sleep(1)  # 确保删除操作完成
         
         st.session_state["last_api_call"] = datetime.now()
         return True
@@ -445,6 +428,7 @@ def render_groups():
     for i, tab in enumerate(tabs):
         group_name = group_names[i]
         with tab:
+            # 初始化会话状态
             if f"grp_{group_name}_data" not in st.session_state:
                 st.session_state[f"grp_{group_name}_data"] = {
                     "members": [], "earnings": [], "reimbursements": []
@@ -456,6 +440,7 @@ def render_groups():
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
             now = datetime.now()
+            # 自动加载数据（15分钟缓存）
             if (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=15) or 
                 f"grp_{group_name}_loaded" not in st.session_state):
                 with st.spinner(f"正在自动加载{group_name}的数据..."):
@@ -465,6 +450,7 @@ def render_groups():
                     st.session_state[f"grp_{group_name}_last_loaded"] = now
                     st.success(f"{group_name}数据加载成功！")
             
+            # 手动刷新按钮
             col_refresh, col_empty = st.columns([1, 5])
             with col_refresh:
                 if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
@@ -501,9 +487,12 @@ def render_groups():
                     )
                     
                     if st.button("删除选中成员", key=f"grp_{group_name}_del_member_btn"):
-                        if member_to_delete:
+                        if member_to_delete and worksheet:
                             # 提取要删除的StudentID（格式："姓名 - 学号"）
                             student_id_to_delete = member_to_delete.split(" - ")[1].strip()
+                            
+                            # 保存当前成员列表用于恢复（出错时）
+                            current_members = group_data["members"].copy()
                             
                             # 更新本地缓存
                             original_count = len(group_data["members"])
@@ -516,13 +505,20 @@ def render_groups():
                                 st.session_state[f"grp_{group_name}_data"] = group_data
                                 st.success("成员已从界面移除，正在同步到Google Sheet...")
                                 
-                                # 执行精准删除
-                                with st.spinner("正在同步删除操作..."):
-                                    try:
-                                        if delete_specific_member(worksheet, student_id_to_delete):
-                                            st.success("成员已成功从Google Sheet删除！")
-                                    except Exception as e:
-                                        st.error(f"删除失败: {str(e)}")
+                                # 执行精准删除 - 仅删除指定行，不做任何插入操作
+                                try:
+                                    if delete_specific_member(worksheet, student_id_to_delete):
+                                        st.success("成员已成功从Google Sheet删除！")
+                                    else:
+                                        # 恢复本地数据
+                                        group_data["members"] = current_members
+                                        st.session_state[f"grp_{group_name}_data"] = group_data
+                                        st.error("删除操作未成功执行")
+                                except Exception as e:
+                                    # 恢复本地数据
+                                    group_data["members"] = current_members
+                                    st.session_state[f"grp_{group_name}_data"] = group_data
+                                    st.error(f"删除失败: {str(e)}")
                 else:
                     st.info("当前小组暂无成员，请添加成员")
                 
@@ -545,23 +541,32 @@ def render_groups():
                                           for m in group_data["members"])
                             if duplicate:
                                 st.error("该学号已存在于成员列表中")
-                            else:
+                            elif worksheet:
                                 new_member = {
-                                    "Name": new_name, 
-                                    "StudentID": new_student_id,
-                                    "Position": new_position, 
-                                    "Contact": new_contact
+                                    "Name": new_name.strip(), 
+                                    "StudentID": new_student_id.strip(),
+                                    "Position": new_position.strip(), 
+                                    "Contact": new_contact.strip()
                                 }
+                                # 先保存当前列表用于出错恢复
+                                current_members = group_data["members"].copy()
                                 group_data["members"].append(new_member)
                                 st.session_state[f"grp_{group_name}_data"] = group_data
                                 st.success("成员已添加到界面，正在同步到Google Sheet...")
                                 
-                                with st.spinner("正在同步添加操作..."):
-                                    try:
-                                        if append_new_member(worksheet, new_member):
-                                            st.success("成员已成功添加到Google Sheet！")
-                                    except Exception as e:
-                                        st.error(f"添加失败: {str(e)}")
+                                try:
+                                    if append_new_member(worksheet, new_member):
+                                        st.success("成员已成功添加到Google Sheet！")
+                                    else:
+                                        # 同步失败，恢复本地数据
+                                        group_data["members"] = current_members
+                                        st.session_state[f"grp_{group_name}_data"] = group_data
+                                        st.error("添加操作未成功执行")
+                                except Exception as e:
+                                    # 同步失败，恢复本地数据
+                                    group_data["members"] = current_members
+                                    st.session_state[f"grp_{group_name}_data"] = group_data
+                                    st.error(f"添加失败: {str(e)}")
             
             # 小组收入管理
             st.subheader("💰 小组收入 (Group Earnings)")
@@ -586,11 +591,11 @@ def render_groups():
                     if st.button("确认添加", key=f"grp_{group_name}_add_earning"):
                         if not earn_desc:
                             st.error("请填写收入描述")
-                        else:
+                        elif worksheet:
                             new_earning = {
                                 "Date": earn_date.strftime("%Y-%m-%d"),
                                 "Amount": earn_amount,
-                                "Description": earn_desc
+                                "Description": earn_desc.strip()
                             }
                             group_data["earnings"].append(new_earning)
                             st.session_state[f"grp_{group_name}_data"] = group_data
@@ -610,7 +615,7 @@ def render_groups():
                     )
                     
                     if st.button("删除选中收入", key=f"grp_{group_name}_del_earn_btn"):
-                        if earn_to_delete:
+                        if earn_to_delete and worksheet:
                             original_count = len(group_data["earnings"])
                             group_data["earnings"] = [
                                 e for e in group_data["earnings"]
@@ -651,11 +656,11 @@ def render_groups():
                     if st.button("提交请求", key=f"grp_{group_name}_add_req"):
                         if not req_desc:
                             st.error("请填写报销描述")
-                        else:
+                        elif worksheet:
                             new_reimbursement = {
                                 "Date": req_date.strftime("%Y-%m-%d"),
                                 "Amount": req_amount,
-                                "Description": req_desc,
+                                "Description": req_desc.strip(),
                                 "Status": "Pending"
                             }
                             group_data["reimbursements"].append(new_reimbursement)
@@ -682,7 +687,7 @@ def render_groups():
                     )
                     
                     if st.button("更新状态", key=f"grp_{group_name}_upd_req_btn"):
-                        if req_to_update:
+                        if req_to_update and worksheet:
                             updated = False
                             for req in group_data["reimbursements"]:
                                 req_str = f"{req['Date']} - ¥{req['Amount']} - {req['Description']} ({req['Status']})"
