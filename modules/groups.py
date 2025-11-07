@@ -4,6 +4,8 @@ import pandas as pd
 from datetime import datetime
 import sys
 import os
+import time
+from functools import wraps
 
 # 解决根目录模块导入问题
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -12,6 +14,24 @@ if ROOT_DIR not in sys.path:
 
 # 导入Google Sheets工具类（与Calendar模块共用）
 from google_sheet_utils import GoogleSheetHandler
+
+# 节流装饰器：限制API请求频率
+def api_throttle(seconds=2):
+    """限制函数调用频率的装饰器"""
+    def decorator(func):
+        last_called = 0
+        
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            nonlocal last_called
+            now = time.time()
+            if now - last_called < seconds:
+                st.warning(f"操作过于频繁，请等待{int(seconds - (now - last_called))}秒后再试")
+                return False
+            last_called = now
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 def add_custom_css():
     """添加自定义CSS样式"""
@@ -53,6 +73,7 @@ def get_group_worksheet(sheet_handler, group_name):
         st.error(f"获取{group_name}工作表失败，请确认该工作表已存在: {str(e)}")
         return None
 
+@api_throttle(seconds=3)  # 限制加载数据频率
 def load_group_data(worksheet):
     """从工作表加载小组数据（成员、收入、报销），修复区域解析错误"""
     if not worksheet:
@@ -154,8 +175,9 @@ def clear_section_data(worksheet, section_title):
         worksheet.delete_rows(start_row + 1, end_row - start_row + 1)
     return start_row
 
+@api_throttle(seconds=2)
 def save_members(worksheet, members):
-    """保存成员数据到工作表"""
+    """保存成员数据到工作表（批量操作优化）"""
     if not worksheet or not members:
         return False
         
@@ -165,19 +187,23 @@ def save_members(worksheet, members):
         if start_row is None:
             return False
         
-        # 插入新成员数据
-        for member in members:
-            worksheet.insert_row(
-                [member["Name"], member["StudentID"], member["Position"], member["Contact"]],
-                start_row + 1  # 从数据起始行开始插入
-            )
+        # 准备批量数据
+        batch_data = [
+            [member["Name"], member["StudentID"], member["Position"], member["Contact"]]
+            for member in members
+        ]
+        
+        # 批量插入数据（一次API调用）
+        if batch_data:
+            worksheet.insert_rows(batch_data, start_row + 1)
         return True
     except Exception as e:
         st.error(f"保存成员数据失败: {str(e)}")
         return False
 
+@api_throttle(seconds=2)
 def save_earnings(worksheet, earnings):
-    """保存收入数据到工作表"""
+    """保存收入数据到工作表（批量操作优化）"""
     if not worksheet or not earnings:
         return False
         
@@ -186,18 +212,23 @@ def save_earnings(worksheet, earnings):
         if start_row is None:
             return False
         
-        for earning in earnings:
-            worksheet.insert_row(
-                [earning["Date"], earning["Amount"], earning["Description"], ""],
-                start_row + 1
-            )
+        # 准备批量数据
+        batch_data = [
+            [earning["Date"], earning["Amount"], earning["Description"], ""]
+            for earning in earnings
+        ]
+        
+        # 批量插入
+        if batch_data:
+            worksheet.insert_rows(batch_data, start_row + 1)
         return True
     except Exception as e:
         st.error(f"保存收入数据失败: {str(e)}")
         return False
 
+@api_throttle(seconds=2)
 def save_reimbursements(worksheet, reimbursements):
-    """保存报销数据到工作表"""
+    """保存报销数据到工作表（批量操作优化）"""
     if not worksheet or not reimbursements:
         return False
         
@@ -206,12 +237,16 @@ def save_reimbursements(worksheet, reimbursements):
         if start_row is None:
             return False
         
-        for reimbursement in reimbursements:
-            worksheet.insert_row(
-                [reimbursement["Date"], reimbursement["Amount"], 
-                 reimbursement["Description"], reimbursement["Status"]],
-                start_row + 1
-            )
+        # 准备批量数据
+        batch_data = [
+            [reimbursement["Date"], reimbursement["Amount"], 
+             reimbursement["Description"], reimbursement["Status"]]
+            for reimbursement in reimbursements
+        ]
+        
+        # 批量插入
+        if batch_data:
+            worksheet.insert_rows(batch_data, start_row + 1)
         return True
     except Exception as e:
         st.error(f"保存报销数据失败: {str(e)}")
@@ -246,22 +281,14 @@ def render_groups():
             # 获取当前小组的工作表（仅获取已存在的）
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
-            # 自动加载数据（首次访问或刷新时）
-            if f"grp_{group_name}_loaded" not in st.session_state:
-                with st.spinner(f"正在自动加载{group_name}的数据..."):
-                    data = load_group_data(worksheet)
-                    st.session_state[f"grp_{group_name}_data"] = data
-                    st.session_state[f"grp_{group_name}_loaded"] = True
-                    st.success(f"{group_name}数据加载成功！")
-            
-            # 保留手动刷新按钮
+            # 加载数据按钮
             col_refresh, col_empty = st.columns([1, 5])
             with col_refresh:
-                if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
-                    with st.spinner("正在从Google Sheets刷新数据..."):
+                if st.button("🔄 加载数据", key=f"grp_{group_name}_load_btn"):
+                    with st.spinner("正在从Google Sheets加载数据..."):
                         data = load_group_data(worksheet)
                         st.session_state[f"grp_{group_name}_data"] = data
-                        st.success("数据刷新成功！")
+                        st.success("数据加载成功！")
             
             # 获取当前小组数据
             group_data = st.session_state[f"grp_{group_name}_data"]
