@@ -1,7 +1,7 @@
 # modules/groups.py
 import streamlit as st
 import pandas as pd
-import uuid
+import uuid  # 新增：导入uuid模块
 import sys
 import os
 from datetime import datetime
@@ -10,11 +10,9 @@ from datetime import datetime
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-# 导入Google Sheets工具类
 from google_sheet_utils import GoogleSheetHandler
 
 def render_groups():
-    """优化布局紧凑性，减少不必要空白，添加Google Sheet同步功能"""
     st.set_page_config(page_title="学生事务管理", layout="wide")
     st.markdown(
         "<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统</p>",
@@ -27,7 +25,6 @@ def render_groups():
     sheet_handler = None
     group_sheet = None
     try:
-        # 不传入本地路径，使用环境变量中的密钥
         sheet_handler = GoogleSheetHandler(credentials_path="")
         group_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
@@ -36,19 +33,18 @@ def render_groups():
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
 
-    # 从Google Sheets同步数据（使用members状态）
+    # 从Google Sheets同步数据
     if group_sheet and sheet_handler and (not st.session_state.get("members")):
         try:
             all_data = group_sheet.get_all_values()
             expected_headers = ["uuid", "id", "name", "student_id", "created_at"]
             
-            # 检查表头
             if not all_data or all_data[0] != expected_headers:
                 group_sheet.clear()
                 group_sheet.append_row(expected_headers)
                 st.session_state.members = []
             else:
-                # 处理数据（跳过表头）
+                # 处理数据（包含uuid字段）
                 st.session_state.members = [
                     {
                         "uuid": row[0],
@@ -57,16 +53,16 @@ def render_groups():
                         "student_id": row[3]
                     } 
                     for row in all_data[1:] 
-                    if row[0]  # 确保UUID不为空
+                    if row[0]
                 ]
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # 初始化本地状态
+    # 初始化本地状态（确保包含uuid字段）
     if "members" not in st.session_state:
         st.session_state.members = []
 
-    # ---------------------- 1. 成员管理模块 ----------------------
+    # ---------------------- 成员管理模块 ----------------------
     st.markdown(
         "<p style='line-height: 0.5; font-size: 20px;'>👥 成员管理</p>",
         unsafe_allow_html=True
@@ -96,17 +92,16 @@ def render_groups():
                 valid = False
 
             if valid:
-                # 生成成员ID和UUID
+                # 生成uuid（关键修复：新增uuid字段）
                 member_uuid = str(uuid.uuid4())
                 member_id = f"M{len(st.session_state.members) + 1:03d}"
                 new_member = {
-                    "uuid": member_uuid,
+                    "uuid": member_uuid,  # 新增：添加uuid字段
                     "id": member_id,
                     "name": name.strip(),
                     "student_id": student_id.strip()
                 }
                 
-                # 更新本地状态
                 st.session_state.members.append(new_member)
                 
                 # 同步到Google Sheets
@@ -137,7 +132,7 @@ def render_groups():
         ])
         st.dataframe(member_df, use_container_width=True, height=min(300, 50 + len(st.session_state.members)*35))
 
-        # 删除功能
+        # 删除功能（现在可以正确访问m['uuid']）
         with st.expander("管理成员（删除）", expanded=False):
             for idx, m in enumerate(st.session_state.members):
                 col1, col2 = st.columns([5, 1])
@@ -145,10 +140,8 @@ def render_groups():
                     st.write(f"{m['name']}（学生ID：{m['student_id']}）")
                 with col2:
                     if st.button("删除", key=f"del_mem_{m['uuid']}", use_container_width=True):
-                        # 从本地状态删除
                         st.session_state.members.pop(idx)
                         
-                        # 同步删除Google Sheets记录
                         if group_sheet and sheet_handler:
                             try:
                                 cell = group_sheet.find(m["uuid"])
@@ -161,7 +154,7 @@ def render_groups():
 
     st.markdown("---")
 
-    # ---------------------- 2. 收入管理模块 ----------------------
+    # 收入管理和报销管理模块（保持不变）
     st.header("💰 收入管理")
     st.write("此模块用于记录和管理各项收入信息")
     st.divider()
@@ -169,7 +162,6 @@ def render_groups():
 
     st.markdown("---")
 
-    # ---------------------- 3. 报销管理模块 ----------------------
     st.header("🧾 报销管理")
     st.write("此模块用于管理各项报销申请及审批流程")
     st.divider()
