@@ -161,7 +161,7 @@ def load_group_data(worksheet):
         st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
 
-# 【核心修复点】重写区域更新逻辑，解决endIndex错误
+# 【核心修复点】精确计算删除范围，避免endIndex < startIndex错误
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -170,14 +170,15 @@ def load_group_data(worksheet):
 def update_worksheet_section(worksheet, section_title, new_data):
     """
     安全更新工作表区域的方法
-    1. 定位区域标题行
-    2. 从数据起始行删除到表格末尾（避免索引错误）
+    1. 精确定位区域标题行和数据范围
+    2. 确保删除操作的startIndex <= endIndex
     3. 插入新数据
     """
-    all_values = worksheet.get_all_values()
-    section_row = None  # 区域标题所在行（1-based索引）
+    all_values = worksheet.get_all_values()  # 0-based索引
+    total_rows = len(all_values)
+    section_row = None  # 区域标题所在行（1-based）
     
-    # 查找区域标题行
+    # 查找区域标题行（1-based索引）
     for i, row in enumerate(all_values, 1):
         if row[0].strip() == section_title:
             section_row = i
@@ -187,25 +188,34 @@ def update_worksheet_section(worksheet, section_title, new_data):
         st.error(f"未找到区域: {section_title}")
         return False
     
-    # 数据区域起始行 = 标题行 + 2（标题行+1是表头）
-    data_start_row = section_row + 2
-    total_rows = len(all_values)
+    # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
+    data_start_1based = section_row + 2
     
-    # 清除现有数据（如果数据起始行在表格范围内）
-    if data_start_row <= total_rows:
-        # 计算要删除的行数（从数据起始行到最后一行）
-        rows_to_delete = total_rows - data_start_row + 1
+    # 计算数据区域结束行（1-based）
+    data_end_1based = None
+    # 从数据起始行开始查找下一个区域标题
+    for i in range(data_start_1based - 1, total_rows):  # 转换为0-based索引
+        if all_values[i][0].strip() in ["Members", "Earnings", "Reimbursements"]:
+            data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based转1-based）
+            break
+    # 如果没找到其他区域标题，结束行就是表格最后一行
+    if data_end_1based is None:
+        data_end_1based = total_rows  # 0-based转1-based
+    
+    # 确保删除范围有效（只有start <= end时才执行删除）
+    if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
+        rows_to_delete = data_end_1based - data_start_1based + 1
         if rows_to_delete > 0:
-            worksheet.delete_rows(data_start_row, rows_to_delete)
+            worksheet.delete_rows(data_start_1based, rows_to_delete)
     
     # 插入新数据
     if new_data:
         for i, row in enumerate(new_data):
-            worksheet.insert_row(row, data_start_row + i)
+            worksheet.insert_row(row, data_start_1based + i)
     
     return True
 
-# 【仅修改调用方式】保持原有函数接口，内部使用新的更新方法
+# 保持原有函数接口不变
 def save_members(worksheet, members):
     if not worksheet or not members:
         return False
@@ -248,7 +258,7 @@ def save_reimbursements(worksheet, reimbursements):
         st.error(f"保存报销数据到Google Sheet失败: {str(e)}")
         return False
 
-# 【以下代码完全未变动】保持原有界面和业务逻辑
+# 以下界面和业务逻辑代码完全未变动
 def render_groups():
     add_custom_css()
     st.header("👥 小组管理 (Groups Management)")
