@@ -58,7 +58,7 @@ def render_groups():
     st.divider()
 
     # 成员列表展示
-    st.subheader("成员列表")
+    st.markdown("<p style='font-size: 16px; line-height: 1;'>成员列表</p>", unsafe_allow_html=True)
     if not st.session_state.members:
         st.info("暂无成员信息，请在上方添加", icon="ℹ️")
     else:
