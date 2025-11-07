@@ -1,6 +1,7 @@
 # modules/groups.py
 import streamlit as st
 import pandas as pd
+import uuid
 import sys
 import os
 from datetime import datetime
@@ -9,56 +10,37 @@ from datetime import datetime
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-
 # 导入Google Sheets工具类
 from google_sheet_utils import GoogleSheetHandler
 
 def render_groups():
-    """优化布局紧凑性，减少不必要空白，添加Google Sheets同步功能"""
+    """优化布局紧凑性，减少不必要空白，添加Google Sheet同步功能"""
     st.set_page_config(page_title="学生事务管理", layout="wide")
     st.markdown(
         "<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统</p>",
         unsafe_allow_html=True
     )
-    st.caption("包含成员管理、收入管理和报销管理三个功能模块")  # 使用caption减小字体和间距
+    st.caption("包含成员管理、收入管理和报销管理三个功能模块")
     st.divider()
 
     # 初始化Google Sheets连接
     sheet_handler = None
     group_sheet = None
     try:
-        # 从Streamlit Secrets获取认证信息并保存为临时文件
-        if 'google_credentials' in st.secrets:
-            # 将secrets中的凭证信息写入临时文件
-            creds_path = os.path.join(ROOT_DIR, "temp_credentials.json")
-            with open(creds_path, "w") as f:
-                import json
-                json.dump(st.secrets['google_credentials'], f)
-            
-            # 使用临时文件路径初始化GoogleSheetHandler
-            sheet_handler = GoogleSheetHandler(credentials_path=creds_path)
-            group_sheet = sheet_handler.get_worksheet(
-                spreadsheet_name="Student",
-                worksheet_name="Group1"
-            )
-        else:
-            st.error("Google Sheets 认证信息未配置，请检查Streamlit Secrets")
+        # 不传入本地路径，使用环境变量中的密钥
+        sheet_handler = GoogleSheetHandler(credentials_path="")
+        group_sheet = sheet_handler.get_worksheet(
+            spreadsheet_name="Student",
+            worksheet_name="Group1"
+        )
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
-    finally:
-        # 清理临时凭证文件
-        if 'creds_path' in locals() and os.path.exists(creds_path):
-            os.remove(creds_path)
 
-    # 初始化成员数据并从Google Sheets同步
-    if "members" not in st.session_state:
-        st.session_state.members = []
-    
-    # 从Google Sheets同步数据
-    if group_sheet and sheet_handler:
+    # 从Google Sheets同步数据（使用members状态）
+    if group_sheet and sheet_handler and (not st.session_state.get("members")):
         try:
             all_data = group_sheet.get_all_values()
-            expected_headers = ["id", "name", "student_id", "created_at"]
+            expected_headers = ["uuid", "id", "name", "student_id", "created_at"]
             
             # 检查表头
             if not all_data or all_data[0] != expected_headers:
@@ -69,15 +51,20 @@ def render_groups():
                 # 处理数据（跳过表头）
                 st.session_state.members = [
                     {
-                        "id": row[0],
-                        "name": row[1],
-                        "student_id": row[2]
+                        "uuid": row[0],
+                        "id": row[1],
+                        "name": row[2],
+                        "student_id": row[3]
                     } 
                     for row in all_data[1:] 
-                    if row[0] and row[1] and row[2]  # 确保关键字段不为空
+                    if row[0]  # 确保UUID不为空
                 ]
         except Exception as e:
-            st.warning(f"成员数据同步失败: {str(e)}")
+            st.warning(f"数据同步失败: {str(e)}")
+
+    # 初始化本地状态
+    if "members" not in st.session_state:
+        st.session_state.members = []
 
     # ---------------------- 1. 成员管理模块 ----------------------
     st.markdown(
@@ -87,8 +74,8 @@ def render_groups():
     st.write("管理成员的基本信息（姓名、学生ID）")
     st.divider()
 
-    # 添加新成员区域（紧凑布局）
-    with st.container():  # 使用容器减少外部间距
+    # 添加新成员区域
+    with st.container():
         st.markdown("<p style='font-size: 16px;'>添加新成员</p>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
@@ -96,7 +83,6 @@ def render_groups():
         with col2:
             student_id = st.text_input("学生ID*", placeholder="请输入唯一标识ID", label_visibility="visible")
         
-        # 确认添加按钮紧跟输入框
         if st.button("确认添加", use_container_width=True, key="add_btn"):
             valid = True
             if not name.strip():
@@ -110,26 +96,31 @@ def render_groups():
                 valid = False
 
             if valid:
+                # 生成成员ID和UUID
+                member_uuid = str(uuid.uuid4())
                 member_id = f"M{len(st.session_state.members) + 1:03d}"
                 new_member = {
+                    "uuid": member_uuid,
                     "id": member_id,
                     "name": name.strip(),
                     "student_id": student_id.strip()
                 }
+                
+                # 更新本地状态
                 st.session_state.members.append(new_member)
                 
                 # 同步到Google Sheets
                 if group_sheet and sheet_handler:
                     try:
-                        # 添加新记录（包含时间戳）
-                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         group_sheet.append_row([
-                            member_id, 
-                            name.strip(), 
+                            member_uuid,
+                            member_id,
+                            name.strip(),
                             student_id.strip(),
-                            current_time
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         ])
                         st.success(f"成功添加：{name}（ID：{student_id}）", icon="✅")
+                        st.rerun()
                     except Exception as e:
                         st.warning(f"同步到Google Sheets失败: {str(e)}")
 
@@ -144,35 +135,30 @@ def render_groups():
             {"序号": i+1, "成员姓名": m["name"], "学生ID": m["student_id"]}
             for i, m in enumerate(st.session_state.members)
         ])
-        st.dataframe(member_df, use_container_width=True, height=min(300, 50 + len(st.session_state.members)*35))  # 动态调整高度
+        st.dataframe(member_df, use_container_width=True, height=min(300, 50 + len(st.session_state.members)*35))
 
-        # 删除功能（紧凑布局）
+        # 删除功能
         with st.expander("管理成员（删除）", expanded=False):
-            for m in st.session_state.members:
+            for idx, m in enumerate(st.session_state.members):
                 col1, col2 = st.columns([5, 1])
                 with col1:
                     st.write(f"{m['name']}（学生ID：{m['student_id']}）")
                 with col2:
-                    if st.button("删除", key=f"del_mem_{m['id']}", use_container_width=True):
-                        # 从本地删除
-                        st.session_state.members = [
-                            member for member in st.session_state.members 
-                            if member["id"] != m["id"]
-                        ]
+                    if st.button("删除", key=f"del_mem_{m['uuid']}", use_container_width=True):
+                        # 从本地状态删除
+                        st.session_state.members.pop(idx)
                         
                         # 同步删除Google Sheets记录
                         if group_sheet and sheet_handler:
                             try:
-                                all_rows = group_sheet.get_all_values()
-                                for i, row in enumerate(all_rows[1:], start=2):  # 从第2行开始是数据
-                                    if row[0] == m["id"]:
-                                        group_sheet.delete_rows(i)
-                                        st.success(f"已删除：{m['name']}", icon="✅")
-                                        st.rerun()
+                                cell = group_sheet.find(m["uuid"])
+                                if cell:
+                                    group_sheet.delete_rows(cell.row)
+                                st.success(f"成员 {m['name']} 删除成功！")
+                                st.rerun()
                             except Exception as e:
-                                st.warning(f"从Google Sheets删除失败: {str(e)}")
+                                st.warning(f"同步删除失败: {str(e)}")
 
-    # 模块间分隔（减少空白）
     st.markdown("---")
 
     # ---------------------- 2. 收入管理模块 ----------------------
@@ -181,7 +167,6 @@ def render_groups():
     st.divider()
     st.info("收入管理模块区域 - 后续功能将在此处开发", icon="ℹ️")
 
-    # 模块间分隔
     st.markdown("---")
 
     # ---------------------- 3. 报销管理模块 ----------------------
