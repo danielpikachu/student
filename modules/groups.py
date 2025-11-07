@@ -1,33 +1,38 @@
 import streamlit as st
 import pandas as pd
 
-def render_groups():
-    """成员管理、收入和报销三个模块的完整界面"""
-    st.header("📋 学生事务管理系统")
-    st.write("统一管理成员信息、收入账记录和报销申请")
+def render_management_system():
+    """包含成员管理、收入管理、报销管理三个模块的框架，仅实现成员管理功能"""
+    st.set_page_config(page_title="学生事务管理", layout="wide")
+    st.title("📋 学生事务综合管理系统")
+    st.write("系统包含成员管理、收入管理和报销管理三大模块")
     st.divider()
 
-    # 创建三个模块的标签页
-    tab1, tab2, tab3 = st.tabs(["👥 成员管理", "💰 收入管理", "🧾 报销管理"])
+    # 模块选择器（清晰的切换入口）
+    selected_module = st.radio(
+        "选择模块",
+        ["成员管理", "收入管理", "报销管理"],
+        horizontal=True,  # 水平排列选项，更直观
+        key="module_selector"
+    )
 
-    # ---------------------- 第一块：成员管理（已实现） ----------------------
-    with tab1:
-        # 初始化成员会话状态
+    # ---------------------- 1. 成员管理模块（完整功能） ----------------------
+    if selected_module == "成员管理":
+        st.header("👥 成员管理")
+        st.write("管理成员的基本信息（姓名、学生ID）")
+        st.divider()
+
+        # 初始化成员数据
         if "members" not in st.session_state:
             st.session_state.members = []  # 结构: [{id, name, student_id}]
 
         # 成员列表展示
         st.subheader("成员列表")
         if not st.session_state.members:
-            st.info("暂无成员信息，请添加成员")
+            st.info("暂无成员信息，请在下方添加")
         else:
-            # 展示成员表格
             member_table = [
-                {
-                    "序号": i + 1,
-                    "成员姓名": m["name"],
-                    "学生ID": m["student_id"]
-                }
+                {"序号": i+1, "成员姓名": m["name"], "学生ID": m["student_id"]}
                 for i, m in enumerate(st.session_state.members)
             ]
             st.dataframe(pd.DataFrame(member_table), use_container_width=True)
@@ -37,103 +42,72 @@ def render_groups():
                 for m in st.session_state.members:
                     col1, col2 = st.columns([4, 1])
                     with col1:
-                        st.write(f"{m['name']}（{m['student_id']}）")
+                        st.write(f"{m['name']}（学生ID：{m['student_id']}）")
                     with col2:
-                        if st.button("删除", key=f"del_{m['id']}", use_container_width=True):
-                            st.session_state.members = [
-                                member for member in st.session_state.members
-                                if member["id"] != m["id"]
-                            ]
+                        if st.button("删除", key=f"del_mem_{m['id']}", use_container_width=True):
+                            st.session_state.members = [mem for mem in st.session_state.members if mem["id"] != m["id"]]
                             st.success(f"已删除成员：{m['name']}")
                             st.rerun()
 
-        st.markdown("---")
+        st.divider()
 
         # 添加新成员
         st.subheader("添加新成员")
-        with st.form("member_form", clear_on_submit=True):
+        with st.form("add_member_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
-                member_name = st.text_input("成员姓名", placeholder="请输入姓名", key="name_input")
+                name = st.text_input("成员姓名*", placeholder="请输入姓名")
             with col2:
-                student_id = st.text_input("学生ID", placeholder="请输入学生ID", key="id_input")
-
-            submit = st.form_submit_button("添加成员", use_container_width=True)
-
+                student_id = st.text_input("学生ID*", placeholder="请输入唯一标识ID")
+            
+            submit = st.form_submit_button("确认添加", use_container_width=True)
+            
             if submit:
-                # 验证必填字段
-                if not member_name.strip():
-                    st.error("请输入成员姓名")
+                if not name.strip():
+                    st.error("成员姓名不能为空")
                     return
                 if not student_id.strip():
-                    st.error("请输入学生ID")
+                    st.error("学生ID不能为空")
                     return
-
-                # 检查学生ID是否重复
                 if any(m["student_id"] == student_id for m in st.session_state.members):
                     st.error(f"学生ID {student_id} 已存在")
                     return
-
-                # 生成唯一ID
-                member_unique_id = f"M{len(st.session_state.members) + 1:03d}"
                 
-                # 添加到成员列表
+                # 添加成员
+                member_id = f"M{len(st.session_state.members) + 1:03d}"
                 st.session_state.members.append({
-                    "id": member_unique_id,
-                    "name": member_name.strip(),
+                    "id": member_id,
+                    "name": name.strip(),
                     "student_id": student_id.strip()
                 })
+                st.success(f"成功添加：{name}（ID：{student_id}）")
 
-                st.success(f"已添加成员：{member_name}（{student_id}）")
+    # ---------------------- 2. 收入管理模块（仅展示区域，留白） ----------------------
+    elif selected_module == "收入管理":
+        st.header("💰 收入管理")
+        st.write("此模块用于记录和管理各项收入信息")
+        st.divider()  # 明确的区域分隔线
 
-    # ---------------------- 第二块：收入管理（预留模块） ----------------------
-    with tab2:
-        st.subheader("收入记录管理")
-        st.write("用于记录各项收入明细，包括来源、金额、日期等信息")
+        # 留白区域（仅显示提示）
+        st.info("收入管理模块正在规划中，敬请期待...")
         
-        # 初始化收入会话状态
-        if "income_records" not in st.session_state:
-            st.session_state.income_records = []  # 预留数据结构
+        # 预留区域（用空白占位）
+        st.write("")  # 空行占位
+        st.write("")
 
-        # 示例：简单的功能占位
-        if not st.session_state.income_records:
-            st.info("暂无收入记录，后续可在此添加收入信息")
-        else:
-            # 未来可实现收入表格展示
-            pass
+    # ---------------------- 3. 报销管理模块（仅展示区域，留白） ----------------------
+    elif selected_module == "报销管理":
+        st.header("🧾 报销管理")
+        st.write("此模块用于管理各项报销申请及审批流程")
+        st.divider()  # 明确的区域分隔线
 
-        st.markdown("---")
+        # 留白区域（仅显示提示）
+        st.info("报销管理模块正在规划中，敬请期待...")
         
-        # 预留添加收入的表单位置
-        with st.expander("添加新收入（待实现）", expanded=False):
-            st.write("此处将实现收入信息录入功能")
-            # 未来可添加：
-            # 收入来源、金额、日期、经手人等字段
+        # 预留区域（用空白占位）
+        st.write("")  # 空行占位
+        st.write("")
 
-    # ---------------------- 第三块：报销管理（预留模块） ----------------------
-    with tab3:
-        st.subheader("报销申请管理")
-        st.write("用于管理报销申请，包括申请人、金额、事由、状态等信息")
-        
-        # 初始化报销会话状态
-        if "reimbursement_records" not in st.session_state:
-            st.session_state.reimbursement_records = []  # 预留数据结构
-
-        # 示例：简单的功能占位
-        if not st.session_state.reimbursement_records:
-            st.info("暂无报销记录，后续可在此添加报销信息")
-        else:
-            # 未来可实现报销表格展示
-            pass
-
-        st.markdown("---")
-        
-        # 预留添加报销的表单位置
-        with st.expander("添加新报销（待实现）", expanded=False):
-            st.write("此处将实现报销信息录入功能")
-            # 未来可添加：
-            # 申请人、金额、事由、日期、凭证上传等字段
-
-# 执行主函数
+# 运行系统
 if __name__ == "__main__":
-    render_groups()
+    render_management_system()
