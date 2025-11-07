@@ -17,7 +17,10 @@ def render_groups():
         st.session_state.members = []
 
     # ---------------------- 1. 成员管理模块 ----------------------
-    st.header("👥 成员管理")
+    st.markdown(
+    "<p style='line-height: 0.5; font-size: 20px;'>👥 成员管理</p>",
+    unsafe_allow_html=True
+    )
     st.write("管理成员的基本信息（姓名、学生ID）")
     st.divider()
 
