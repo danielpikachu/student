@@ -236,7 +236,6 @@ def load_group_data(worksheet):
 def append_new_member(worksheet, new_member):
     """在Google Sheet的Members区域末尾追加新成员，不影响现有数据"""
     try:
-        # 控制API调用频率
         if "last_api_call" in st.session_state:
             elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
             if elapsed < 3:
@@ -245,7 +244,7 @@ def append_new_member(worksheet, new_member):
         all_values = worksheet.get_all_values()  # 0-based索引
         section_row = None  # 区域标题所在行（1-based）
         
-        # 查找Members区域标题行（1-based索引）
+        # 查找Members区域标题行
         for i, row in enumerate(all_values, 1):
             if row[0].strip() == "Members":
                 section_row = i
@@ -255,11 +254,11 @@ def append_new_member(worksheet, new_member):
             st.error("未找到Members区域")
             return False
         
-        # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
+        # 数据区域起始行（1-based）：标题行+2（跳过标题和表头）
         data_start_1based = section_row + 2
         total_rows = len(all_values)
         
-        # 查找数据区域的最后一行
+        # 查找数据区域的最后一行（非空行）
         last_data_row = data_start_1based - 1  # 默认为表头行下方
         for i in range(data_start_1based - 1, total_rows):  # 0-based遍历
             if all(cell.strip() == "" for cell in all_values[i]):
@@ -278,11 +277,6 @@ def append_new_member(worksheet, new_member):
         worksheet.insert_rows([new_row], last_data_row + 1)
         st.session_state["last_api_call"] = datetime.now()
         return True
-    except HttpError as e:
-        st.session_state["last_api_call"] = datetime.now()
-        if "429" in str(e):
-            st.warning("检测到配额限制，将在重试时延长等待时间...")
-        raise
     except Exception as e:
         st.session_state["last_api_call"] = datetime.now()
         raise
@@ -297,7 +291,6 @@ def append_new_member(worksheet, new_member):
 def delete_specific_member(worksheet, student_id_to_delete):
     """仅删除Google Sheet中指定StudentID的成员，不影响其他数据"""
     try:
-        # 控制API调用频率
         if "last_api_call" in st.session_state:
             elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
             if elapsed < 3:
@@ -306,7 +299,7 @@ def delete_specific_member(worksheet, student_id_to_delete):
         all_values = worksheet.get_all_values()  # 0-based索引
         section_row = None  # 区域标题所在行（1-based）
         
-        # 查找Members区域标题行（1-based索引）
+        # 查找Members区域标题行
         for i, row in enumerate(all_values, 1):
             if row[0].strip() == "Members":
                 section_row = i
@@ -316,37 +309,34 @@ def delete_specific_member(worksheet, student_id_to_delete):
             st.error("未找到Members区域")
             return False
         
-        # 数据区域起始行（0-based）：标题行+2（标题行+1是表头）
+        # 数据区域起始行（0-based）：标题行+2（跳过标题和表头）
         data_start_0based = section_row + 1  # 转换为0-based
         rows_to_delete = []
         
-        # 查找要删除的成员行（0-based）
+        # 精确查找要删除的成员行（通过StudentID匹配）
         for i in range(data_start_0based, len(all_values)):
             row = all_values[i]
             if len(row) >= 2 and row[1].strip() == student_id_to_delete:
-                # 转换为1-based行号
+                # 转换为1-based行号并添加到删除列表
                 rows_to_delete.append(i + 1)
         
         if not rows_to_delete:
             st.warning(f"未找到学号为 {student_id_to_delete} 的成员")
             return False
         
-        # 从下往上删除，避免行号偏移
+        # 从下往上删除，避免行号偏移导致错误
         for row_num in reversed(rows_to_delete):
             worksheet.delete_rows(row_num)
+            # 删除后等待短暂时间，确保行号稳定
+            time.sleep(1)
         
         st.session_state["last_api_call"] = datetime.now()
         return True
-    except HttpError as e:
-        st.session_state["last_api_call"] = datetime.now()
-        if "429" in str(e):
-            st.warning("检测到配额限制，将在重试时延长等待时间...")
-        raise
     except Exception as e:
         st.session_state["last_api_call"] = datetime.now()
         raise
 
-# 增强的更新重试机制（用于收入和报销的更新操作）
+# 收入和报销更新专用函数
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=3, max=20),
@@ -354,18 +344,16 @@ def delete_specific_member(worksheet, student_id_to_delete):
     reraise=True
 )
 def update_worksheet_section(worksheet, section_title, new_data):
-    """安全更新工作表区域的方法（用于收入和报销）"""
+    """更新工作表区域（用于收入和报销）"""
     try:
-        # 控制API调用频率
         if "last_api_call" in st.session_state:
             elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
             if elapsed < 3:
                 time.sleep(3 - elapsed)
         
-        all_values = worksheet.get_all_values()  # 0-based索引
-        section_row = None  # 区域标题所在行（1-based）
+        all_values = worksheet.get_all_values()
+        section_row = None
         
-        # 查找区域标题行（1-based索引）
         for i, row in enumerate(all_values, 1):
             if row[0].strip() == section_title:
                 section_row = i
@@ -375,15 +363,12 @@ def update_worksheet_section(worksheet, section_title, new_data):
             st.error(f"未找到区域: {section_title}")
             return False
         
-        # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
         data_start_1based = section_row + 2
-        
-        # 强制删除从起始行到表格末尾的所有旧数据（彻底清除旧记录）
         total_rows = len(all_values)
+        
         if data_start_1based <= total_rows:
             worksheet.delete_rows(data_start_1based, total_rows - data_start_1based + 1)
         
-        # 插入新数据 - 仅插入有效数据行
         if new_data:
             non_empty_rows = [row for row in new_data if any(cell.strip() for cell in row)]
             if non_empty_rows:
@@ -391,11 +376,6 @@ def update_worksheet_section(worksheet, section_title, new_data):
         
         st.session_state["last_api_call"] = datetime.now()
         return True
-    except HttpError as e:
-        st.session_state["last_api_call"] = datetime.now()
-        if "429" in str(e):
-            st.warning("检测到配额限制，将在重试时延长等待时间...")
-        raise
     except Exception as e:
         st.session_state["last_api_call"] = datetime.now()
         raise
@@ -412,15 +392,12 @@ def save_earnings(worksheet, earnings):
         return update_worksheet_section(worksheet, "Earnings", rows_to_insert)
     except HttpError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            更新数据失败: API请求配额已用尽
-            请等待1-2分钟后重试
-            """)
+            st.error(f"更新收入失败: API配额已用尽，请稍后重试")
         else:
-            st.error(f"保存收入数据到Google Sheet失败: {str(e)}")
+            st.error(f"保存收入数据失败: {str(e)}")
         return False
     except Exception as e:
-        st.error(f"保存收入数据到Google Sheet失败: {str(e)}")
+        st.error(f"保存收入数据失败: {str(e)}")
         return False
 
 def save_reimbursements(worksheet, reimbursements):
@@ -435,15 +412,12 @@ def save_reimbursements(worksheet, reimbursements):
         return update_worksheet_section(worksheet, "Reimbursements", rows_to_insert)
     except HttpError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            更新数据失败: API请求配额已用尽
-            请等待1-2分钟后重试
-            """)
+            st.error(f"更新报销失败: API配额已用尽，请稍后重试")
         else:
-            st.error(f"保存报销数据到Google Sheet失败: {str(e)}")
+            st.error(f"保存报销数据失败: {str(e)}")
         return False
     except Exception as e:
-        st.error(f"保存报销数据到Google Sheet失败: {str(e)}")
+        st.error(f"保存报销数据失败: {str(e)}")
         return False
 
 def render_groups():
@@ -451,7 +425,6 @@ def render_groups():
     st.header("👥 小组管理 (Groups Management)")
     st.write("管理小组成员、收入和报销请求")
     
-    # 增加配额提示
     st.markdown("""
     <div class="quota-warning">
     <strong>注意:</strong> Google Sheets API有请求频率限制，请避免频繁操作。
@@ -466,7 +439,6 @@ def render_groups():
     group_names = [f"Group{i}" for i in range(1, 9)]
     tabs = st.tabs(group_names)
     
-    # 初始化API调用时间跟踪
     if "last_api_call" not in st.session_state:
         st.session_state["last_api_call"] = datetime.min
     
@@ -484,7 +456,6 @@ def render_groups():
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
             now = datetime.now()
-            # 延长自动加载间隔至15分钟
             if (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=15) or 
                 f"grp_{group_name}_loaded" not in st.session_state):
                 with st.spinner(f"正在自动加载{group_name}的数据..."):
@@ -520,7 +491,7 @@ def render_groups():
                         hide_index=True
                     )
                     
-                    # 添加成员删除功能
+                    # 成员删除功能
                     member_to_delete = st.selectbox(
                         "选择要删除的成员",
                         [f"{m['Name']} - {m['StudentID']}" for m in group_data["members"]],
@@ -531,27 +502,31 @@ def render_groups():
                     
                     if st.button("删除选中成员", key=f"grp_{group_name}_del_member_btn"):
                         if member_to_delete:
-                            # 提取要删除的StudentID
-                            student_id_to_delete = member_to_delete.split(" - ")[1]
+                            # 提取要删除的StudentID（格式："姓名 - 学号"）
+                            student_id_to_delete = member_to_delete.split(" - ")[1].strip()
                             
                             # 更新本地缓存
                             original_count = len(group_data["members"])
                             group_data["members"] = [
                                 m for m in group_data["members"]
-                                if m["StudentID"] != student_id_to_delete
+                                if m["StudentID"].strip() != student_id_to_delete
                             ]
                             
                             if len(group_data["members"]) < original_count:
                                 st.session_state[f"grp_{group_name}_data"] = group_data
                                 st.success("成员已从界面移除，正在同步到Google Sheet...")
                                 
-                                # 使用专用删除函数，仅删除指定成员
-                                with st.spinner("正在同步到Google Sheet..."):
-                                    if delete_specific_member(worksheet, student_id_to_delete):
-                                        st.success("成员已成功从Google Sheet删除！")
+                                # 执行精准删除
+                                with st.spinner("正在同步删除操作..."):
+                                    try:
+                                        if delete_specific_member(worksheet, student_id_to_delete):
+                                            st.success("成员已成功从Google Sheet删除！")
+                                    except Exception as e:
+                                        st.error(f"删除失败: {str(e)}")
                 else:
                     st.info("当前小组暂无成员，请添加成员")
                 
+                # 添加新成员
                 with st.expander("➕ 添加新成员", expanded=False):
                     col1, col2 = st.columns(2)
                     with col1:
@@ -565,27 +540,28 @@ def render_groups():
                         if not all([new_name, new_student_id, new_position]):
                             st.error("请填写姓名、学号和职位（必填项）")
                         else:
-                            # 检查本地缓存中是否已有重复学号
-                            duplicate = any(m["StudentID"] == new_student_id for m in group_data["members"])
+                            # 检查本地重复
+                            duplicate = any(m["StudentID"].strip() == new_student_id.strip() 
+                                          for m in group_data["members"])
                             if duplicate:
                                 st.error("该学号已存在于成员列表中")
                             else:
-                                # 创建新成员对象
                                 new_member = {
                                     "Name": new_name, 
                                     "StudentID": new_student_id,
                                     "Position": new_position, 
                                     "Contact": new_contact
                                 }
-                                # 更新本地缓存
                                 group_data["members"].append(new_member)
                                 st.session_state[f"grp_{group_name}_data"] = group_data
                                 st.success("成员已添加到界面，正在同步到Google Sheet...")
                                 
-                                # 调用新增专用方法，在现有数据后追加
-                                with st.spinner("正在同步到Google Sheet..."):
-                                    if append_new_member(worksheet, new_member):
-                                        st.success("成员已成功添加到Google Sheet！")
+                                with st.spinner("正在同步添加操作..."):
+                                    try:
+                                        if append_new_member(worksheet, new_member):
+                                            st.success("成员已成功添加到Google Sheet！")
+                                    except Exception as e:
+                                        st.error(f"添加失败: {str(e)}")
             
             # 小组收入管理
             st.subheader("💰 小组收入 (Group Earnings)")
@@ -620,9 +596,9 @@ def render_groups():
                             st.session_state[f"grp_{group_name}_data"] = group_data
                             st.success("收入已添加到界面，正在同步到Google Sheet...")
                             
-                            with st.spinner("正在同步到Google Sheet..."):
+                            with st.spinner("正在同步..."):
                                 if save_earnings(worksheet, group_data["earnings"]):
-                                    st.success("收入已成功同步到Google Sheet！")
+                                    st.success("收入已成功同步！")
                 
                 if group_data["earnings"]:
                     earn_to_delete = st.selectbox(
@@ -643,11 +619,11 @@ def render_groups():
                             
                             if len(group_data["earnings"]) < original_count:
                                 st.session_state[f"grp_{group_name}_data"] = group_data
-                                st.success("收入已从界面移除，正在同步到Google Sheet...")
+                                st.success("收入已从界面移除，正在同步...")
                                 
-                                with st.spinner("正在同步到Google Sheet..."):
+                                with st.spinner("正在同步..."):
                                     if save_earnings(worksheet, group_data["earnings"]):
-                                        st.success("收入已成功从Google Sheet删除！")
+                                        st.success("收入已成功删除！")
             
             # 报销请求管理
             st.subheader("📋 报销请求 (Reimbursement Requests)")
@@ -684,11 +660,11 @@ def render_groups():
                             }
                             group_data["reimbursements"].append(new_reimbursement)
                             st.session_state[f"grp_{group_name}_data"] = group_data
-                            st.success("报销请求已添加到界面，正在同步到Google Sheet...")
+                            st.success("报销请求已添加到界面，正在同步...")
                             
-                            with st.spinner("正在同步到Google Sheet..."):
+                            with st.spinner("正在同步..."):
                                 if save_reimbursements(worksheet, group_data["reimbursements"]):
-                                    st.success("报销请求已成功同步到Google Sheet！")
+                                    st.success("报销请求已成功同步！")
                 
                 if group_data["reimbursements"]:
                     req_to_update = st.selectbox(
@@ -717,11 +693,11 @@ def render_groups():
                             
                             if updated:
                                 st.session_state[f"grp_{group_name}_data"] = group_data
-                                st.success("报销状态已在界面更新，正在同步到Google Sheet...")
+                                st.success("报销状态已更新，正在同步...")
                                 
-                                with st.spinner("正在同步到Google Sheet..."):
+                                with st.spinner("正在同步..."):
                                     if save_reimbursements(worksheet, group_data["reimbursements"]):
-                                        st.success("报销状态已成功同步到Google Sheet！")
+                                        st.success("报销状态已成功同步！")
 
 if __name__ == "__main__":
     render_groups()
