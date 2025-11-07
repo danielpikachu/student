@@ -4,12 +4,14 @@ import pandas as pd
 import sys
 import os
 from datetime import datetime
-from google_sheet_utils import GoogleSheetHandler
 
 # 解决根目录模块导入问题
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+
+# 导入Google Sheets工具类
+from google_sheet_utils import GoogleSheetHandler
 
 def render_groups():
     """优化布局紧凑性，减少不必要空白，添加Google Sheets同步功能"""
@@ -25,9 +27,16 @@ def render_groups():
     sheet_handler = None
     group_sheet = None
     try:
-        # 从Streamlit Secrets获取认证信息
+        # 从Streamlit Secrets获取认证信息并保存为临时文件
         if 'google_credentials' in st.secrets:
-            sheet_handler = GoogleSheetHandler(credentials=st.secrets['google_credentials'])
+            # 将secrets中的凭证信息写入临时文件
+            creds_path = os.path.join(ROOT_DIR, "temp_credentials.json")
+            with open(creds_path, "w") as f:
+                import json
+                json.dump(st.secrets['google_credentials'], f)
+            
+            # 使用临时文件路径初始化GoogleSheetHandler
+            sheet_handler = GoogleSheetHandler(credentials_path=creds_path)
             group_sheet = sheet_handler.get_worksheet(
                 spreadsheet_name="Student",
                 worksheet_name="Group1"
@@ -36,6 +45,10 @@ def render_groups():
             st.error("Google Sheets 认证信息未配置，请检查Streamlit Secrets")
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
+    finally:
+        # 清理临时凭证文件
+        if 'creds_path' in locals() and os.path.exists(creds_path):
+            os.remove(creds_path)
 
     # 初始化成员数据并从Google Sheets同步
     if "members" not in st.session_state:
