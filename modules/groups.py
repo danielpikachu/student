@@ -34,6 +34,12 @@ def add_custom_css():
         color: #666;
         margin-top: 5px;
     }
+    .quota-warning {
+        background-color: #fff3cd;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -67,9 +73,10 @@ def get_group_worksheet(sheet_handler, group_name):
     """获取指定小组的子工作表（带缓存机制）"""
     cache_key = f"worksheet_{group_name}"
     
+    # 延长缓存时间至10分钟减少请求
     if cache_key in st.session_state:
         cache_entry = st.session_state[cache_key]
-        if datetime.now() - cache_entry["time"] < timedelta(minutes=5):
+        if datetime.now() - cache_entry["time"] < timedelta(minutes=10):
             return cache_entry["worksheet"]
     
     if not sheet_handler:
@@ -86,16 +93,30 @@ def get_group_worksheet(sheet_handler, group_name):
             "time": datetime.now()
         }
         return worksheet
+    except HttpError as e:
+        # 更精确的错误分类提示
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error(f"""
+            获取{group_name}工作表失败: API请求配额已用尽
+            原因: Google Sheets API每分钟有请求次数限制
+            建议: 等待1-2分钟后再尝试，或减少操作频率
+            """)
+        elif "404" in str(e):
+            st.error(f"获取{group_name}工作表失败: 工作表不存在，请确认名称正确")
+        else:
+            st.error(f"获取{group_name}工作表失败: {str(e)}")
+        return None
     except Exception as e:
-        st.error(f"获取{group_name}工作表失败，请确认该工作表已存在: {str(e)}")
+        st.error(f"获取{group_name}工作表失败: {str(e)}")
         return None
 
 def load_group_data(worksheet):
-    """从工作表加载小组数据（成员、收入、报销）"""
+    """从工作表加载小组数据（成员、收入、报销）- 批量获取减少请求"""
     if not worksheet:
         return {"members": [], "earnings": [], "reimbursements": []}
     
     try:
+        # 一次性获取所有数据，减少API调用
         all_data = worksheet.get_all_values()
         data = {"members": [], "earnings": [], "reimbursements": []}
         current_section = None
@@ -157,81 +178,77 @@ def load_group_data(worksheet):
                     })
         
         return data
+    except HttpError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error(f"""
+            加载数据失败: API请求配额已用尽
+            请等待1-2分钟后点击刷新按钮重试
+            """)
+        else:
+            st.error(f"加载小组数据失败: {str(e)}")
+        return {"members": [], "earnings": [], "reimbursements": []}
     except Exception as e:
         st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
 
-# 【核心修复点】精确计算删除范围，避免endIndex < startIndex错误
+# 精确计算删除范围，避免endIndex < startIndex错误
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     retry=retry_if_exception_type((HttpError, ConnectionError))
 )
 def update_worksheet_section(worksheet, section_title, new_data):
-    """
-    安全更新工作表区域的方法
-    1. 精确定位区域标题行和数据范围
-    2. 确保删除操作的startIndex <= endIndex
-    3. 插入新数据
-    """
-    all_values = worksheet.get_all_values()  # 0-based索引
-    total_rows = len(all_values)
-    section_row = None  # 区域标题所在行（1-based）
-    
-    # 查找区域标题行（1-based索引）
-    for i, row in enumerate(all_values, 1):
-        if row[0].strip() == section_title:
-            section_row = i
-            break
-    
-    if not section_row:
-        st.error(f"未找到区域: {section_title}")
-        return False
-    
-    # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
-    data_start_1based = section_row + 2
-    
-    # 计算数据区域结束行（1-based）
-    data_end_1based = None
-    # 从数据起始行开始查找下一个区域标题
-    for i in range(data_start_1based - 1, total_rows):  # 转换为0-based索引
-        if all_values[i][0].strip() in ["Members", "Earnings", "Reimbursements"]:
-            data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based转1-based）
-            break
-    # 如果没找到其他区域标题，结束行就是表格最后一行
-    if data_end_1based is None:
-        data_end_1based = total_rows  # 0-based转1-based
-    
-    # 【关键修复】所有区域统一处理空数据行，确保结束索引不小于开始索引
-    # 检查当前数据行中实际有内容的行
-    non_empty_rows = 0
-    for i in range(data_start_1based - 1, total_rows):
-        if any(cell.strip() != "" for cell in all_values[i]):
-            non_empty_rows += 1
+    """安全更新工作表区域的方法"""
+    try:
+        all_values = worksheet.get_all_values()  # 0-based索引
+        total_rows = len(all_values)
+        section_row = None  # 区域标题所在行（1-based）
+        
+        # 查找区域标题行（1-based索引）
+        for i, row in enumerate(all_values, 1):
+            if row[0].strip() == section_title:
+                section_row = i
+                break
+        
+        if not section_row:
+            st.error(f"未找到区域: {section_title}")
+            return False
+        
+        # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
+        data_start_1based = section_row + 2
+        
+        # 计算数据区域结束行（1-based）
+        data_end_1based = None
+        # 从数据起始行开始查找下一个区域标题
+        for i in range(data_start_1based - 1, total_rows):  # 转换为0-based索引
+            if all_values[i][0].strip() in ["Members", "Earnings", "Reimbursements"]:
+                data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based转1-based）
+                break
+        # 如果没找到其他区域标题，结束行就是表格最后一行
+        if data_end_1based is None:
+            data_end_1based = total_rows  # 0-based转1-based
+        
+        # 确保删除范围有效（只有start <= end时才执行删除）
+        if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
+            rows_to_delete = data_end_1based - data_start_1based + 1
+            if rows_to_delete > 0:
+                worksheet.delete_rows(data_start_1based, rows_to_delete)
+        
+        # 插入新数据
+        if new_data:
+            # 批量插入减少API调用
+            worksheet.insert_rows(new_data, data_start_1based)
+        
+        return True
+    except HttpError as e:
+        if "429" in str(e) or "Quota exceeded" in str(e):
+            st.error(f"""
+            更新数据失败: API请求配额已用尽
+            请等待1-2分钟后重试
+            """)
         else:
-            break  # 遇到空行则停止计数
-    
-    # 重新计算结束行，考虑实际有数据的行
-    if non_empty_rows > 0:
-        data_end_1based = data_start_1based + non_empty_rows - 1
-    else:
-        data_end_1based = data_start_1based - 1  # 没有数据行
-    
-    # 【最终保障】强制确保结束索引不小于开始索引
-    data_end_1based = max(data_start_1based - 1, data_end_1based)
-    
-    # 确保删除范围有效（只有start <= end时才执行删除）
-    if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
-        rows_to_delete = data_end_1based - data_start_1based + 1
-        if rows_to_delete > 0:
-            worksheet.delete_rows(data_start_1based, rows_to_delete)
-    
-    # 插入新数据
-    if new_data:
-        for i, row in enumerate(new_data):
-            worksheet.insert_row(row, data_start_1based + i)
-    
-    return True
+            st.error(f"更新区域失败: {str(e)}")
+        return False
 
 # 保持原有函数接口不变
 def save_members(worksheet, members):
@@ -276,12 +293,19 @@ def save_reimbursements(worksheet, reimbursements):
         st.error(f"保存报销数据到Google Sheet失败: {str(e)}")
         return False
 
-# 以下界面和业务逻辑代码完全未变动
 def render_groups():
     add_custom_css()
     st.header("👥 小组管理 (Groups Management)")
     st.write("管理小组成员、收入和报销请求")
-    st.caption("提示：Google Sheets API有请求频率限制，请勿频繁操作")
+    
+    # 增加配额提示
+    st.markdown("""
+    <div class="quota-warning">
+    <strong>注意:</strong> Google Sheets API有请求频率限制（每分钟读取请求数），请避免频繁操作。
+    如遇配额超限，请等待1-2分钟后再操作。
+    </div>
+    """, unsafe_allow_html=True)
+    
     st.divider()
 
     sheet_handler = init_google_sheet_handler()
@@ -303,7 +327,8 @@ def render_groups():
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
             now = datetime.now()
-            if (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=5) or 
+            # 延长自动加载间隔至10分钟
+            if (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=10) or 
                 f"grp_{group_name}_loaded" not in st.session_state):
                 with st.spinner(f"正在自动加载{group_name}的数据..."):
                     data = load_group_data(worksheet)
@@ -316,8 +341,9 @@ def render_groups():
             with col_refresh:
                 if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
                     last_refresh = st.session_state.get(f"grp_{group_name}_last_refresh", datetime.min)
-                    if now - last_refresh < timedelta(seconds=10):
-                        st.warning("请不要频繁刷新，至少间隔10秒")
+                    # 延长刷新间隔至15秒
+                    if now - last_refresh < timedelta(seconds=15):
+                        st.warning("请不要频繁刷新，至少间隔15秒")
                     else:
                         with st.spinner("正在从Google Sheets刷新数据..."):
                             data = load_group_data(worksheet)
