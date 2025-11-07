@@ -5,7 +5,10 @@ import pandas as pd
 def render_groups():
     """优化布局紧凑性，减少不必要空白"""
     st.set_page_config(page_title="学生事务管理", layout="wide")
-    st.title("📋 学生事务综合管理系统")
+    st.markdown(
+    "<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统</p>",
+    unsafe_allow_html=True
+    )
     st.caption("包含成员管理、收入管理和报销管理三个功能模块")  # 使用caption减小字体和间距
     st.divider()
 
