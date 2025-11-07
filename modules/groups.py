@@ -80,19 +80,37 @@ def render_groups():
         st.session_state.expenses = []
         st.rerun()
 
-    # 初始化Google Sheets连接（单表AllGroupsData，已存在）
+    # 初始化Google Sheets连接（单表AllGroupsData）
     sheet_handler = None
     main_sheet = None
     try:
         sheet_handler = GoogleSheetHandler(credentials_path="")  # 确保credentials配置正确
-        # 连接到已存在的Student文件中的AllGroupsData工作表
+        # 连接到已存在的Group文件中的AllGroupsData工作表
         main_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="Student",  # 文件名已修正为Student
-            worksheet_name="AllGroupsData"  # 已存在的工作表名
+            spreadsheet_name="Student",  # 你的Google Sheet文件名
+            worksheet_name="AllGroupsData"  # 工作表名
         )
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
-        return  # 若工作表不存在则直接返回，不继续执行
+        # 若工作表不存在，可尝试自动创建（需确保有权限）
+        if "工作表不存在" in str(e) and sheet_handler:
+            with st.spinner("尝试创建工作表AllGroupsData..."):
+                try:
+                    main_sheet = sheet_handler.create_worksheet(
+                        spreadsheet_name="Student",
+                        worksheet_name="AllGroupsData",
+                        rows=1000,
+                        cols=20
+                    )
+                    # 初始化表头
+                    headers = ["group_code", "data_type", "uuid", 
+                               "name", "student_id",  # 成员特有字段
+                               "date", "amount", "description",  # 收入/报销特有字段
+                               "created_at"]  # 数据创建时间
+                    main_sheet.append_row(headers)
+                    st.success("工作表AllGroupsData创建成功！")
+                except Exception as e2:
+                    st.error(f"创建工作表失败: {str(e2)}")
 
     # 从单表同步当前组的数据（成员、收入、报销）
     current_code = st.session_state.current_group_code
@@ -100,15 +118,18 @@ def render_groups():
         try:
             all_rows = main_sheet.get_all_values()
             if len(all_rows) < 1:
-                st.warning("工作表为空，请先确认表头格式是否正确")
-                return
+                st.warning("工作表为空，初始化表头...")
+                headers = ["group_code", "data_type", "uuid", "name", "student_id", 
+                           "date", "amount", "description", "created_at"]
+                main_sheet.append_row(headers)
+                all_rows = [headers]
             
             # 解析表头，确定字段索引（避免字段顺序变化导致错误）
             header = all_rows[0]
             col_indices = {col: idx for idx, col in enumerate(header)}
             required_cols = ["group_code", "data_type", "uuid", "created_at"]
             if not all(col in col_indices for col in required_cols):
-                st.error("工作表表头格式错误，请检查是否包含以下字段：group_code, data_type, uuid, created_at")
+                st.error("工作表表头格式错误，请检查字段是否完整")
                 return
 
             # 筛选当前组的成员数据（data_type=member）
