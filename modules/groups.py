@@ -282,10 +282,13 @@ def update_worksheet_section(worksheet, section_title, new_data):
             if rows_to_delete > 0:
                 worksheet.delete_rows(data_start_1based, rows_to_delete)
         
-        # 插入新数据
+        # 插入新数据 - 仅插入有效数据行，避免空行
         if new_data:
-            # 批量插入减少API调用
-            worksheet.insert_rows(new_data, data_start_1based)
+            # 过滤掉空行
+            non_empty_rows = [row for row in new_data if any(cell.strip() for cell in row)]
+            if non_empty_rows:
+                # 批量插入减少API调用
+                worksheet.insert_rows(non_empty_rows, data_start_1based)
         
         st.session_state["last_api_call"] = datetime.now()
         return True
@@ -441,6 +444,31 @@ def render_groups():
                         use_container_width=True,
                         hide_index=True
                     )
+                    
+                    # 添加成员删除功能
+                    member_to_delete = st.selectbox(
+                        "选择要删除的成员",
+                        [f"{m['Name']} - {m['StudentID']}" for m in group_data["members"]],
+                        key=f"grp_{group_name}_del_member",
+                        index=None,
+                        placeholder="选择成员..."
+                    )
+                    
+                    if st.button("删除选中成员", key=f"grp_{group_name}_del_member_btn"):
+                        if member_to_delete:
+                            original_count = len(group_data["members"])
+                            group_data["members"] = [
+                                m for m in group_data["members"]
+                                if f"{m['Name']} - {m['StudentID']}" != member_to_delete
+                            ]
+                            
+                            if len(group_data["members"]) < original_count:
+                                st.session_state[f"grp_{group_name}_data"] = group_data
+                                st.success("成员已从界面移除，正在同步到Google Sheet...")
+                                
+                                with st.spinner("正在同步到Google Sheet..."):
+                                    if save_members(worksheet, group_data["members"]):
+                                        st.success("成员已成功从Google Sheet删除！")
                 else:
                     st.info("当前小组暂无成员，请添加成员")
                 
