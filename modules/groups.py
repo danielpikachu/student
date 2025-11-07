@@ -83,4 +83,4 @@ def render_groups():
                             if member["id"] != m["id"]
                         ]
                         st.success(f"已删除成员：{m['name']}")
-                        st.experimental_rerun()  # 刷新页面
+                        st.rerun()  # 使用最新的rerun方法
