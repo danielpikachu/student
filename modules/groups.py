@@ -18,7 +18,35 @@ def render_groups():
     st.write("管理成员的基本信息（姓名、学生ID）")
     st.divider()
 
-    # 添加新成员区域（放在列表上方）
+    # 成员列表展示（调整为上方）
+    st.subheader("成员列表")
+    if not st.session_state.members:
+        st.info("暂无成员信息，请在下方添加")
+    else:
+        member_df = pd.DataFrame([
+            {"序号": i+1, "成员姓名": m["name"], "学生ID": m["student_id"]}
+            for i, m in enumerate(st.session_state.members)
+        ])
+        st.dataframe(member_df, use_container_width=True)
+
+        # 删除功能
+        with st.expander("管理成员（删除）"):
+            for m in st.session_state.members:
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.write(f"{m['name']}（学生ID：{m['student_id']}）")
+                with col2:
+                    if st.button("删除", key=f"del_mem_{m['id']}", use_container_width=True):
+                        st.session_state.members = [
+                            mem for mem in st.session_state.members 
+                            if mem["id"] != m["id"]
+                        ]
+                        st.success(f"已删除成员：{m['name']}")
+                        st.rerun()
+
+    st.divider()
+
+    # 添加新成员区域（调整为下方）
     st.subheader("添加新成员")
     col1, col2 = st.columns(2)
     with col1:
@@ -49,34 +77,6 @@ def render_groups():
             })
             st.success(f"成功添加：{name}（ID：{student_id}）")
             # 移除对输入框session_state的直接修改，改用表单的clear_on_submit
-
-    st.divider()
-
-    # 成员列表展示
-    st.subheader("成员列表")
-    if not st.session_state.members:
-        st.info("暂无成员信息，请在上方添加")
-    else:
-        member_df = pd.DataFrame([
-            {"序号": i+1, "成员姓名": m["name"], "学生ID": m["student_id"]}
-            for i, m in enumerate(st.session_state.members)
-        ])
-        st.dataframe(member_df, use_container_width=True)
-
-        # 删除功能
-        with st.expander("管理成员（删除）"):
-            for m in st.session_state.members:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"{m['name']}（学生ID：{m['student_id']}）")
-                with col2:
-                    if st.button("删除", key=f"del_mem_{m['id']}", use_container_width=True):
-                        st.session_state.members = [
-                            mem for mem in st.session_state.members 
-                            if mem["id"] != m["id"]
-                        ]
-                        st.success(f"已删除成员：{m['name']}")
-                        st.rerun()
 
     # 模块间分隔
     st.write("---")
