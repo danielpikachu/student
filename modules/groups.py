@@ -1,25 +1,75 @@
 # modules/groups.py
 import streamlit as st
 import pandas as pd
+import sys
+import os
+from datetime import datetime
+from google_sheet_utils import GoogleSheetHandler
+
+# 解决根目录模块导入问题
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
 def render_groups():
-    """优化布局紧凑性，减少不必要空白"""
+    """优化布局紧凑性，减少不必要空白，添加Google Sheets同步功能"""
     st.set_page_config(page_title="学生事务管理", layout="wide")
     st.markdown(
-    "<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统</p>",
-    unsafe_allow_html=True
+        "<p style='line-height: 0.5; font-size: 24px;'>📋 学生事务综合管理系统</p>",
+        unsafe_allow_html=True
     )
     st.caption("包含成员管理、收入管理和报销管理三个功能模块")  # 使用caption减小字体和间距
     st.divider()
 
-    # 初始化成员数据
+    # 初始化Google Sheets连接
+    sheet_handler = None
+    group_sheet = None
+    try:
+        # 从Streamlit Secrets获取认证信息
+        if 'google_credentials' in st.secrets:
+            sheet_handler = GoogleSheetHandler(credentials=st.secrets['google_credentials'])
+            group_sheet = sheet_handler.get_worksheet(
+                spreadsheet_name="Student",
+                worksheet_name="Group1"
+            )
+        else:
+            st.error("Google Sheets 认证信息未配置，请检查Streamlit Secrets")
+    except Exception as e:
+        st.error(f"Google Sheets 初始化失败: {str(e)}")
+
+    # 初始化成员数据并从Google Sheets同步
     if "members" not in st.session_state:
         st.session_state.members = []
+    
+    # 从Google Sheets同步数据
+    if group_sheet and sheet_handler:
+        try:
+            all_data = group_sheet.get_all_values()
+            expected_headers = ["id", "name", "student_id", "created_at"]
+            
+            # 检查表头
+            if not all_data or all_data[0] != expected_headers:
+                group_sheet.clear()
+                group_sheet.append_row(expected_headers)
+                st.session_state.members = []
+            else:
+                # 处理数据（跳过表头）
+                st.session_state.members = [
+                    {
+                        "id": row[0],
+                        "name": row[1],
+                        "student_id": row[2]
+                    } 
+                    for row in all_data[1:] 
+                    if row[0] and row[1] and row[2]  # 确保关键字段不为空
+                ]
+        except Exception as e:
+            st.warning(f"成员数据同步失败: {str(e)}")
 
     # ---------------------- 1. 成员管理模块 ----------------------
     st.markdown(
-    "<p style='line-height: 0.5; font-size: 20px;'>👥 成员管理</p>",
-    unsafe_allow_html=True
+        "<p style='line-height: 0.5; font-size: 20px;'>👥 成员管理</p>",
+        unsafe_allow_html=True
     )
     st.write("管理成员的基本信息（姓名、学生ID）")
     st.divider()
@@ -48,12 +98,27 @@ def render_groups():
 
             if valid:
                 member_id = f"M{len(st.session_state.members) + 1:03d}"
-                st.session_state.members.append({
+                new_member = {
                     "id": member_id,
                     "name": name.strip(),
                     "student_id": student_id.strip()
-                })
-                st.success(f"成功添加：{name}（ID：{student_id}）", icon="✅")
+                }
+                st.session_state.members.append(new_member)
+                
+                # 同步到Google Sheets
+                if group_sheet and sheet_handler:
+                    try:
+                        # 添加新记录（包含时间戳）
+                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        group_sheet.append_row([
+                            member_id, 
+                            name.strip(), 
+                            student_id.strip(),
+                            current_time
+                        ])
+                        st.success(f"成功添加：{name}（ID：{student_id}）", icon="✅")
+                    except Exception as e:
+                        st.warning(f"同步到Google Sheets失败: {str(e)}")
 
     st.divider()
 
@@ -75,7 +140,24 @@ def render_groups():
                 with col1:
                     st.write(f"{m['name']}（学生ID：{m['student_id']}）")
                 with col2:
-                    st.button("删除", key=f"del_mem_{m['id']}", use_container_width=True)
+                    if st.button("删除", key=f"del_mem_{m['id']}", use_container_width=True):
+                        # 从本地删除
+                        st.session_state.members = [
+                            member for member in st.session_state.members 
+                            if member["id"] != m["id"]
+                        ]
+                        
+                        # 同步删除Google Sheets记录
+                        if group_sheet and sheet_handler:
+                            try:
+                                all_rows = group_sheet.get_all_values()
+                                for i, row in enumerate(all_rows[1:], start=2):  # 从第2行开始是数据
+                                    if row[0] == m["id"]:
+                                        group_sheet.delete_rows(i)
+                                        st.success(f"已删除：{m['name']}", icon="✅")
+                                        st.rerun()
+                            except Exception as e:
+                                st.warning(f"从Google Sheets删除失败: {str(e)}")
 
     # 模块间分隔（减少空白）
     st.markdown("---")
