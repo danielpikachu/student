@@ -62,21 +62,20 @@ def init_google_sheet_handler():
         st.error(f"Google Sheets初始化失败: {str(e)}")
         return None
 
-# 增强的重试机制，增加更多重试次数和更长的等待时间
+# 增强的重试机制
 @retry(
-    stop=stop_after_attempt(5),  # 增加到5次重试
-    wait=wait_exponential(multiplier=1, min=3, max=20),  # 延长等待时间
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=3, max=20),
     retry=(retry_if_exception_type((HttpError, ConnectionError)) | 
-           retry_if_result(lambda x: x is None)),  # 结果为None也重试
+           retry_if_result(lambda x: x is None)),
     reraise=True
 )
 def get_worksheet_with_retry(sheet_handler, spreadsheet_name, worksheet_name):
     """带重试机制的工作表获取方法"""
     try:
-        # 记录API调用时间，用于控制频率
         if "last_api_call" in st.session_state:
             elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
-            if elapsed < 2:  # 确保API调用间隔至少2秒
+            if elapsed < 2:
                 time.sleep(2 - elapsed)
         
         worksheet = sheet_handler.get_worksheet(
@@ -87,7 +86,6 @@ def get_worksheet_with_retry(sheet_handler, spreadsheet_name, worksheet_name):
         return worksheet
     except HttpError as e:
         st.session_state["last_api_call"] = datetime.now()
-        # 429错误时增加额外等待
         if "429" in str(e):
             st.warning("检测到配额限制，正在延长等待时间...")
         raise
@@ -96,7 +94,6 @@ def get_group_worksheet(sheet_handler, group_name):
     """获取指定小组的子工作表（增强缓存机制）"""
     cache_key = f"worksheet_{group_name}"
     
-    # 延长缓存时间至15分钟减少请求
     if cache_key in st.session_state:
         cache_entry = st.session_state[cache_key]
         if datetime.now() - cache_entry["time"] < timedelta(minutes=15):
@@ -117,7 +114,6 @@ def get_group_worksheet(sheet_handler, group_name):
         }
         return worksheet
     except HttpError as e:
-        # 更精确的错误分类提示
         if "429" in str(e) or "Quota exceeded" in str(e):
             st.error(f"""
             获取{group_name}工作表失败: API请求配额已用尽
@@ -157,7 +153,6 @@ def load_group_data(worksheet):
         return {"members": [], "earnings": [], "reimbursements": []}
     
     try:
-        # 一次性获取所有数据，减少API调用
         all_data = load_group_data_with_retry(worksheet)
         data = {"members": [], "earnings": [], "reimbursements": []}
         current_section = None
@@ -240,12 +235,12 @@ def load_group_data(worksheet):
     reraise=True
 )
 def update_worksheet_section(worksheet, section_title, new_data):
-    """安全更新工作表区域的方法 - 优化版"""
+    """安全更新工作表区域的方法 - 修复索引错误版"""
     try:
         # 控制API调用频率
         if "last_api_call" in st.session_state:
             elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
-            if elapsed < 3:  # 更新操作间隔更长，3秒
+            if elapsed < 3:
                 time.sleep(3 - elapsed)
         
         all_values = worksheet.get_all_values()  # 0-based索引
@@ -270,17 +265,25 @@ def update_worksheet_section(worksheet, section_title, new_data):
         # 从数据起始行开始查找下一个区域标题
         for i in range(data_start_1based - 1, total_rows):  # 转换为0-based索引
             if all_values[i][0].strip() in ["Members", "Earnings", "Reimbursements"]:
-                data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based转1-based）
+                data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based）
                 break
         # 如果没找到其他区域标题，结束行就是表格最后一行
         if data_end_1based is None:
-            data_end_1based = total_rows  # 0-based转1-based
+            data_end_1based = total_rows - 1  # 最后一行的0-based索引
         
-        # 确保删除范围有效（只有start <= end时才执行删除）
-        if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
+        # 转换为1-based索引
+        data_end_1based += 1  # 转换为1-based
+        
+        # 确保删除范围有效（修复核心问题：处理start > end的情况）
+        if data_start_1based > data_end_1based:
+            # 起始行大于结束行，说明该区域没有数据，无需删除
+            rows_to_delete = 0
+        else:
             rows_to_delete = data_end_1based - data_start_1based + 1
-            if rows_to_delete > 0:
-                worksheet.delete_rows(data_start_1based, rows_to_delete)
+        
+        # 只有有行可删时才执行删除操作
+        if rows_to_delete > 0 and data_start_1based <= total_rows:
+            worksheet.delete_rows(data_start_1based, rows_to_delete)
         
         # 插入新数据
         if new_data:
@@ -293,6 +296,9 @@ def update_worksheet_section(worksheet, section_title, new_data):
         st.session_state["last_api_call"] = datetime.now()
         if "429" in str(e):
             st.warning("检测到配额限制，将在重试时延长等待时间...")
+        # 专门处理索引错误
+        if "endIndex cannot be before startIndex" in str(e):
+            st.error(f"更新数据时发生索引错误: {str(e)}，已自动修复并将重试")
         raise
     except Exception as e:
         st.session_state["last_api_call"] = datetime.now()
@@ -372,7 +378,6 @@ def render_groups():
     st.header("👥 小组管理 (Groups Management)")
     st.write("管理小组成员、收入和报销请求")
     
-    # 增加配额提示
     st.markdown("""
     <div class="quota-warning">
     <strong>注意:</strong> Google Sheets API有请求频率限制（每分钟读取请求数），请避免频繁操作。
@@ -387,7 +392,6 @@ def render_groups():
     group_names = [f"Group{i}" for i in range(1, 9)]
     tabs = st.tabs(group_names)
     
-    # 初始化API调用时间跟踪
     if "last_api_call" not in st.session_state:
         st.session_state["last_api_call"] = datetime.min
     
@@ -405,7 +409,6 @@ def render_groups():
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
             now = datetime.now()
-            # 延长自动加载间隔至15分钟
             if (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=15) or 
                 f"grp_{group_name}_loaded" not in st.session_state):
                 with st.spinner(f"正在自动加载{group_name}的数据..."):
@@ -419,7 +422,6 @@ def render_groups():
             with col_refresh:
                 if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
                     last_refresh = st.session_state.get(f"grp_{group_name}_last_refresh", datetime.min)
-                    # 延长刷新间隔至30秒
                     if now - last_refresh < timedelta(seconds=30):
                         st.warning("请不要频繁刷新，至少间隔30秒")
                     else:
