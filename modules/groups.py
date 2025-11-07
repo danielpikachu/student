@@ -62,21 +62,20 @@ def init_google_sheet_handler():
         st.error(f"Google Sheets初始化失败: {str(e)}")
         return None
 
-# 增强的重试机制，增加更多重试次数和更长的等待时间
+# 增强的重试机制
 @retry(
-    stop=stop_after_attempt(5),  # 增加到5次重试
-    wait=wait_exponential(multiplier=1, min=3, max=20),  # 延长等待时间
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=3, max=20),
     retry=(retry_if_exception_type((HttpError, ConnectionError)) | 
-           retry_if_result(lambda x: x is None)),  # 结果为None也重试
+           retry_if_result(lambda x: x is None)),
     reraise=True
 )
 def get_worksheet_with_retry(sheet_handler, spreadsheet_name, worksheet_name):
     """带重试机制的工作表获取方法"""
     try:
-        # 记录API调用时间，用于控制频率
         if "last_api_call" in st.session_state:
             elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
-            if elapsed < 2:  # 确保API调用间隔至少2秒
+            if elapsed < 2:
                 time.sleep(2 - elapsed)
         
         worksheet = sheet_handler.get_worksheet(
@@ -87,7 +86,6 @@ def get_worksheet_with_retry(sheet_handler, spreadsheet_name, worksheet_name):
         return worksheet
     except HttpError as e:
         st.session_state["last_api_call"] = datetime.now()
-        # 429错误时增加额外等待
         if "429" in str(e):
             st.warning("检测到配额限制，正在延长等待时间...")
         raise
@@ -96,7 +94,6 @@ def get_group_worksheet(sheet_handler, group_name):
     """获取指定小组的子工作表（增强缓存机制）"""
     cache_key = f"worksheet_{group_name}"
     
-    # 延长缓存时间至15分钟减少请求
     if cache_key in st.session_state:
         cache_entry = st.session_state[cache_key]
         if datetime.now() - cache_entry["time"] < timedelta(minutes=15):
@@ -117,15 +114,13 @@ def get_group_worksheet(sheet_handler, group_name):
         }
         return worksheet
     except HttpError as e:
-        # 更精确的错误分类提示
         if "429" in str(e) or "Quota exceeded" in str(e):
             st.error(f"""
             获取{group_name}工作表失败: API请求配额已用尽
-            原因: Google Sheets API每分钟有请求次数限制
-            建议: 等待1-2分钟后再尝试，或减少操作频率
+            建议: 等待1-2分钟后再尝试
             """)
         elif "404" in str(e):
-            st.error(f"获取{group_name}工作表失败: 工作表不存在，请确认名称正确")
+            st.error(f"获取{group_name}工作表失败: 工作表不存在")
         else:
             st.error(f"获取{group_name}工作表失败: {str(e)}")
         return None
@@ -152,12 +147,11 @@ def load_group_data_with_retry(worksheet):
     return data
 
 def load_group_data(worksheet):
-    """从工作表加载小组数据（批量获取减少请求）- 优化版"""
+    """从工作表加载小组数据（批量获取减少请求）"""
     if not worksheet:
         return {"members": [], "earnings": [], "reimbursements": []}
     
     try:
-        # 一次性获取所有数据，减少API调用
         all_data = load_group_data_with_retry(worksheet)
         data = {"members": [], "earnings": [], "reimbursements": []}
         current_section = None
@@ -239,13 +233,13 @@ def load_group_data(worksheet):
     retry=retry_if_exception_type((HttpError, ConnectionError)),
     reraise=True
 )
-def update_worksheet_section(worksheet, section_title, new_data):
-    """安全更新工作表区域的方法 - 修复重复数据问题"""
+def update_worksheet_section(worksheet, section_title, new_data, is_member=False):
+    """安全更新工作表区域的方法 - 修复成员重复添加问题"""
     try:
         # 控制API调用频率
         if "last_api_call" in st.session_state:
             elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
-            if elapsed < 3:  # 更新操作间隔更长，3秒
+            if elapsed < 3:
                 time.sleep(3 - elapsed)
         
         all_values = worksheet.get_all_values()  # 0-based索引
@@ -264,18 +258,31 @@ def update_worksheet_section(worksheet, section_title, new_data):
         # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
         data_start_1based = section_row + 2
         
+        # 处理成员数据特殊逻辑：先读取现有成员ID避免重复
+        existing_ids = set()
+        if is_member:
+            # 从当前工作表读取已存在的StudentID
+            for i in range(data_start_1based - 1, len(all_values)):  # 转换为0-based
+                row = all_values[i]
+                if len(row) >= 2 and row[1].strip():  # 确保StudentID存在
+                    existing_ids.add(row[1].strip())
+        
         # 强制删除从起始行到表格末尾的所有旧数据（彻底清除旧记录）
         total_rows = len(all_values)
         if data_start_1based <= total_rows:
-            # 从起始行删除到最后一行（确保旧数据被完全清除）
             worksheet.delete_rows(data_start_1based, total_rows - data_start_1based + 1)
         
-        # 插入新数据 - 仅插入有效数据行，避免空行
+        # 插入新数据 - 仅插入有效数据行，成员数据额外过滤重复ID
         if new_data:
-            # 过滤掉空行
-            non_empty_rows = [row for row in new_data if any(cell.strip() for cell in row)]
+            non_empty_rows = []
+            for row in new_data:
+                if any(cell.strip() for cell in row):
+                    # 成员数据需要检查StudentID是否已存在于工作表中
+                    if is_member and len(row) >= 2 and row[1].strip() in existing_ids:
+                        continue  # 跳过工作表中已存在的成员
+                    non_empty_rows.append(row)
+            
             if non_empty_rows:
-                # 批量插入减少API调用
                 worksheet.insert_rows(non_empty_rows, data_start_1based)
         
         st.session_state["last_api_call"] = datetime.now()
@@ -298,7 +305,8 @@ def save_members(worksheet, members):
             [m["Name"], m["StudentID"], m["Position"], m["Contact"]]
             for m in members
         ]
-        return update_worksheet_section(worksheet, "Members", rows_to_insert)
+        # 标记为成员数据，启用重复ID过滤
+        return update_worksheet_section(worksheet, "Members", rows_to_insert, is_member=True)
     except HttpError as e:
         if "429" in str(e) or "Quota exceeded" in str(e):
             st.error(f"""
@@ -366,7 +374,7 @@ def render_groups():
     # 增加配额提示
     st.markdown("""
     <div class="quota-warning">
-    <strong>注意:</strong> Google Sheets API有请求频率限制（每分钟读取请求数），请避免频繁操作。
+    <strong>注意:</strong> Google Sheets API有请求频率限制，请避免频繁操作。
     如遇配额超限，请等待1-2分钟后再操作。
     </div>
     """, unsafe_allow_html=True)
@@ -410,7 +418,6 @@ def render_groups():
             with col_refresh:
                 if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
                     last_refresh = st.session_state.get(f"grp_{group_name}_last_refresh", datetime.min)
-                    # 延长刷新间隔至30秒
                     if now - last_refresh < timedelta(seconds=30):
                         st.warning("请不要频繁刷新，至少间隔30秒")
                     else:
@@ -473,14 +480,17 @@ def render_groups():
                         if not all([new_name, new_student_id, new_position]):
                             st.error("请填写姓名、学号和职位（必填项）")
                         else:
+                            # 检查本地缓存中是否已有重复学号
                             duplicate = any(m["StudentID"] == new_student_id for m in group_data["members"])
                             if duplicate:
                                 st.error("该学号已存在于成员列表中")
                             else:
-                                group_data["members"].append({
+                                # 临时保存新增成员信息
+                                new_member = {
                                     "Name": new_name, "StudentID": new_student_id,
                                     "Position": new_position, "Contact": new_contact
-                                })
+                                }
+                                group_data["members"].append(new_member)
                                 st.session_state[f"grp_{group_name}_data"] = group_data
                                 st.success("成员已添加到界面，正在同步到Google Sheet...")
                                 
