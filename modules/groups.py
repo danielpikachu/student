@@ -240,7 +240,7 @@ def load_group_data(worksheet):
     reraise=True
 )
 def update_worksheet_section(worksheet, section_title, new_data):
-    """安全更新工作表区域的方法 - 优化版"""
+    """安全更新工作表区域的方法 - 修复重复数据问题"""
     try:
         # 控制API调用频率
         if "last_api_call" in st.session_state:
@@ -249,7 +249,6 @@ def update_worksheet_section(worksheet, section_title, new_data):
                 time.sleep(3 - elapsed)
         
         all_values = worksheet.get_all_values()  # 0-based索引
-        total_rows = len(all_values)
         section_row = None  # 区域标题所在行（1-based）
         
         # 查找区域标题行（1-based索引）
@@ -265,22 +264,11 @@ def update_worksheet_section(worksheet, section_title, new_data):
         # 数据区域起始行（1-based）：标题行+2（标题行+1是表头）
         data_start_1based = section_row + 2
         
-        # 计算数据区域结束行（1-based）
-        data_end_1based = None
-        # 从数据起始行开始查找下一个区域标题
-        for i in range(data_start_1based - 1, total_rows):  # 转换为0-based索引
-            if all_values[i][0].strip() in ["Members", "Earnings", "Reimbursements"]:
-                data_end_1based = i  # 当前行是下一个区域标题，结束行是前一行（0-based转1-based）
-                break
-        # 如果没找到其他区域标题，结束行就是表格最后一行
-        if data_end_1based is None:
-            data_end_1based = total_rows  # 0-based转1-based
-        
-        # 确保删除范围有效（只有start <= end时才执行删除）
-        if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
-            rows_to_delete = data_end_1based - data_start_1based + 1
-            if rows_to_delete > 0:
-                worksheet.delete_rows(data_start_1based, rows_to_delete)
+        # 强制删除从起始行到表格末尾的所有旧数据（彻底清除旧记录）
+        total_rows = len(all_values)
+        if data_start_1based <= total_rows:
+            # 从起始行删除到最后一行（确保旧数据被完全清除）
+            worksheet.delete_rows(data_start_1based, total_rows - data_start_1based + 1)
         
         # 插入新数据 - 仅插入有效数据行，避免空行
         if new_data:
