@@ -62,7 +62,7 @@ def sync_group_data(sheet_handler, group_id):
         # 收入表同步
         earnings_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
-            worksheet_name=f"Group{group_id}Earnings"
+            worksheet_name=f"Group{group_id}"
         )
         if earnings_sheet:
             all_data = earnings_sheet.get_all_values()
