@@ -161,7 +161,7 @@ def load_group_data(worksheet):
         st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
 
-# 【核心修复点】精确计算删除范围，确保endIndex >= startIndex
+# 【核心修复点】精确计算删除范围，避免endIndex < startIndex错误
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -202,8 +202,21 @@ def update_worksheet_section(worksheet, section_title, new_data):
     if data_end_1based is None:
         data_end_1based = total_rows  # 0-based转1-based
     
-    # 【关键修复】确保结束行不小于起始行，避免删除范围无效
-    data_end_1based = max(data_start_1based - 1, data_end_1based)
+    # 【收入模块特殊处理】确保删除范围有效且正确计算
+    if section_title == "Earnings":
+        # 检查当前数据行中实际有内容的行
+        non_empty_rows = 0
+        for i in range(data_start_1based - 1, total_rows):
+            if any(cell.strip() != "" for cell in all_values[i]):
+                non_empty_rows += 1
+            else:
+                break  # 遇到空行则停止计数
+        
+        # 重新计算结束行，考虑实际有数据的行
+        if non_empty_rows > 0:
+            data_end_1based = data_start_1based + non_empty_rows - 1
+        else:
+            data_end_1based = data_start_1based - 1  # 没有数据行
     
     # 确保删除范围有效（只有start <= end时才执行删除）
     if data_start_1based <= data_end_1based and data_start_1based <= total_rows:
