@@ -37,7 +37,7 @@ def sync_group_data(sheet_handler, group_id):
         # 成员表同步
         members_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
-            worksheet_name=f"Group{group_id}Members"
+            worksheet_name=f"Group{group_id}"
         )
         if members_sheet:
             all_data = members_sheet.get_all_values()
