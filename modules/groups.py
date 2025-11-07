@@ -1,103 +1,170 @@
-# modules/groups.py
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
-def render_groups():
-    """修复输入框状态修改导致的错误，确保添加按钮一次生效"""
-    st.set_page_config(page_title="学生事务管理", layout="wide")
-    st.title("📋 学生事务综合管理系统")
-    st.write("包含成员管理、收入管理和报销管理三个功能模块")
-    st.divider()
+# 设置页面配置
+st.set_page_config(
+    page_title="学生会经费管理系统",
+    page_icon="💰",
+    layout="wide"  # 宽屏布局更适合紧凑显示
+)
 
-    # 初始化成员数据
-    if "members" not in st.session_state:
-        st.session_state.members = []
+# 初始化会话状态（存储数据）
+if "members" not in st.session_state:
+    st.session_state.members = pd.DataFrame(columns=["姓名", "学生ID", "加入时间"])
 
-    # ---------------------- 1. 成员管理模块 ----------------------
-    st.header("👥 成员管理")
-    st.write("管理成员的基本信息（姓名、学生ID）")
-    compact_divider()
+if "income" not in st.session_state:
+    st.session_state.income = pd.DataFrame(columns=["日期", "收入来源", "金额(元)", "经手人", "备注"])
 
-    # 添加新成员区域（放在列表上方）
-    st.subheader("添加新成员")
-    col1, col2 = st.columns(2)
-    with col1:
-        # 不指定key，避免手动修改session_state冲突
-        name = st.text_input("成员姓名*", placeholder="请输入姓名")
-    with col2:
-        student_id = st.text_input("学生ID*", placeholder="请输入唯一标识ID")
+if "expenses" not in st.session_state:
+    st.session_state.expenses = pd.DataFrame(columns=["日期", "报销事项", "金额(元)", "经手人", "报销状态", "备注"])
 
-    # 添加按钮逻辑
-    if st.button("确认添加", use_container_width=True, key="add_btn"):
-        valid = True
-        if not name.strip():
-            st.error("成员姓名不能为空")
-            valid = False
-        if not student_id.strip():
-            st.error("学生ID不能为空")
-            valid = False
-        if any(m["student_id"] == student_id for m in st.session_state.members):
-            st.error(f"学生ID {student_id} 已存在")
-            valid = False
+# 定义紧凑分隔线（核心优化：减少模块间间距）
+def compact_divider():
+    st.markdown("<hr style='margin: 8px 0; height:1px; background-color:#eee;'>", unsafe_allow_html=True)
 
-        if valid:
-            member_id = f"M{len(st.session_state.members) + 1:03d}"
-            st.session_state.members.append({
-                "id": member_id,
-                "name": name.strip(),
-                "student_id": student_id.strip()
+# ---------------------- 1. 成员管理模块 ----------------------
+st.header("👥 成员管理")
+st.write("管理成员的基本信息（姓名、学生ID）")
+compact_divider()  # 替换默认分隔线，缩减间距
+
+# 添加新成员（紧凑布局：减少子标题间距）
+st.markdown("### 添加新成员", unsafe_allow_html=True)  # 比st.subheader更紧凑
+col1, col2 = st.columns(2)
+with col1:
+    new_name = st.text_input("姓名", key="name_input")
+with col2:
+    new_id = st.text_input("学生ID", key="id_input")
+
+if st.button("添加成员", key="add_member"):
+    if new_name and new_id:
+        # 检查ID是否重复
+        if new_id in st.session_state.members["学生ID"].values:
+            st.error("该学生ID已存在！")
+        else:
+            # 添加新成员
+            new_row = pd.DataFrame({
+                "姓名": [new_name],
+                "学生ID": [new_id],
+                "加入时间": [datetime.now().strftime("%Y-%m-%d %H:%M")]
             })
-            st.success(f"成功添加：{name}（ID：{student_id}）")
-            # 移除对输入框session_state的直接修改，改用表单的clear_on_submit
-
-    st.divider()
-
-    # 成员列表展示
-    st.subheader("成员列表")
-    if not st.session_state.members:
-        st.info("暂无成员信息，请在上方添加")
+            st.session_state.members = pd.concat([st.session_state.members, new_row], ignore_index=True)
+            st.success(f"成功添加成员：{new_name}")
     else:
-        member_df = pd.DataFrame([
-            {"序号": i+1, "成员姓名": m["name"], "学生ID": m["student_id"]}
-            for i, m in enumerate(st.session_state.members)
-        ])
-        st.dataframe(member_df, use_container_width=True)
+        st.warning("请填写姓名和学生ID")
 
-        # 删除功能
-        with st.expander("管理成员（删除）"):
-            for m in st.session_state.members:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"{m['name']}（学生ID：{m['student_id']}）")
-                with col2:
-                    if st.button("删除", key=f"del_mem_{m['id']}", use_container_width=True):
-                        st.session_state.members = [
-                            mem for mem in st.session_state.members 
-                            if mem["id"] != m["id"]
-                        ]
-                        st.success(f"已删除成员：{m['name']}")
-                        st.rerun()
+# 显示成员列表（减少表格上下间距）
+st.markdown("### 成员列表", unsafe_allow_html=True)
+if not st.session_state.members.empty:
+    st.dataframe(st.session_state.members, use_container_width=True)
+    # 删除成员功能
+    del_id = st.selectbox("选择要删除的学生ID", st.session_state.members["学生ID"], key="del_member")
+    if st.button("删除成员", key="delete_member"):
+        st.session_state.members = st.session_state.members[st.session_state.members["学生ID"] != del_id]
+        st.success("成员已删除")
+else:
+    st.info("暂无成员数据，请添加成员")
 
-    # 模块间分隔
-    st.write("---")
-    st.write("# ")
+# ---------------------- 2. 收入管理模块 ----------------------
+compact_divider()  # 模块间紧凑分隔
+st.header("📈 收入管理")
+st.write("记录学生会的各项收入（赞助、会费等）")
+compact_divider()
 
-    # ---------------------- 2. 收入管理模块 ----------------------
-    st.header("💰 收入管理")
-    st.write("此模块用于记录和管理各项收入信息")
-    compact_divider()
-    st.info("收入管理模块区域 - 后续功能将在此处开发")
-    st.write("")
-    st.write("")
+# 添加收入（减少空行）
+st.markdown("### 添加收入", unsafe_allow_html=True)
+col1, col2, col3 = st.columns(3)
+with col1:
+    income_date = st.date_input("日期", datetime.now(), key="income_date")
+with col2:
+    income_source = st.text_input("收入来源", key="income_source")
+with col3:
+    income_amount = st.number_input("金额(元)", min_value=0.01, step=0.01, key="income_amount")
 
-    # 模块间分隔
-    st.write("---")
-    st.write("# ")
+col4, col5 = st.columns(2)
+with col4:
+    income_person = st.text_input("经手人", key="income_person")
+with col5:
+    income_note = st.text_input("备注", key="income_note")
 
-    # ---------------------- 3. 报销管理模块 ----------------------
-    st.header("🧾 报销管理")
-    st.write("此模块用于管理各项报销申请及审批流程")
-    st.divider()
-    st.info("报销管理模块区域 - 后续功能将在此处开发")
-    st.write("")
-    st.write("")
+if st.button("添加收入记录", key="add_income"):
+    if income_source and income_amount and income_person:
+        new_income = pd.DataFrame({
+            "日期": [income_date.strftime("%Y-%m-%d")],
+            "收入来源": [income_source],
+            "金额(元)": [income_amount],
+            "经手人": [income_person],
+            "备注": [income_note]
+        })
+        st.session_state.income = pd.concat([st.session_state.income, new_income], ignore_index=True)
+        st.success("收入记录添加成功")
+    else:
+        st.warning("请填写来源、金额和经手人")
+
+# 显示收入列表
+st.markdown("### 收入记录", unsafe_allow_html=True)
+if not st.session_state.income.empty:
+    st.dataframe(st.session_state.income, use_container_width=True)
+    # 计算总收入
+    total_income = st.session_state.income["金额(元)"].sum()
+    st.markdown(f"**总收入：{total_income:.2f} 元**", unsafe_allow_html=True)
+else:
+    st.info("暂无收入记录")
+
+# ---------------------- 3. 报销管理模块 ----------------------
+compact_divider()  # 模块间紧凑分隔
+st.header("🧾 报销管理")
+st.write("管理学生会的各项报销申请及审批状态")
+compact_divider()
+
+# 添加报销记录
+st.markdown("### 添加报销申请", unsafe_allow_html=True)
+col1, col2, col3 = st.columns(3)
+with col1:
+    exp_date = st.date_input("日期", datetime.now(), key="exp_date")
+with col2:
+    exp_item = st.text_input("报销事项", key="exp_item")
+with col3:
+    exp_amount = st.number_input("金额(元)", min_value=0.01, step=0.01, key="exp_amount")
+
+col4, col5, col6 = st.columns(3)
+with col4:
+    exp_person = st.text_input("经手人", key="exp_person")
+with col5:
+    exp_status = st.selectbox("报销状态", ["待审批", "已批准", "已驳回"], key="exp_status")
+with col6:
+    exp_note = st.text_input("备注", key="exp_note")
+
+if st.button("添加报销记录", key="add_expense"):
+    if exp_item and exp_amount and exp_person:
+        new_expense = pd.DataFrame({
+            "日期": [exp_date.strftime("%Y-%m-%d")],
+            "报销事项": [exp_item],
+            "金额(元)": [exp_amount],
+            "经手人": [exp_person],
+            "报销状态": [exp_status],
+            "备注": [exp_note]
+        })
+        st.session_state.expenses = pd.concat([st.session_state.expenses, new_expense], ignore_index=True)
+        st.success("报销记录添加成功")
+    else:
+        st.warning("请填写事项、金额和经手人")
+
+# 显示报销列表
+st.markdown("### 报销记录", unsafe_allow_html=True)
+if not st.session_state.expenses.empty:
+    st.dataframe(st.session_state.expenses, use_container_width=True)
+    # 计算总报销额
+    total_expense = st.session_state.expenses["金额(元)"].sum()
+    st.markdown(f"**总报销额：{total_expense:.2f} 元**", unsafe_allow_html=True)
+else:
+    st.info("暂无报销记录")
+
+# ---------------------- 4. 经费统计（紧凑显示） ----------------------
+compact_divider()
+st.header("📊 经费统计")
+if not st.session_state.income.empty and not st.session_state.expenses.empty:
+    balance = st.session_state.income["金额(元)"].sum() - st.session_state.expenses["金额(元)"].sum()
+    st.markdown(f"### 当前余额：{balance:.2f} 元", unsafe_allow_html=True)
+else:
+    st.info("请先添加收入或报销记录以显示统计信息")
