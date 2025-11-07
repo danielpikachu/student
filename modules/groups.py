@@ -26,7 +26,7 @@ def render_groups():
 
     # 添加新成员区域（紧凑布局）
     with st.container():  # 使用容器减少外部间距
-        st.subheader("添加新成员")
+        st.markdown("<p style='font-size: 16px;'>添加新成员</p>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         with col1:
             name = st.text_input("成员姓名*", placeholder="请输入姓名", label_visibility="visible")
