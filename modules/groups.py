@@ -16,19 +16,19 @@ def render_groups():
     st.header("👥 Groups Management")
     st.markdown("---")
     
-    # 初始化Google Sheets连接
+    # 初始化Google Sheets连接（参考money_transfers.py）
     sheet_handler = None
     groups_sheet = None
     try:
         sheet_handler = GoogleSheetHandler(credentials_path="")
         groups_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",
-            worksheet_name="Groups"  # 确保工作表名正确
+            worksheet_name="Groups"
         )
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
     
-    # 从Google Sheets同步数据（使用gro_records状态）
+    # 从Google Sheets同步数据（使用gro_records状态，参考转账模块）
     if groups_sheet and sheet_handler and (not st.session_state.get("gro_records")):
         try:
             all_data = groups_sheet.get_all_values()
@@ -57,16 +57,25 @@ def render_groups():
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
     
-    # 初始化状态（防止首次加载时出错）
+    # 初始化状态（确保有8个默认组，参考原有界面需求）
     if "gro_records" not in st.session_state:
-        st.session_state.gro_records = []
+        st.session_state.gro_records = [
+            {"uuid": str(uuid.uuid4()), "name": "Group 1", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 1", "leader": "Leader 1"},
+            {"uuid": str(uuid.uuid4()), "name": "Group 2", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 2", "leader": "Leader 2"},
+            {"uuid": str(uuid.uuid4()), "name": "Group 3", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 3", "leader": "Leader 3"},
+            {"uuid": str(uuid.uuid4()), "name": "Group 4", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 4", "leader": "Leader 4"},
+            {"uuid": str(uuid.uuid4()), "name": "Group 5", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 5", "leader": "Leader 5"},
+            {"uuid": str(uuid.uuid4()), "name": "Group 6", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 6", "leader": "Leader 6"},
+            {"uuid": str(uuid.uuid4()), "name": "Group 7", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 7", "leader": "Leader 7"},
+            {"uuid": str(uuid.uuid4()), "name": "Group 8", "created_at": datetime(2023, 9, 1).date(), "description": "Default group 8", "leader": "Leader 8"}
+        ]
     
-    # ---------------------- 小组列表展示（带滚动栏） ----------------------
+    # ---------------------- 小组列表展示（保持原有界面） ----------------------
     st.subheader("Group List")
     if not st.session_state.gro_records:
         st.info("No groups created yet")
     else:
-        # 定义列宽比例
+        # 定义列宽比例（保持原有布局）
         col_widths = [0.3, 2.0, 1.5, 2.5, 1.5, 1.0]
         
         # 显示固定表头
@@ -86,12 +95,12 @@ def render_groups():
         
         st.markdown("---")
         
-        # 创建滚动容器
+        # 滚动容器（保持原有高度）
         scroll_container = st.container(height=320)
         with scroll_container:
             # 遍历显示每个小组
             for idx, group in enumerate(st.session_state.gro_records, 1):
-                unique_key = f"gro_delete_{idx}_{group['uuid']}"
+                unique_key = f"gro_delete_{idx}_{group['uuid']}"  # 唯一键命名规范
                 cols = st.columns(col_widths)
                 
                 with cols[0]:
@@ -105,30 +114,30 @@ def render_groups():
                 with cols[4]:
                     st.write(group["leader"])
                 with cols[5]:
+                    # 删除按钮逻辑（参考转账模块）
                     if st.button(
                         "🗑️ Delete", 
                         key=unique_key,
                         use_container_width=True,
                         type="secondary"
                     ):
-                        # 从本地状态删除
+                        # 1. 删除本地状态数据
                         st.session_state.gro_records.pop(idx - 1)
                         
-                        # 同步删除Google Sheets记录
+                        # 2. 同步删除Google Sheets记录
                         if groups_sheet and sheet_handler:
                             try:
                                 cell = groups_sheet.find(group["uuid"])
                                 if cell:
                                     groups_sheet.delete_rows(cell.row)
                                 st.success(f"Group {idx} deleted successfully!")
-                                st.rerun()
+                                st.rerun()  # 立即刷新界面
                             except Exception as e:
                                 st.warning(f"同步删除失败: {str(e)}")
                 
-                # 行分隔线
                 st.markdown("---")
         
-        # 显示小组数量统计
+        # 原有统计展示
         st.markdown(f"""
         <div style='margin-top: 1rem; padding: 1rem; background-color: #f8f9fa; border-radius: 8px;'>
             <strong>Total Groups: {len(st.session_state.gro_records)}</strong>
@@ -137,7 +146,7 @@ def render_groups():
     
     st.write("=" * 50)
     
-    # ---------------------- 新增小组 ----------------------
+    # ---------------------- 新增小组（保持界面，修改逻辑） ----------------------
     st.subheader("Create New Group")
     col1, col2 = st.columns(2)
     
@@ -167,26 +176,26 @@ def render_groups():
             key="gro_input_leader"
         ).strip()
     
-    # 创建小组按钮
+    # 创建小组按钮逻辑（参考转账模块）
     if st.button("Create Group", key="gro_btn_create", use_container_width=True, type="primary"):
         # 验证必填字段
         if not group_name or not leader:
             st.error("Group Name and Leader are required fields!")
             return
         
-        # 创建新小组记录
+        # 1. 创建新小组记录
         new_group = {
-            "uuid": str(uuid.uuid4()),  # 生成唯一标识
+            "uuid": str(uuid.uuid4()),  # 唯一标识
             "name": group_name,
             "created_at": created_date,
             "description": description,
             "leader": leader
         }
         
-        # 更新本地状态
+        # 2. 更新本地状态
         st.session_state.gro_records.append(new_group)
         
-        # 同步到Google Sheets
+        # 3. 同步到Google Sheets
         if groups_sheet and sheet_handler:
             try:
                 groups_sheet.append_row([
@@ -197,7 +206,6 @@ def render_groups():
                     new_group["leader"]
                 ])
                 st.success("Group created successfully!")
-                # 重置输入状态（通过rerun实现）
-                st.rerun()
+                st.rerun()  # 立即刷新界面
             except Exception as e:
                 st.warning(f"同步到Google Sheets失败: {str(e)}")
