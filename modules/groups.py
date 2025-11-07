@@ -246,14 +246,22 @@ def render_groups():
             # 获取当前小组的工作表（仅获取已存在的）
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
-            # 加载数据按钮
+            # 自动加载数据（首次访问或刷新时）
+            if f"grp_{group_name}_loaded" not in st.session_state:
+                with st.spinner(f"正在自动加载{group_name}的数据..."):
+                    data = load_group_data(worksheet)
+                    st.session_state[f"grp_{group_name}_data"] = data
+                    st.session_state[f"grp_{group_name}_loaded"] = True
+                    st.success(f"{group_name}数据加载成功！")
+            
+            # 保留手动刷新按钮
             col_refresh, col_empty = st.columns([1, 5])
             with col_refresh:
-                if st.button("🔄 加载数据", key=f"grp_{group_name}_load_btn"):
-                    with st.spinner("正在从Google Sheets加载数据..."):
+                if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
+                    with st.spinner("正在从Google Sheets刷新数据..."):
                         data = load_group_data(worksheet)
                         st.session_state[f"grp_{group_name}_data"] = data
-                        st.success("数据加载成功！")
+                        st.success("数据刷新成功！")
             
             # 获取当前小组数据
             group_data = st.session_state[f"grp_{group_name}_data"]
