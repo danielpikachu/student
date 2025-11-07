@@ -287,7 +287,66 @@ def append_new_member(worksheet, new_member):
         st.session_state["last_api_call"] = datetime.now()
         raise
 
-# 增强的更新重试机制（用于删除和其他更新操作）
+# 删除成员专用 - 仅删除指定成员
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=3, max=20),
+    retry=retry_if_exception_type((HttpError, ConnectionError)),
+    reraise=True
+)
+def delete_specific_member(worksheet, student_id_to_delete):
+    """仅删除Google Sheet中指定StudentID的成员，不影响其他数据"""
+    try:
+        # 控制API调用频率
+        if "last_api_call" in st.session_state:
+            elapsed = (datetime.now() - st.session_state["last_api_call"]).total_seconds()
+            if elapsed < 3:
+                time.sleep(3 - elapsed)
+        
+        all_values = worksheet.get_all_values()  # 0-based索引
+        section_row = None  # 区域标题所在行（1-based）
+        
+        # 查找Members区域标题行（1-based索引）
+        for i, row in enumerate(all_values, 1):
+            if row[0].strip() == "Members":
+                section_row = i
+                break
+        
+        if not section_row:
+            st.error("未找到Members区域")
+            return False
+        
+        # 数据区域起始行（0-based）：标题行+2（标题行+1是表头）
+        data_start_0based = section_row + 1  # 转换为0-based
+        rows_to_delete = []
+        
+        # 查找要删除的成员行（0-based）
+        for i in range(data_start_0based, len(all_values)):
+            row = all_values[i]
+            if len(row) >= 2 and row[1].strip() == student_id_to_delete:
+                # 转换为1-based行号
+                rows_to_delete.append(i + 1)
+        
+        if not rows_to_delete:
+            st.warning(f"未找到学号为 {student_id_to_delete} 的成员")
+            return False
+        
+        # 从下往上删除，避免行号偏移
+        for row_num in reversed(rows_to_delete):
+            worksheet.delete_rows(row_num)
+        
+        st.session_state["last_api_call"] = datetime.now()
+        return True
+    except HttpError as e:
+        st.session_state["last_api_call"] = datetime.now()
+        if "429" in str(e):
+            st.warning("检测到配额限制，将在重试时延长等待时间...")
+        raise
+    except Exception as e:
+        st.session_state["last_api_call"] = datetime.now()
+        raise
+
+# 增强的更新重试机制（用于收入和报销的更新操作）
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=3, max=20),
@@ -295,7 +354,7 @@ def append_new_member(worksheet, new_member):
     reraise=True
 )
 def update_worksheet_section(worksheet, section_title, new_data):
-    """安全更新工作表区域的方法（用于删除等操作）"""
+    """安全更新工作表区域的方法（用于收入和报销）"""
     try:
         # 控制API调用频率
         if "last_api_call" in st.session_state:
@@ -340,30 +399,6 @@ def update_worksheet_section(worksheet, section_title, new_data):
     except Exception as e:
         st.session_state["last_api_call"] = datetime.now()
         raise
-
-def save_members(worksheet, members):
-    """保存成员数据（用于删除操作）"""
-    if not worksheet or not members:
-        return False
-        
-    try:
-        rows_to_insert = [
-            [m["Name"], m["StudentID"], m["Position"], m["Contact"]]
-            for m in members
-        ]
-        return update_worksheet_section(worksheet, "Members", rows_to_insert)
-    except HttpError as e:
-        if "429" in str(e) or "Quota exceeded" in str(e):
-            st.error(f"""
-            更新数据失败: API请求配额已用尽
-            请等待1-2分钟后重试
-            """)
-        else:
-            st.error(f"保存成员数据到Google Sheet失败: {str(e)}")
-        return False
-    except Exception as e:
-        st.error(f"保存成员数据到Google Sheet失败: {str(e)}")
-        return False
 
 def save_earnings(worksheet, earnings):
     if not worksheet or not earnings:
@@ -496,18 +531,23 @@ def render_groups():
                     
                     if st.button("删除选中成员", key=f"grp_{group_name}_del_member_btn"):
                         if member_to_delete:
+                            # 提取要删除的StudentID
+                            student_id_to_delete = member_to_delete.split(" - ")[1]
+                            
+                            # 更新本地缓存
                             original_count = len(group_data["members"])
                             group_data["members"] = [
                                 m for m in group_data["members"]
-                                if f"{m['Name']} - {m['StudentID']}" != member_to_delete
+                                if m["StudentID"] != student_id_to_delete
                             ]
                             
                             if len(group_data["members"]) < original_count:
                                 st.session_state[f"grp_{group_name}_data"] = group_data
                                 st.success("成员已从界面移除，正在同步到Google Sheet...")
                                 
+                                # 使用专用删除函数，仅删除指定成员
                                 with st.spinner("正在同步到Google Sheet..."):
-                                    if save_members(worksheet, group_data["members"]):
+                                    if delete_specific_member(worksheet, student_id_to_delete):
                                         st.success("成员已成功从Google Sheet删除！")
                 else:
                     st.info("当前小组暂无成员，请添加成员")
