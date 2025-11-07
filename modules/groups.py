@@ -1,11 +1,12 @@
 # modules/groups.py
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import sys
 import os
 import time
-from functools import wraps
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from googleapiclient.errors import HttpError
 
 # 解决根目录模块导入问题
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -14,24 +15,6 @@ if ROOT_DIR not in sys.path:
 
 # 导入Google Sheets工具类（与Calendar模块共用）
 from google_sheet_utils import GoogleSheetHandler
-
-# 节流装饰器：限制API请求频率
-def api_throttle(seconds=2):
-    """限制函数调用频率的装饰器"""
-    def decorator(func):
-        last_called = 0
-        
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            nonlocal last_called
-            now = time.time()
-            if now - last_called < seconds:
-                st.warning(f"操作过于频繁，请等待{int(seconds - (now - last_called))}秒后再试")
-                return False
-            last_called = now
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
 
 def add_custom_css():
     """添加自定义CSS样式"""
@@ -46,40 +29,78 @@ def add_custom_css():
     .stExpander {
         margin-bottom: 10px;
     }
+    .api-hint {
+        font-size: 0.85rem;
+        color: #666;
+        margin-top: 5px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 def init_google_sheet_handler():
     """初始化Google Sheet处理器（与Calendar模块一致）"""
+    # 添加缓存机制，避免重复初始化
+    if "sheet_handler" in st.session_state:
+        return st.session_state["sheet_handler"]
+    
     try:
         creds_path = os.path.join(ROOT_DIR, "credentials.json")
-        return GoogleSheetHandler(credentials_path=creds_path)
+        handler = GoogleSheetHandler(credentials_path=creds_path)
+        st.session_state["sheet_handler"] = handler
+        return handler
     except Exception as e:
         st.error(f"Google Sheets初始化失败: {str(e)}")
         return None
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((HttpError, ConnectionError))
+)
+def get_worksheet_with_retry(sheet_handler, spreadsheet_name, worksheet_name):
+    """带重试机制的工作表获取方法"""
+    return sheet_handler.get_worksheet(
+        spreadsheet_name=spreadsheet_name,
+        worksheet_name=worksheet_name
+    )
+
 def get_group_worksheet(sheet_handler, group_name):
-    """获取指定小组在Student表格中已存在的子工作表（仅获取不创建）"""
+    """获取指定小组在Student表格中已存在的子工作表（添加缓存机制）"""
+    # 缓存键名
+    cache_key = f"worksheet_{group_name}"
+    
+    # 检查缓存，5分钟内有效
+    if cache_key in st.session_state:
+        cache_entry = st.session_state[cache_key]
+        if datetime.now() - cache_entry["time"] < timedelta(minutes=5):
+            return cache_entry["worksheet"]
+    
     if not sheet_handler:
         return None
     
     try:
-        # 直接获取已存在的工作表
-        return sheet_handler.get_worksheet(
+        worksheet = get_worksheet_with_retry(
+            sheet_handler,
             spreadsheet_name="Student",
             worksheet_name=group_name
         )
+        # 存入缓存
+        st.session_state[cache_key] = {
+            "worksheet": worksheet,
+            "time": datetime.now()
+        }
+        return worksheet
     except Exception as e:
         st.error(f"获取{group_name}工作表失败，请确认该工作表已存在: {str(e)}")
         return None
 
-@api_throttle(seconds=3)  # 限制加载数据频率
 def load_group_data(worksheet):
     """从工作表加载小组数据（成员、收入、报销），修复区域解析错误"""
     if not worksheet:
         return {"members": [], "earnings": [], "reimbursements": []}
     
     try:
+        # 只读取一次所有数据，减少API调用
         all_data = worksheet.get_all_values()
         data = {"members": [], "earnings": [], "reimbursements": []}
         current_section = None  # 用于标记当前解析的区域
@@ -90,18 +111,19 @@ def load_group_data(worksheet):
                 continue
                 
             # 识别数据区域的标题行（精确匹配，忽略空格干扰）
-            if row[0].strip() == "Members":
+            stripped_first = row[0].strip()
+            if stripped_first == "Members":
                 current_section = "members"
                 continue
-            elif row[0].strip() == "Earnings":
+            elif stripped_first == "Earnings":
                 current_section = "earnings"
                 continue
-            elif row[0].strip() == "Reimbursements":
+            elif stripped_first == "Reimbursements":
                 current_section = "reimbursements"
                 continue
             
             # 跳过表头行（精确匹配）
-            if row[0].strip() in ["Name", "Date"]:
+            if stripped_first in ["Name", "Date"]:
                 continue
             
             # 只处理已识别区域的数据
@@ -151,6 +173,22 @@ def load_group_data(worksheet):
         st.error(f"加载小组数据失败: {str(e)}")
         return {"members": [], "earnings": [], "reimbursements": []}
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((HttpError, ConnectionError))
+)
+def batch_update_worksheet(worksheet, data, start_row, num_rows):
+    """批量更新工作表数据，减少API调用"""
+    # 先删除现有行
+    if num_rows > 0:
+        worksheet.delete_rows(start_row + 1, num_rows)
+    
+    # 批量插入新数据
+    if data:
+        for i, row in enumerate(data):
+            worksheet.insert_row(row, start_row + 1 + i)
+
 def clear_section_data(worksheet, section_title):
     """清空指定区域的数据（保留标题和表头），优化批量删除逻辑"""
     all_data = worksheet.get_all_values()
@@ -169,84 +207,71 @@ def clear_section_data(worksheet, section_title):
     if start_row and end_row is None:
         end_row = len(all_data) - 1
     
-    # 如果找到区域且有数据行，删除数据
-    if start_row and end_row is not None and end_row >= start_row:
-        # Google Sheets行索引从1开始，计算要删除的行数
-        worksheet.delete_rows(start_row + 1, end_row - start_row + 1)
-    return start_row
+    # 计算要删除的行数
+    num_rows = end_row - start_row + 1 if (start_row and end_row is not None and end_row >= start_row) else 0
+    return start_row, num_rows
 
-@api_throttle(seconds=2)
 def save_members(worksheet, members):
     """保存成员数据到工作表（批量操作优化）"""
     if not worksheet or not members:
         return False
         
     try:
-        # 清空现有成员数据
-        start_row = clear_section_data(worksheet, "Members")
+        # 准备要插入的数据
+        rows_to_insert = [
+            [m["Name"], m["StudentID"], m["Position"], m["Contact"]]
+            for m in members
+        ]
+        
+        # 获取区域信息
+        start_row, num_rows = clear_section_data(worksheet, "Members")
         if start_row is None:
             return False
         
-        # 准备批量数据
-        batch_data = [
-            [member["Name"], member["StudentID"], member["Position"], member["Contact"]]
-            for member in members
-        ]
-        
-        # 批量插入数据（一次API调用）
-        if batch_data:
-            worksheet.insert_rows(batch_data, start_row + 1)
+        # 批量更新
+        batch_update_worksheet(worksheet, rows_to_insert, start_row, num_rows)
         return True
     except Exception as e:
         st.error(f"保存成员数据失败: {str(e)}")
         return False
 
-@api_throttle(seconds=2)
 def save_earnings(worksheet, earnings):
     """保存收入数据到工作表（批量操作优化）"""
     if not worksheet or not earnings:
         return False
         
     try:
-        start_row = clear_section_data(worksheet, "Earnings")
+        rows_to_insert = [
+            [e["Date"], e["Amount"], e["Description"], ""]
+            for e in earnings
+        ]
+        
+        start_row, num_rows = clear_section_data(worksheet, "Earnings")
         if start_row is None:
             return False
         
-        # 准备批量数据
-        batch_data = [
-            [earning["Date"], earning["Amount"], earning["Description"], ""]
-            for earning in earnings
-        ]
-        
-        # 批量插入
-        if batch_data:
-            worksheet.insert_rows(batch_data, start_row + 1)
+        batch_update_worksheet(worksheet, rows_to_insert, start_row, num_rows)
         return True
     except Exception as e:
         st.error(f"保存收入数据失败: {str(e)}")
         return False
 
-@api_throttle(seconds=2)
 def save_reimbursements(worksheet, reimbursements):
     """保存报销数据到工作表（批量操作优化）"""
     if not worksheet or not reimbursements:
         return False
         
     try:
-        start_row = clear_section_data(worksheet, "Reimbursements")
+        rows_to_insert = [
+            [r["Date"], r["Amount"], r["Description"], r["Status"]]
+            for r in reimbursements
+        ]
+        
+        start_row, num_rows = clear_section_data(worksheet, "Reimbursements")
         if start_row is None:
             return False
         
-        # 准备批量数据
-        batch_data = [
-            [reimbursement["Date"], reimbursement["Amount"], 
-             reimbursement["Description"], reimbursement["Status"]]
-            for reimbursement in reimbursements
-        ]
-        
-        # 批量插入
-        if batch_data:
-            worksheet.insert_rows(batch_data, start_row + 1)
+        batch_update_worksheet(worksheet, rows_to_insert, start_row, num_rows)
         return True
     except Exception as e:
         st.error(f"保存报销数据失败: {str(e)}")
@@ -257,9 +282,10 @@ def render_groups():
     add_custom_css()
     st.header("👥 小组管理 (Groups Management)")
     st.write("管理小组成员、收入和报销请求")
+    st.caption("提示：Google Sheets API有请求频率限制，请勿频繁操作")
     st.divider()
 
-    # 初始化Google Sheets连接（与Calendar模块共用逻辑）
+    # 初始化Google Sheets连接（添加缓存）
     sheet_handler = init_google_sheet_handler()
     
     # 创建8个小组的选项卡
@@ -278,17 +304,39 @@ def render_groups():
                     "reimbursements": []
                 }
             
-            # 获取当前小组的工作表（仅获取已存在的）
+            # 初始化最后加载时间
+            if f"grp_{group_name}_last_loaded" not in st.session_state:
+                st.session_state[f"grp_{group_name}_last_loaded"] = datetime.min
+            
+            # 获取当前小组的工作表（带缓存）
             worksheet = get_group_worksheet(sheet_handler, group_name)
             
-            # 加载数据按钮
+            # 自动加载数据（首次访问或超过5分钟未更新）
+            now = datetime.now()
+            if (now - st.session_state[f"grp_{group_name}_last_loaded"] > timedelta(minutes=5) or 
+                f"grp_{group_name}_loaded" not in st.session_state):
+                with st.spinner(f"正在自动加载{group_name}的数据..."):
+                    data = load_group_data(worksheet)
+                    st.session_state[f"grp_{group_name}_data"] = data
+                    st.session_state[f"grp_{group_name}_loaded"] = True
+                    st.session_state[f"grp_{group_name}_last_loaded"] = now
+                    st.success(f"{group_name}数据加载成功！")
+            
+            # 保留手动刷新按钮
             col_refresh, col_empty = st.columns([1, 5])
             with col_refresh:
-                if st.button("🔄 加载数据", key=f"grp_{group_name}_load_btn"):
-                    with st.spinner("正在从Google Sheets加载数据..."):
-                        data = load_group_data(worksheet)
-                        st.session_state[f"grp_{group_name}_data"] = data
-                        st.success("数据加载成功！")
+                if st.button("🔄 刷新数据", key=f"grp_{group_name}_load_btn"):
+                    # 添加冷却机制，防止频繁点击
+                    last_refresh = st.session_state.get(f"grp_{group_name}_last_refresh", datetime.min)
+                    if now - last_refresh < timedelta(seconds=10):
+                        st.warning("请不要频繁刷新，至少间隔10秒")
+                    else:
+                        with st.spinner("正在从Google Sheets刷新数据..."):
+                            data = load_group_data(worksheet)
+                            st.session_state[f"grp_{group_name}_data"] = data
+                            st.session_state[f"grp_{group_name}_last_loaded"] = now
+                            st.session_state[f"grp_{group_name}_last_refresh"] = now
+                            st.success("数据刷新成功！")
             
             # 获取当前小组数据
             group_data = st.session_state[f"grp_{group_name}_data"]
