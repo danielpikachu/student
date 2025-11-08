@@ -24,8 +24,8 @@ class GoogleSheetHandler:
             elif self.credentials_path and os.path.exists(self.credentials_path):
                 creds = Credentials.from_service_account_file(self.credentials_path, scopes=self.scope)
             else:
-                # 兼容原代码空路径传入，仍尝试生成客户端（避免修改其他模块）
-                creds = Credentials.from_service_account_info(st.secrets["google_credentials"], scopes=self.scope)
+                # 当既无本地凭证文件也无secrets配置时，明确抛出错误
+                raise FileNotFoundError("未找到有效的Google凭证。请检查本地文件路径或Streamlit Secrets配置")
             
             # 核心修复：返回gspread客户端（原代码可能漏掉这步）
             return gspread.authorize(creds)
