@@ -111,7 +111,7 @@ def update_user_last_login(username):
 
 # ---------------------- 会话状态初始化 ----------------------
 def init_session_state():
-    # 确保只初始化一次，避免重复触发渲染
+    # 确保只初始化一次
     if "initialized" in st.session_state:
         return
         
@@ -164,7 +164,7 @@ def require_login(func):
 
 def require_edit_permission(func):
     def wrapper(*args, **kwargs):
-        # 普通用户隐藏编辑功能（通过会话状态控制）
+        # 普通用户隐藏编辑功能
         if not st.session_state.auth_is_admin:
             # 先渲染查看内容
             result = func(*args, **kwargs)
@@ -177,7 +177,6 @@ def require_edit_permission(func):
 
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
-    # 使用容器避免布局跳动
     with st.container():
         tab1, tab2 = st.tabs(["登录", "注册"])
         
@@ -204,15 +203,16 @@ def show_login_register_form():
                 # 管理员判断
                 is_admin = username in st.secrets.get("admin_users", [])
                 
-                # 更新会话状态（一次性更新避免多次渲染）
+                # 一次性更新会话状态
                 st.session_state.auth_logged_in = True
                 st.session_state.auth_username = username
                 st.session_state.auth_is_admin = is_admin
                 
                 update_user_last_login(username)
-                st.success("登录成功，正在跳转...")
-                # 使用st.experimental_rerun()替代st.rerun()避免闪烁
-                st.experimental_rerun()
+                st.success("登录成功，正在加载...")
+                
+                # 关键修复：使用统一的st.rerun()并放在最后
+                st.rerun()
         
         with tab2:
             st.subheader("用户注册")
@@ -248,7 +248,7 @@ def main():
         layout="wide"
     )
     
-    # 初始化会话状态（只执行一次）
+    # 初始化会话状态
     init_session_state()
     
     # 未登录时显示登录界面
@@ -257,7 +257,7 @@ def main():
         show_login_register_form()
         return
     
-    # 已登录主界面（使用容器包裹避免闪烁）
+    # 已登录主界面
     with st.container():
         st.title("Student Council Management System")
         
@@ -277,7 +277,7 @@ def main():
                 st.session_state.auth_logged_in = False
                 st.session_state.auth_username = ""
                 st.session_state.auth_is_admin = False
-                st.experimental_rerun()
+                st.rerun()
             st.markdown("---")
             st.info("© 2025 Student Council Management System")
         
@@ -287,54 +287,48 @@ def main():
             "📋 Attendance", "💸 Money Transfers", "👥 Groups"
         ])
         
-        # 渲染模块（使用容器包裹每个模块）
+        # 渲染模块
         with tab1:
-            with st.container():
-                @require_login
-                @require_edit_permission
-                def render():
-                    render_calendar()
-                render()
+            @require_login
+            @require_edit_permission
+            def render():
+                render_calendar()
+            render()
         
         with tab2:
-            with st.container():
-                @require_login
-                @require_edit_permission
-                def render():
-                    render_announcements()
-                render()
+            @require_login
+            @require_edit_permission
+            def render():
+                render_announcements()
+            render()
         
         with tab3:
-            with st.container():
-                @require_login
-                @require_edit_permission
-                def render():
-                    render_financial_planning()
-                render()
+            @require_login
+            @require_edit_permission
+            def render():
+                render_financial_planning()
+            render()
         
         with tab4:
-            with st.container():
-                @require_login
-                @require_edit_permission
-                def render():
-                    render_attendance()
-                render()
+            @require_login
+            @require_edit_permission
+            def render():
+                render_attendance()
+            render()
         
         with tab5:
-            with st.container():
-                @require_login
-                @require_edit_permission
-                def render():
-                    render_money_transfers()
-                render()
+            @require_login
+            @require_edit_permission
+            def render():
+                render_money_transfers()
+            render()
         
         with tab6:
-            with st.container():
-                @require_login
-                @require_edit_permission
-                def render():
-                    render_groups()
-                render()
+            @require_login
+            @require_edit_permission
+            def render():
+                render_groups()
+            render()
 
 if __name__ == "__main__":
     main()
