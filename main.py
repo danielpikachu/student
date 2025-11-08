@@ -7,8 +7,8 @@ from datetime import datetime
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-# 导入Google Sheets工具类
-from google_sheet_utils import GoogleSheetHandler
+# 导入Google Sheets工具类（先导入原始类）
+from google_sheet_utils import GoogleSheetHandler as OriginalGoogleSheetHandler
 # 导入功能模块
 from modules.calendar import render_calendar
 from modules.announcements import render_announcements
@@ -16,13 +16,66 @@ from modules.financial_planning import render_financial_planning
 from modules.attendance import render_attendance
 from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
+# ---------------------- 核心修复：包装GoogleSheetHandler，拦截写操作 ----------------------
+class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
+    """带权限控制的Google Sheet处理器，拦截普通用户的写操作"""
+    def __init__(self, credentials_path, scope=None):
+        super().__init__(credentials_path, scope)
+    
+    # 拦截：追加单行数据
+    def append_record(self, worksheet, data):
+        if st.session_state.get("auth_allow_edit", False):
+            return super().append_record(worksheet, data)
+        else:
+            st.warning("❌ 无编辑权限，无法添加数据！")
+            return None
+    
+    # 拦截：追加多行数据
+    def append_rows(self, worksheet, data):
+        if st.session_state.get("auth_allow_edit", False):
+            return worksheet.append_rows(data)
+        else:
+            st.warning("❌ 无编辑权限，无法批量添加数据！")
+            return None
+    
+    # 拦截：更新单元格
+    def update_cell(self, worksheet, row, col, value):
+        if st.session_state.get("auth_allow_edit", False):
+            return worksheet.update_cell(row, col, value)
+        else:
+            st.warning("❌ 无编辑权限，无法更新数据！")
+            return None
+    
+    # 拦截：删除行
+    def delete_record_by_value(self, worksheet, value):
+        if st.session_state.get("auth_allow_edit", False):
+            return super().delete_record_by_value(worksheet, value)
+        else:
+            st.warning("❌ 无编辑权限，无法删除数据！")
+            return False
+    
+    # 拦截：清空工作表
+    def clear_worksheet(self, worksheet):
+        if st.session_state.get("auth_allow_edit", False):
+            return worksheet.clear()
+        else:
+            st.warning("❌ 无编辑权限，无法清空数据！")
+            return None
+    
+    # 拦截：写入工作表（新增方法的拦截）
+    def write_sheet(self, spreadsheet_name, worksheet_name, data):
+        if st.session_state.get("auth_allow_edit", False):
+            return super().write_sheet(spreadsheet_name, worksheet_name, data)
+        else:
+            st.warning("❌ 无编辑权限，无法写入工作表！")
+            return None
 # ---------------------- 全局配置 ----------------------
 # Google Sheet配置
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
-# 初始化Google Sheet处理器（增加异常捕获）
+# 初始化带权限控制的Google Sheet处理器（替换原始处理器）
 try:
-    gs_handler = GoogleSheetHandler(credentials_path="")
+    gs_handler = PermissionedGoogleSheetHandler(credentials_path="")
 except Exception as e:
     st.error(f"Google Sheet初始化失败: {str(e)}")
     gs_handler = None
@@ -44,11 +97,11 @@ def init_user_sheet():
         try:
             # 创建用户表：用户名、加密密码、注册时间、最后登录时间
             header = ["username", "password", "register_time", "last_login"]
-            # 创建新工作表并写入表头
+            # 创建新工作表并写入表头（使用权限控制的方法）
             spreadsheet = gs_handler.client.open(SHEET_NAME)
             spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
             worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
-            worksheet.append_row(header)
+            gs_handler.append_record(worksheet, header)
             return True
         except Exception as e:
             st.error(f"创建用户表失败: {str(e)}")
@@ -93,11 +146,11 @@ def add_new_user(username, password):
     hashed_pwd = hash_password(password)
     # 注册时间和最后登录时间
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # 写入用户表
+    # 写入用户表（使用权限控制的方法）
     new_user = [username, hashed_pwd, now, now]
     try:
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
-        worksheet.append_row(new_user)
+        gs_handler.append_record(worksheet, new_user)
         return True
     except Exception as e:
         st.error(f"添加用户失败: {str(e)}")
@@ -119,14 +172,14 @@ def update_user_last_login(username):
     
     if not data or len(data) < 2:
         return False
-    # 找到用户行并更新
+    # 找到用户行并更新（使用权限控制的方法）
     for i, row in enumerate(data[1:]):
         if len(row) >= 1 and row[0] == username:
             # 计算实际行号（跳过表头+当前索引+1，因为工作表行号从1开始）
             row_num = i + 2
             new_last_login = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # 更新最后登录时间列（第4列，索引3）
-            worksheet.update_cell(row_num, 4, new_last_login)
+            gs_handler.update_cell(worksheet, row_num, 4, new_last_login)
             return True
     return False
 # ---------------------- 会话状态初始化 ----------------------
@@ -145,7 +198,7 @@ def init_session_state():
         st.session_state.auth_is_admin = False
     if "auth_current_group_code" not in st.session_state:
         st.session_state.auth_current_group_code = ""  # 存储当前验证的Group访问码
-    # 新增：强制权限标记（供模块识别）
+    # 核心权限标记：控制是否允许编辑
     if "auth_allow_edit" not in st.session_state:
         st.session_state.auth_allow_edit = False
     
@@ -197,7 +250,7 @@ def require_login(func):
         return func(*args, **kwargs)
     return wrapper
 def require_edit_permission(func):
-    """编辑权限校验装饰器：强制阻止普通用户编辑（核心修复）"""
+    """编辑权限校验装饰器：强制阻止普通用户编辑"""
     def wrapper(*args, **kwargs):
         # 管理员：允许编辑
         if st.session_state.auth_is_admin:
@@ -207,10 +260,7 @@ def require_edit_permission(func):
         # 普通用户：强制禁止编辑
         st.session_state.auth_allow_edit = False
         st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        
-        # 执行模块渲染，但通过auth_allow_edit标记阻止编辑逻辑
         result = func(*args, **kwargs)
-        
         return result
     return wrapper
 def require_group_edit_permission(func):
@@ -310,77 +360,6 @@ def show_login_register_form():
                 st.success("注册成功！请前往登录界面登录～")
             else:
                 st.error("用户名已存在，请更换其他用户名！")
-# ---------------------- 重写模块核心操作函数（强制权限拦截） ----------------------
-# 核心原理：在模块执行前，重写Google Sheet的写入/删除方法，普通用户调用时直接拦截
-original_append_row = None
-original_append_rows = None
-original_update_cell = None
-original_delete_rows = None
-original_clear = None
-
-def override_sheet_methods():
-    """重写Google Sheet操作方法，根据权限控制是否执行"""
-    global original_append_row, original_append_rows, original_update_cell, original_delete_rows, original_clear
-    
-    # 保存原始方法（仅首次重写时保存）
-    if original_append_row is None:
-        from gspread.models import Worksheet
-        original_append_row = Worksheet.append_row
-        original_append_rows = Worksheet.append_rows
-        original_update_cell = Worksheet.update_cell
-        original_delete_rows = Worksheet.delete_rows
-        original_clear = Worksheet.clear
-        
-        # 重写append_row（单行追加）
-        def new_append_row(self, values, **kwargs):
-            if st.session_state.get("auth_allow_edit", False):
-                return original_append_row(self, values, **kwargs)
-            else:
-                st.warning("❌ 无编辑权限，无法添加数据！")
-                return None
-        
-        # 重写append_rows（多行追加）
-        def new_append_rows(self, values, **kwargs):
-            if st.session_state.get("auth_allow_edit", False):
-                return original_append_rows(self, values, **kwargs)
-            else:
-                st.warning("❌ 无编辑权限，无法批量添加数据！")
-                return None
-        
-        # 重写update_cell（更新单元格）
-        def new_update_cell(self, row, col, value):
-            if st.session_state.get("auth_allow_edit", False):
-                return original_update_cell(self, row, col, value)
-            else:
-                st.warning("❌ 无编辑权限，无法更新数据！")
-                return None
-        
-        # 重写delete_rows（删除行）
-        def new_delete_rows(self, row, **kwargs):
-            if st.session_state.get("auth_allow_edit", False):
-                return original_delete_rows(self, row, **kwargs)
-            else:
-                st.warning("❌ 无编辑权限，无法删除数据！")
-                return None
-        
-        # 重写clear（清空工作表）
-        def new_clear(self):
-            if st.session_state.get("auth_allow_edit", False):
-                return original_clear(self)
-            else:
-                st.warning("❌ 无编辑权限，无法清空数据！")
-                return None
-        
-        # 替换原始方法
-        Worksheet.append_row = new_append_row
-        Worksheet.append_rows = new_append_rows
-        Worksheet.update_cell = new_update_cell
-        Worksheet.delete_rows = new_delete_rows
-        Worksheet.clear = new_clear
-
-# 初始化时执行方法重写（仅执行一次）
-override_sheet_methods()
-
 # ---------------------- 页面主逻辑 ----------------------
 def main():
     # 页面配置
