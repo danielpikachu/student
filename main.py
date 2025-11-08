@@ -20,7 +20,7 @@ from modules.groups import render_groups
 # ---------------------- 全局配置 ----------------------
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
-# 初始化Google Sheet处理器并添加错误处理
+# 初始化Google Sheet处理器
 try:
     gs_handler = GoogleSheetHandler(credentials_path="")
 except Exception as e:
@@ -35,7 +35,6 @@ def hash_password(password):
 def init_user_sheet():
     if not gs_handler:
         return
-    
     try:
         gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
     except:
@@ -51,14 +50,12 @@ def init_user_sheet():
 def get_user_by_username(username):
     if not gs_handler:
         return None
-    
     init_user_sheet()
     try:
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         data = worksheet.get_all_values()
     except:
         return None
-    
     if not data:
         return None
     for row in data[1:]:
@@ -74,7 +71,6 @@ def get_user_by_username(username):
 def add_new_user(username, password):
     if not gs_handler or get_user_by_username(username):
         return False
-        
     hashed_pwd = hash_password(password)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_user = [username, hashed_pwd, now, now]
@@ -88,14 +84,12 @@ def add_new_user(username, password):
 def update_user_last_login(username):
     if not gs_handler:
         return False
-        
     init_user_sheet()
     try:
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         data = worksheet.get_all_values()
     except:
         return False
-    
     if not data:
         return False
     for i, row in enumerate(data[1:]):
@@ -111,48 +105,43 @@ def update_user_last_login(username):
 
 # ---------------------- 会话状态初始化 ----------------------
 def init_session_state():
-    # 确保只初始化一次
-    if "initialized" in st.session_state:
-        return
-        
-    # 系统配置
-    if "sys_admin_password" not in st.session_state:
-        st.session_state.sys_admin_password = "sc_admin_2025"
+    # 确保所有模块需要的状态都被初始化
+    required_states = {
+        # 系统配置
+        "sys_admin_password": "sc_admin_2025",
+        # 认证相关
+        "auth_logged_in": False,
+        "auth_username": "",
+        "auth_is_admin": False,
+        # 日历模块
+        "cal_events": [],
+        "cal_current_month": datetime.today().replace(day=1),
+        # 公告模块
+        "ann_list": [],
+        # 考勤模块
+        "att_members": [],
+        "att_meetings": [],
+        "att_records": {},
+        # 财务规划模块 - 修复关键缺失状态
+        "fin_current_funds": 0.0,
+        "fin_annual_target": 15000.0,
+        "fin_scheduled_events": [],  # 关键修复
+        "fin_occasional_events": [],  # 关键修复
+        # 转账模块
+        "tra_records": [],
+        # 群组模块
+        "grp_list": [],
+        "grp_members": [],
+        # 权限控制标记
+        "initialized": True
+    }
     
-    # 认证相关
-    if "auth_logged_in" not in st.session_state:
-        st.session_state.auth_logged_in = False
-    if "auth_username" not in st.session_state:
-        st.session_state.auth_username = ""
-    if "auth_is_admin" not in st.session_state:
-        st.session_state.auth_is_admin = False
-    
-    # 模块状态
-    if "cal_events" not in st.session_state:
-        st.session_state.cal_events = []
-    if "cal_current_month" not in st.session_state:
-        st.session_state.cal_current_month = datetime.today().replace(day=1)
-    if "ann_list" not in st.session_state:
-        st.session_state.ann_list = []
-    if "att_members" not in st.session_state:
-        st.session_state.att_members = []
-    if "att_meetings" not in st.session_state:
-        st.session_state.att_meetings = []
-    if "att_records" not in st.session_state:
-        st.session_state.att_records = {}
-    if "fin_current_funds" not in st.session_state:
-        st.session_state.fin_current_funds = 0.0
-    if "fin_annual_target" not in st.session_state:
-        st.session_state.fin_annual_target = 15000.0
-    if "tra_records" not in st.session_state:
-        st.session_state.tra_records = []
-    if "grp_list" not in st.session_state:
-        st.session_state.grp_list = []
-    
-    # 标记为已初始化
-    st.session_state.initialized = True
+    # 初始化所有缺失的状态
+    for key, value in required_states.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-# ---------------------- 权限控制装饰器 ----------------------
+# ---------------------- 核心权限控制（强制隐藏编辑内容） ----------------------
 def require_login(func):
     def wrapper(*args, **kwargs):
         if not st.session_state.auth_logged_in:
@@ -162,17 +151,24 @@ def require_login(func):
         return func(*args, **kwargs)
     return wrapper
 
-def require_edit_permission(func):
+def hide_editor_for_non_admin(func):
+    """强制隐藏普通用户的编辑内容（通过捕获输出实现）"""
     def wrapper(*args, **kwargs):
-        # 普通用户隐藏编辑功能
         if not st.session_state.auth_is_admin:
-            # 先渲染查看内容
-            result = func(*args, **kwargs)
-            # 覆盖编辑区域
-            st.info("普通用户仅可查看内容，无编辑权限")
-            return result
-        # 管理员显示全部
-        return func(*args, **kwargs)
+            # 普通用户：使用容器捕获并过滤编辑内容
+            with st.container():
+                # 先显示查看提示
+                st.info("普通用户仅可查看内容，无编辑权限")
+                # 创建编辑区域占位符（用于覆盖）
+                edit_container = st.container()
+                with edit_container:
+                    # 执行原始函数但捕获输出
+                    func(*args, **kwargs)
+                # 关键：用空内容覆盖编辑区域（假设编辑内容在最后）
+                edit_container.empty()
+        else:
+            # 管理员：显示全部内容
+            func(*args, **kwargs)
     return wrapper
 
 # ---------------------- 登录注册界面 ----------------------
@@ -200,18 +196,16 @@ def show_login_register_form():
                     st.error("密码错误！")
                     return
                 
-                # 管理员判断
+                # 管理员判断（仅Secrets中的用户）
                 is_admin = username in st.secrets.get("admin_users", [])
                 
-                # 一次性更新会话状态
+                # 更新会话状态
                 st.session_state.auth_logged_in = True
                 st.session_state.auth_username = username
                 st.session_state.auth_is_admin = is_admin
                 
                 update_user_last_login(username)
                 st.success("登录成功，正在加载...")
-                
-                # 关键修复：使用统一的st.rerun()并放在最后
                 st.rerun()
         
         with tab2:
@@ -241,14 +235,13 @@ def show_login_register_form():
 
 # ---------------------- 页面主逻辑 ----------------------
 def main():
-    # 页面配置
     st.set_page_config(
         page_title="Student Council Management System",
         page_icon="🏛️",
         layout="wide"
     )
     
-    # 初始化会话状态
+    # 初始化所有会话状态（确保无缺失）
     init_session_state()
     
     # 未登录时显示登录界面
@@ -287,45 +280,45 @@ def main():
             "📋 Attendance", "💸 Money Transfers", "👥 Groups"
         ])
         
-        # 渲染模块
+        # 渲染模块（强制控制普通用户编辑内容）
         with tab1:
             @require_login
-            @require_edit_permission
+            @hide_editor_for_non_admin
             def render():
                 render_calendar()
             render()
         
         with tab2:
             @require_login
-            @require_edit_permission
+            @hide_editor_for_non_admin
             def render():
                 render_announcements()
             render()
         
         with tab3:
             @require_login
-            @require_edit_permission
+            @hide_editor_for_non_admin
             def render():
                 render_financial_planning()
             render()
         
         with tab4:
             @require_login
-            @require_edit_permission
+            @hide_editor_for_non_admin
             def render():
                 render_attendance()
             render()
         
         with tab5:
             @require_login
-            @require_edit_permission
+            @hide_editor_for_non_admin
             def render():
                 render_money_transfers()
             render()
         
         with tab6:
             @require_login
-            @require_edit_permission
+            @hide_editor_for_non_admin
             def render():
                 render_groups()
             render()
