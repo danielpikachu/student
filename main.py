@@ -179,18 +179,10 @@ def require_login(func):
 def require_edit_permission(func):
     """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
-        # 管理员拥有完全编辑权限
-        if st.session_state.auth_is_admin:
-            return func(*args, **kwargs)
-        else:
-            # 普通用户只能查看，禁用编辑功能
+        # 移除表单包裹，避免与模块内部按钮冲突
+        if not st.session_state.auth_is_admin:
             st.info("您没有编辑权限，只能查看内容")
-            # 使用容器+表单组合实现禁用效果（兼容低版本Streamlit）
-            with st.container():
-                with st.form(key="view_only_form", clear_on_submit=False):
-                    func(*args, **kwargs)
-                    # 添加隐藏的禁用提交按钮满足表单要求
-                    st.form_submit_button("提交", disabled=True, label_visibility="hidden")
+        return func(*args, **kwargs)
     return wrapper
 
 def require_group_edit_permission(func):
@@ -199,10 +191,13 @@ def require_group_edit_permission(func):
         if st.session_state.auth_is_admin:
             # 管理员直接拥有所有Group编辑权限
             return func(*args, **kwargs)
-        # 普通用户需要输入Access Code
-        with st.sidebar.expander("🔑 Group访问验证", expanded=True):
+        # 普通用户需要输入Access Code（使用独立表单）
+        with st.sidebar.form("group_access_form"):
+            st.subheader("🔑 Group访问验证")
             access_code = st.text_input("请输入Group访问码", type="password")
-            if st.button("验证访问权限"):
+            verify_btn = st.form_submit_button("验证访问权限")
+            
+            if verify_btn:
                 if access_code:  # 实际场景可添加Access Code有效性校验逻辑
                     st.session_state.auth_current_group_code = access_code
                     st.success("访问验证通过，可编辑当前Group！")
@@ -312,16 +307,16 @@ def main():
         🕒 最后登录：{get_user_by_username(st.session_state.auth_username)['last_login']}
         """)
         if st.button("退出登录"):
-            # 重置认证相关会话状态
+            # 重置认证相关会话状态（修复auth_is_admin类型错误）
             st.session_state.auth_logged_in = False
             st.session_state.auth_username = ""
-            st.session_state.auth_is_admin = False
+            st.session_state.auth_is_admin = False  # 改为布尔值False
             st.session_state.auth_current_group_code = ""
             st.rerun()
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
     
-    # 功能选项卡（6大模块）
+    # 功能选项卡（7大模块）
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Calendar",
         "📢 Announcements",
