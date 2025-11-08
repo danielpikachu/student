@@ -179,13 +179,10 @@ def require_login(func):
 def require_edit_permission(func):
     """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
-        # 管理员拥有完整编辑权限
-        if st.session_state.auth_is_admin:
-            return func(*args, **kwargs)
-        # 普通用户仅开放查看权限，隐藏编辑功能
-        st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        # 调用模块渲染函数（模块内部需通过session_state.auth_is_admin判断是否显示编辑组件）
-        return func(*args, **kwargs, is_editable=False)
+        # 设置是否可编辑的标志
+        is_editable = st.session_state.auth_is_admin
+        # 将权限标志通过kwargs传递给被装饰的函数
+        return func(*args, **kwargs, is_editable=is_editable)
     return wrapper
 
 def require_group_edit_permission(func):
@@ -316,7 +313,7 @@ def main():
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
     
-    # 功能选项卡（7大模块）
+    # 功能选项卡（6大模块）
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Calendar",
         "📢 Announcements",
@@ -327,47 +324,46 @@ def main():
     ])
     
     # 渲染各功能模块（通过装饰器控制权限）
-    @require_login
-    @require_edit_permission
-    def render_calendar_wrapper():
-        render_calendar()
-    
-    @require_login
-    @require_edit_permission
-    def render_announcements_wrapper():
-        render_announcements()
-    
-    @require_login
-    @require_edit_permission
-    def render_financial_planning_wrapper():
-        render_financial_planning()
-    
-    @require_login
-    @require_edit_permission
-    def render_attendance_wrapper():
-        render_attendance()
-    
-    @require_login
-    @require_edit_permission
-    def render_money_transfers_wrapper():
-        render_money_transfers()
-    
-    @require_login
-    @require_group_edit_permission
-    def render_groups_wrapper():
-        render_groups()
-    
     with tab1:
+        @require_login
+        @require_edit_permission
+        def render_calendar_wrapper(**kwargs):
+            render_calendar(** kwargs)
         render_calendar_wrapper()
+    
     with tab2:
+        @require_login
+        @require_edit_permission
+        def render_announcements_wrapper(**kwargs):
+            render_announcements(** kwargs)
         render_announcements_wrapper()
+    
     with tab3:
-        render_financial_planning_wrapper()
+        @require_login
+        @require_edit_permission
+        def render_financial_wrapper(**kwargs):
+            render_financial_planning(** kwargs)
+        render_financial_wrapper()
+    
     with tab4:
+        @require_login
+        @require_edit_permission
+        def render_attendance_wrapper(**kwargs):
+            render_attendance(** kwargs)
         render_attendance_wrapper()
+    
     with tab5:
-        render_money_transfers_wrapper()
+        @require_login
+        @require_edit_permission
+        def render_transfers_wrapper(**kwargs):
+            render_money_transfers(** kwargs)
+        render_transfers_wrapper()
+    
     with tab6:
+        @require_login
+        @require_group_edit_permission
+        def render_groups_wrapper(**kwargs):
+            render_groups(** kwargs)
         render_groups_wrapper()
 
 if __name__ == "__main__":
