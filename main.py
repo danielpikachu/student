@@ -22,7 +22,7 @@ from modules.groups import render_groups
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
 # 初始化Google Sheet处理器
-gs_handler = GoogleSheetHandler()
+gs_handler = GoogleSheetHandler(credentials_path="")
 
 # ---------------------- 密码加密工具 ----------------------
 def hash_password(password):
