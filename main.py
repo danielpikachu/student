@@ -21,7 +21,7 @@ from modules.groups import render_groups
 # Google Sheet配置
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
-# 初始化Google Sheet处理器
+# 初始化Google Sheet处理器（Streamlit Cloud中无需本地路径）
 gs_handler = GoogleSheetHandler(credentials_path="")
 
 # ---------------------- 密码加密工具 ----------------------
@@ -33,8 +33,8 @@ def hash_password(password):
 def init_user_sheet():
     """初始化用户表结构（如果不存在）"""
     try:
-        # 检查用户表是否存在
-        gs_handler.get_sheet(SHEET_NAME, USER_SHEET_TAB)
+        # 检查用户表是否存在（使用get_worksheet判断）
+        gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
     except:
         # 创建用户表：用户名、加密密码、注册时间、最后登录时间
         header = ["username", "password", "register_time", "last_login"]
@@ -43,7 +43,8 @@ def init_user_sheet():
 def get_user_by_username(username):
     """根据用户名查询用户"""
     init_user_sheet()
-    data = gs_handler.get_sheet(SHEET_NAME, USER_SHEET_TAB)
+    # 修正：使用get_sheet_data获取表格数据（原get_sheet方法不存在）
+    data = gs_handler.get_sheet_data(SHEET_NAME, USER_SHEET_TAB)
     if not data:
         return None
     # 跳过表头查询
@@ -65,21 +66,23 @@ def add_new_user(username, password):
     hashed_pwd = hash_password(password)
     # 注册时间和最后登录时间
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # 写入用户表
-    new_user = [username, hashed_pwd, now, now]
-    gs_handler.append_sheet(SHEET_NAME, USER_SHEET_TAB, [new_user])
+    # 写入用户表（使用get_worksheet获取工作表后追加）
+    worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
+    gs_handler.append_record(worksheet, [username, hashed_pwd, now, now])
     return True
 
 def update_user_last_login(username):
     """更新用户最后登录时间"""
     init_user_sheet()
-    data = gs_handler.get_sheet(SHEET_NAME, USER_SHEET_TAB)
+    # 修正：使用get_sheet_data获取表格数据
+    data = gs_handler.get_sheet_data(SHEET_NAME, USER_SHEET_TAB)
     if not data:
         return False
     # 找到用户行并更新
     for i, row in enumerate(data[1:]):
         if row[0] == username:
-            row[3] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 更新最后登录时间（注意：data[0]是表头，用户数据从data[1:]开始，行索引需+1）
+            data[i+1][3] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # 写入更新后的数据
             gs_handler.write_sheet(SHEET_NAME, USER_SHEET_TAB, data)
             return True
