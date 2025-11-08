@@ -273,10 +273,14 @@ def main():
     
     with st.sidebar:
         st.markdown("---")
+        # 修复：添加用户信息获取的容错处理
+        user_data = get_user_by_username(st.session_state.auth_username) if gs_handler else None
+        last_login = user_data['last_login'] if (user_data and 'last_login' in user_data) else '无法获取'
+        
         st.info(f"""
         👤 当前用户：{st.session_state.auth_username}  
         📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
-        🕒 最后登录：{get_user_by_username(st.session_state.auth_username)['last_login'] if gs_handler else '无法获取'}
+        🕒 最后登录：{last_login}
         """)
         if st.button("退出登录"):
             st.session_state.auth_logged_in = False
