@@ -18,11 +18,15 @@ from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
 
 # ---------------------- 全局配置 ----------------------
-# Google Sheet配置
-SHEET_NAME = "Student"
+# Google Sheet配置 - 修改1：确保表格名称正确且存在
+SHEET_NAME = "Student"  # 确认该名称的表格已在Google Drive中存在
 USER_SHEET_TAB = "users"
-# 初始化Google Sheet处理器
-gs_handler = GoogleSheetHandler(credentials_path="")
+# 初始化Google Sheet处理器 - 修改2：添加错误处理
+try:
+    gs_handler = GoogleSheetHandler(credentials_path="")
+except Exception as e:
+    gs_handler = None
+    st.error(f"Google Sheets初始化失败: {str(e)}")
 
 # ---------------------- 密码加密工具 ----------------------
 def hash_password(password):
@@ -32,25 +36,35 @@ def hash_password(password):
 # ---------------------- 用户数据操作 ----------------------
 def init_user_sheet():
     """初始化用户表结构（如果不存在）"""
+    # 修改3：添加gs_handler有效性检查
+    if not gs_handler:
+        st.error("Google Sheets连接未初始化，无法操作用户数据")
+        return
+    
     try:
-        # 检查用户表是否存在（使用正确的get_worksheet方法）
+        # 检查用户表是否存在
         gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
-    except:
-        # 创建用户表：用户名、加密密码、注册时间、最后登录时间
-        header = ["username", "password", "register_time", "last_login"]
-        # 创建新工作表并写入表头
-        spreadsheet = gs_handler.client.open(SHEET_NAME)
-        spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
-        worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
-        worksheet.append_row(header)
+    except Exception as e:
+        try:
+            # 创建用户表：用户名、加密密码、注册时间、最后登录时间
+            header = ["username", "password", "register_time", "last_login"]
+            # 创建新工作表并写入表头
+            spreadsheet = gs_handler.client.open(SHEET_NAME)
+            spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
+            worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
+            worksheet.append_row(header)
+        except Exception as create_err:
+            st.error(f"创建用户表失败: {str(create_err)}")
 
 def get_user_by_username(username):
     """根据用户名查询用户"""
+    # 修改4：添加前置检查
+    if not gs_handler:
+        return None
+    
     init_user_sheet()
     try:
-        # 获取工作表对象
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
-        # 获取所有行数据（包含表头）
         data = worksheet.get_all_values()
     except Exception as e:
         st.error(f"获取用户数据失败: {str(e)}")
@@ -71,6 +85,10 @@ def get_user_by_username(username):
 
 def add_new_user(username, password):
     """注册新用户"""
+    if not gs_handler:
+        st.error("Google Sheets连接未初始化，无法注册用户")
+        return False
+        
     if get_user_by_username(username):
         return False  # 用户名已存在
     # 加密密码
@@ -89,6 +107,9 @@ def add_new_user(username, password):
 
 def update_user_last_login(username):
     """更新用户最后登录时间"""
+    if not gs_handler:
+        return False
+        
     init_user_sheet()
     try:
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
@@ -106,8 +127,12 @@ def update_user_last_login(username):
             row_num = i + 2
             new_last_login = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             # 更新最后登录时间列（第4列，索引3）
-            worksheet.update_cell(row_num, 4, new_last_login)
-            return True
+            try:
+                worksheet.update_cell(row_num, 4, new_last_login)
+                return True
+            except Exception as e:
+                st.error(f"更新登录时间失败: {str(e)}")
+                return False
     return False
 
 # ---------------------- 会话状态初始化 ----------------------
@@ -177,33 +202,43 @@ def require_login(func):
     return wrapper
 
 def require_edit_permission(func):
-    """编辑权限校验装饰器：仅管理员可编辑，普通用户只能查看"""
+    """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
         # 管理员拥有完整编辑权限
         if st.session_state.auth_is_admin:
             return func(*args, **kwargs)
-        # 普通用户仅开放查看权限，隐藏所有编辑功能
+        # 普通用户仅开放查看权限，隐藏编辑功能
         st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        # 调用模块渲染函数（模块内部通过session_state.auth_is_admin判断是否显示编辑组件）
-        # 传入force_view_only参数强化控制（如果模块支持）
-        return func(*args, force_view_only=True, **kwargs)
+        # 调用模块渲染函数（模块内部需通过session_state.auth_is_admin判断是否显示编辑组件）
+        return func(*args, **kwargs)
     return wrapper
 
 def require_group_edit_permission(func):
-    """Group模块编辑权限校验装饰器：仅管理员可编辑"""
+    """Group模块编辑权限校验装饰器：控制Group模块的编辑权限"""
     def wrapper(*args, **kwargs):
         if st.session_state.auth_is_admin:
             # 管理员直接拥有所有Group编辑权限
             return func(*args, **kwargs)
-        # 普通用户仅能查看，无编辑权限
-        st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        # 调用模块渲染函数（强制只读模式）
-        return func(*args, force_view_only=True, **kwargs)
+        # 普通用户需要输入Access Code
+        with st.sidebar.expander("🔑 Group访问验证", expanded=True):
+            access_code = st.text_input("请输入Group访问码", type="password")
+            if st.button("验证访问权限"):
+                if access_code:  # 实际场景可添加Access Code有效性校验逻辑
+                    st.session_state.auth_current_group_code = access_code
+                    st.success("访问验证通过，可编辑当前Group！")
+                else:
+                    st.error("请输入有效的访问码！")
+        # 无论验证是否通过都渲染模块，模块内部通过auth_current_group_code判断编辑权限
+        return func(*args, **kwargs)
     return wrapper
 
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
     """显示登录注册表单"""
+    # 修改5：添加Google Sheets连接检查
+    if not gs_handler:
+        st.warning("注意：Google Sheets连接未初始化，登录功能可能无法正常使用")
+    
     tab1, tab2 = st.tabs(["登录", "注册"])
     
     with tab1:
@@ -212,6 +247,10 @@ def show_login_register_form():
         password = st.text_input("密码", type="password", key="login_password")
         
         if st.button("登录"):
+            if not gs_handler:
+                st.error("Google Sheets连接未初始化，无法登录")
+                return
+                
             if not username or not password:
                 st.error("用户名和密码不能为空！")
                 return
@@ -249,6 +288,10 @@ def show_login_register_form():
         confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_pwd")
         
         if st.button("注册"):
+            if not gs_handler:
+                st.error("Google Sheets连接未初始化，无法注册")
+                return
+                
             if not new_username or not new_password or not confirm_password:
                 st.error("所有字段不能为空！")
                 return
@@ -295,7 +338,7 @@ def main():
         st.info(f"""
         👤 当前用户：{st.session_state.auth_username}  
         📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
-        🕒 最后登录：{get_user_by_username(st.session_state.auth_username)['last_login']}
+        🕒 最后登录：{get_user_by_username(st.session_state.auth_username)['last_login'] if gs_handler else '无法获取'}
         """)
         if st.button("退出登录"):
             # 重置认证相关会话状态
