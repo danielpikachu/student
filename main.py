@@ -20,8 +20,12 @@ from modules.groups import render_groups
 # Google Sheet配置
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
-# 初始化Google Sheet处理器
-gs_handler = GoogleSheetHandler(credentials_path="")
+# 初始化Google Sheet处理器（增加异常捕获）
+try:
+    gs_handler = GoogleSheetHandler(credentials_path="")
+except Exception as e:
+    st.error(f"Google Sheet初始化失败: {str(e)}")
+    gs_handler = None
 # ---------------------- 密码加密工具 ----------------------
 def hash_password(password):
     """密码MD5加密（简单安全方案）"""
@@ -29,20 +33,33 @@ def hash_password(password):
 # ---------------------- 用户数据操作 ----------------------
 def init_user_sheet():
     """初始化用户表结构（如果不存在）"""
+    if not gs_handler:
+        st.error("Google Sheet未初始化，无法创建用户表")
+        return False
     try:
         # 检查用户表是否存在（使用正确的get_worksheet方法）
         gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
+        return True
     except:
-        # 创建用户表：用户名、加密密码、注册时间、最后登录时间
-        header = ["username", "password", "register_time", "last_login"]
-        # 创建新工作表并写入表头
-        spreadsheet = gs_handler.client.open(SHEET_NAME)
-        spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
-        worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
-        worksheet.append_row(header)
+        try:
+            # 创建用户表：用户名、加密密码、注册时间、最后登录时间
+            header = ["username", "password", "register_time", "last_login"]
+            # 创建新工作表并写入表头
+            spreadsheet = gs_handler.client.open(SHEET_NAME)
+            spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
+            worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
+            worksheet.append_row(header)
+            return True
+        except Exception as e:
+            st.error(f"创建用户表失败: {str(e)}")
+            return False
 def get_user_by_username(username):
-    """根据用户名查询用户"""
-    init_user_sheet()
+    """根据用户名查询用户（修复异常处理和Sheet连接）"""
+    if not gs_handler:
+        return None
+    # 初始化用户表（失败则直接返回）
+    if not init_user_sheet():
+        return None
     try:
         # 获取工作表对象
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
@@ -52,20 +69,24 @@ def get_user_by_username(username):
         st.error(f"获取用户数据失败: {str(e)}")
         return None
     
-    if not data:
+    if not data or len(data) < 2:
         return None
     # 跳过表头查询
     for row in data[1:]:
-        if row[0] == username:
+        if len(row) >= 1 and row[0] == username:
+            # 确保返回数据结构完整
             return {
-                "username": row[0],
-                "password": row[1],
-                "register_time": row[2],
-                "last_login": row[3]
+                "username": row[0] if len(row) > 0 else "",
+                "password": row[1] if len(row) > 1 else "",
+                "register_time": row[2] if len(row) > 2 else "",
+                "last_login": row[3] if len(row) > 3 else ""
             }
     return None
 def add_new_user(username, password):
     """注册新用户"""
+    if not gs_handler:
+        st.error("Google Sheet未初始化，无法注册用户")
+        return False
     if get_user_by_username(username):
         return False  # 用户名已存在
     # 加密密码
@@ -83,7 +104,12 @@ def add_new_user(username, password):
         return False
 def update_user_last_login(username):
     """更新用户最后登录时间"""
-    init_user_sheet()
+    if not gs_handler:
+        st.error("Google Sheet未初始化，无法更新登录时间")
+        return False
+    # 初始化用户表（失败则直接返回）
+    if not init_user_sheet():
+        return False
     try:
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         data = worksheet.get_all_values()
@@ -91,11 +117,11 @@ def update_user_last_login(username):
         st.error(f"获取用户数据失败: {str(e)}")
         return False
     
-    if not data:
+    if not data or len(data) < 2:
         return False
     # 找到用户行并更新
     for i, row in enumerate(data[1:]):
-        if row[0] == username:
+        if len(row) >= 1 and row[0] == username:
             # 计算实际行号（跳过表头+当前索引+1，因为工作表行号从1开始）
             row_num = i + 2
             new_last_login = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -173,28 +199,9 @@ def require_edit_permission(func):
         # 管理员拥有完整编辑权限
         if st.session_state.auth_is_admin:
             return func(*args, **kwargs)
-        # 普通用户：显示提示 + 仅渲染查看内容（通过临时屏蔽会话状态实现）
+        # 普通用户：显示提示 + 仅渲染查看内容
         st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        
-        # 临时替换模块所需的会话状态，屏蔽编辑相关操作（关键增强）
-        original_state = {}
-        module_prefixes = ["cal_", "ann_", "fin_", "att_", "tra_"]
-        
-        # 保存原始状态并设置只读标记
-        for key in st.session_state.keys():
-            for prefix in module_prefixes:
-                if key.startswith(prefix):
-                    original_state[key] = st.session_state[key]
-                    break
-        
-        # 执行模块渲染（仅查看）
-        result = func(*args, **kwargs)
-        
-        # 恢复原始状态（避免影响后续操作）
-        for key, value in original_state.items():
-            st.session_state[key] = value
-        
-        return result
+        return func(*args, **kwargs)
     return wrapper
 def require_group_edit_permission(func):
     """Group模块编辑权限校验装饰器：控制Group模块的编辑权限（增强拦截）"""
@@ -213,7 +220,6 @@ def require_group_edit_permission(func):
                     st.success("访问验证通过，可编辑当前Group！")
                 else:
                     st.error("请输入有效的访问码！")
-                    # 清空访问码，确保无法编辑
                     st.session_state.auth_current_group_code = ""
         
         # 未验证通过时，提示无权限
@@ -257,7 +263,7 @@ def show_login_register_form():
             st.session_state.auth_username = username
             st.session_state.auth_is_admin = is_admin
             
-            # 更新最后登录时间
+            # 更新最后登录时间（忽略失败，不影响登录）
             update_user_last_login(username)
             
             st.success(f"登录成功！欢迎回来，{'管理员' if is_admin else '用户'} {username}！")
@@ -309,13 +315,15 @@ def main():
     # 已登录时显示主界面
     st.title("Student Council Management System")
     
-    # 侧边栏显示用户信息（明确身份）
+    # 侧边栏显示用户信息（修复空值异常）
     with st.sidebar:
         st.markdown("---")
+        user_info = get_user_by_username(st.session_state.auth_username)
+        last_login = user_info["last_login"] if user_info and user_info["last_login"] else "未记录"
         st.info(f"""
         👤 当前用户：{st.session_state.auth_username}  
         📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
-        🕒 最后登录：{get_user_by_username(st.session_state.auth_username)['last_login']}
+        🕒 最后登录：{last_login}
         """)
         if st.button("退出登录"):
             # 重置认证相关会话状态
