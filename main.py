@@ -323,45 +323,45 @@ def main():
         "👥 Groups"
     ])
     
-    # 渲染各功能模块（通过装饰器控制权限）
+    # 渲染各功能模块（修正装饰器使用方式）
     with tab1:
-        @require_login
         @require_edit_permission
+        @require_login
         def render_calendar_wrapper(**kwargs):
             render_calendar(** kwargs)
         render_calendar_wrapper()
     
     with tab2:
-        @require_login
         @require_edit_permission
+        @require_login
         def render_announcements_wrapper(**kwargs):
             render_announcements(** kwargs)
         render_announcements_wrapper()
     
     with tab3:
-        @require_login
         @require_edit_permission
+        @require_login
         def render_financial_wrapper(**kwargs):
             render_financial_planning(** kwargs)
         render_financial_wrapper()
     
     with tab4:
-        @require_login
         @require_edit_permission
+        @require_login
         def render_attendance_wrapper(**kwargs):
             render_attendance(** kwargs)
         render_attendance_wrapper()
     
     with tab5:
-        @require_login
         @require_edit_permission
+        @require_login
         def render_transfers_wrapper(**kwargs):
             render_money_transfers(** kwargs)
         render_transfers_wrapper()
     
     with tab6:
-        @require_login
         @require_group_edit_permission
+        @require_login
         def render_groups_wrapper(**kwargs):
             render_groups(** kwargs)
         render_groups_wrapper()
