@@ -343,7 +343,7 @@ def render_groups():
 
     # ---------------------- 报销管理模块（标签页3）----------------------
     with tab3:
-        st.subheader("报销管理")
+        st.markdown("<h3 style='font-size: 16px'>报销管理</h3>", unsafe_allow_html=True)
         st.write("记录和管理各项报销信息")
         st.divider()
 
