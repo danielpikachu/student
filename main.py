@@ -119,6 +119,10 @@ def update_user_last_login(username):
 
 # ---------------------- 会话状态初始化 ----------------------
 def init_session_state():
+    # 新增：存储是否显示编辑器的状态
+    if "show_editor" not in st.session_state:
+        st.session_state.show_editor = False
+    
     if "sys_admin_password" not in st.session_state:
         st.session_state.sys_admin_password = "sc_admin_2025"
     
@@ -169,17 +173,18 @@ def require_login(func):
     return wrapper
 
 def require_edit_permission(func):
-    """普通用户完全隐藏编辑内容，管理员显示全部"""
+    """通过会话状态控制编辑内容显示，不修改原模块参数"""
     def wrapper(*args, **kwargs):
-        # 向模块传递权限标识，模块需根据此参数控制编辑元素显示
-        return func(*args,** kwargs, show_editor=st.session_state.auth_is_admin)
+        # 普通用户隐藏编辑内容（通过会话状态）
+        st.session_state.show_editor = st.session_state.auth_is_admin
+        return func(*args, **kwargs)
     return wrapper
 
 def require_group_edit_permission(func):
-    """群组模块同样仅管理员显示编辑内容"""
+    """群组模块同样通过会话状态控制"""
     def wrapper(*args, **kwargs):
-        # 无论输入什么访问码，普通用户都不显示编辑内容
-        return func(*args, **kwargs, show_editor=st.session_state.auth_is_admin)
+        st.session_state.show_editor = st.session_state.auth_is_admin
+        return func(*args, **kwargs)
     return wrapper
 
 # ---------------------- 登录注册界面 ----------------------
@@ -219,6 +224,8 @@ def show_login_register_form():
             st.session_state.auth_logged_in = True
             st.session_state.auth_username = username
             st.session_state.auth_is_admin = is_admin
+            # 登录时同步设置编辑权限状态
+            st.session_state.show_editor = is_admin
             
             update_user_last_login(username)
             
@@ -287,6 +294,7 @@ def main():
             st.session_state.auth_username = ""
             st.session_state.auth_is_admin = False
             st.session_state.auth_current_group_code = ""
+            st.session_state.show_editor = False
             st.rerun()
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
@@ -297,7 +305,7 @@ def main():
         "📋 Attendance", "💸 Money Transfers", "👥 Groups"
     ])
     
-    # 渲染模块（通过show_editor参数控制编辑内容显示）
+    # 渲染模块（通过会话状态控制编辑内容，不传递新参数）
     with tab1:
         require_login(require_edit_permission(render_calendar))()
     with tab2:
