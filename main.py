@@ -179,12 +179,6 @@ def require_login(func):
 def require_edit_permission(func):
     """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
-        # 管理员拥有完整编辑权限
-        if st.session_state.auth_is_admin:
-            return func(*args, **kwargs)
-        # 普通用户仅开放查看权限，隐藏编辑功能
-        st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        # 调用模块渲染函数（模块内部需通过session_state.auth_is_admin判断是否显示编辑组件）
         return func(*args, **kwargs)
     return wrapper
 
