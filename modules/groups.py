@@ -262,7 +262,7 @@ def render_groups():
 
     # ---------------------- 收入管理模块（标签页2）----------------------
     with tab2:
-        st.subheader("收入管理")
+        st.markdown("<h3 style='font-size: 16px'>收入管理</h3>", unsafe_allow_html=True)
         st.write("记录和管理各项收入信息")
         st.divider()
 
