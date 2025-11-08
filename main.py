@@ -229,7 +229,10 @@ def show_login_register_form():
                 return
             
             # 验证是否为管理员（从Secrets读取admin_users列表）
-            is_admin = username in st.secrets.get("admin_users", [])
+            admin_users = st.secrets.get("admin_users", [])
+            if isinstance(admin_users, str):
+                admin_users = [user.strip() for user in admin_users.split(",")]
+            is_admin = username.strip() in admin_users
             
             # 更新会话状态
             st.session_state.auth_logged_in = True
