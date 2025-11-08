@@ -16,19 +16,16 @@ from modules.financial_planning import render_financial_planning
 from modules.attendance import render_attendance
 from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
-
 # ---------------------- 全局配置 ----------------------
 # Google Sheet配置
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
 # 初始化Google Sheet处理器
 gs_handler = GoogleSheetHandler(credentials_path="")
-
 # ---------------------- 密码加密工具 ----------------------
 def hash_password(password):
     """密码MD5加密（简单安全方案）"""
     return hashlib.md5(password.encode()).hexdigest()
-
 # ---------------------- 用户数据操作 ----------------------
 def init_user_sheet():
     """初始化用户表结构（如果不存在）"""
@@ -43,7 +40,6 @@ def init_user_sheet():
         spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
         worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
         worksheet.append_row(header)
-
 def get_user_by_username(username):
     """根据用户名查询用户"""
     init_user_sheet()
@@ -68,7 +64,6 @@ def get_user_by_username(username):
                 "last_login": row[3]
             }
     return None
-
 def add_new_user(username, password):
     """注册新用户"""
     if get_user_by_username(username):
@@ -86,7 +81,6 @@ def add_new_user(username, password):
     except Exception as e:
         st.error(f"添加用户失败: {str(e)}")
         return False
-
 def update_user_last_login(username):
     """更新用户最后登录时间"""
     init_user_sheet()
@@ -109,7 +103,6 @@ def update_user_last_login(username):
             worksheet.update_cell(row_num, 4, new_last_login)
             return True
     return False
-
 # ---------------------- 会话状态初始化 ----------------------
 def init_session_state():
     """初始化所有会话状态（含用户认证相关）"""
@@ -164,7 +157,6 @@ def init_session_state():
         st.session_state.grp_list = []
     if "grp_members" not in st.session_state:
         st.session_state.grp_members = []
-
 # ---------------------- 权限控制装饰器 ----------------------
 def require_login(func):
     """登录校验装饰器：未登录则跳转至登录界面"""
@@ -175,7 +167,6 @@ def require_login(func):
             return
         return func(*args, **kwargs)
     return wrapper
-
 def require_edit_permission(func):
     """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
@@ -187,7 +178,6 @@ def require_edit_permission(func):
         # 调用模块渲染函数（模块内部需通过session_state.auth_is_admin判断是否显示编辑组件）
         return func(*args, **kwargs)
     return wrapper
-
 def require_group_edit_permission(func):
     """Group模块编辑权限校验装饰器：控制Group模块的编辑权限"""
     def wrapper(*args, **kwargs):
@@ -206,7 +196,6 @@ def require_group_edit_permission(func):
         # 无论验证是否通过都渲染模块，模块内部通过auth_current_group_code判断编辑权限
         return func(*args, **kwargs)
     return wrapper
-
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
     """显示登录注册表单"""
@@ -273,7 +262,6 @@ def show_login_register_form():
                 st.success("注册成功！请前往登录界面登录～")
             else:
                 st.error("用户名已存在，请更换其他用户名！")
-
 # ---------------------- 页面主逻辑 ----------------------
 def main():
     # 页面配置
@@ -323,7 +311,7 @@ def main():
         "👥 Groups"
     ])
     
-    # 渲染各功能模块（修复装饰器顺序，先检查编辑权限再检查登录状态）
+    # 修复装饰器叠加顺序：先登录校验，再编辑权限校验（关键修复点）
     with tab1:
         require_edit_permission(require_login(render_calendar))()
     with tab2:
@@ -336,6 +324,5 @@ def main():
         require_edit_permission(require_login(render_money_transfers))()
     with tab6:
         require_group_edit_permission(require_login(render_groups))()
-
 if __name__ == "__main__":
     main()
