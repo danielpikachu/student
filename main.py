@@ -278,7 +278,7 @@ def main():
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📅 Calendar", "📢 Announcements", "💰 Financial Planning",
         "📋 Attendance","🎁 Credit & Rewards","💸 Money Transfers", "👥 Groups"
     ])
