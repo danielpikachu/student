@@ -177,29 +177,28 @@ def require_login(func):
     return wrapper
 
 def require_edit_permission(func):
-    """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
+    """编辑权限校验装饰器：仅管理员可编辑，普通用户只能查看"""
     def wrapper(*args, **kwargs):
-        # 向模块传递管理员权限标识
-        return func(*args, **kwargs, is_admin=st.session_state.auth_is_admin)
+        # 管理员拥有完整编辑权限
+        if st.session_state.auth_is_admin:
+            return func(*args, **kwargs)
+        # 普通用户仅开放查看权限，隐藏所有编辑功能
+        st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
+        # 调用模块渲染函数（模块内部通过session_state.auth_is_admin判断是否显示编辑组件）
+        # 传入force_view_only参数强化控制（如果模块支持）
+        return func(*args, force_view_only=True, **kwargs)
     return wrapper
 
 def require_group_edit_permission(func):
-    """Group模块编辑权限校验装饰器：控制Group模块的编辑权限"""
+    """Group模块编辑权限校验装饰器：仅管理员可编辑"""
     def wrapper(*args, **kwargs):
-        has_group_access = False
-        with st.sidebar.expander("🔑 Group访问验证", expanded=False):
-            access_code = st.text_input("请输入Group访问码", type="password")
-            if st.button("验证访问权限"):
-                if access_code:  # 实际场景可添加Access Code有效性校验逻辑
-                    st.session_state.auth_current_group_code = access_code
-                    has_group_access = True
-                    st.success("访问验证通过，可编辑当前Group！")
-                else:
-                    st.error("请输入有效的访问码！")
-        
-        # 管理员或验证通过的用户拥有编辑权限
-        is_editable = st.session_state.auth_is_admin or has_group_access or bool(st.session_state.auth_current_group_code)
-        return func(*args, **kwargs, is_admin=st.session_state.auth_is_admin, is_editable=is_editable)
+        if st.session_state.auth_is_admin:
+            # 管理员直接拥有所有Group编辑权限
+            return func(*args, **kwargs)
+        # 普通用户仅能查看，无编辑权限
+        st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
+        # 调用模块渲染函数（强制只读模式）
+        return func(*args, force_view_only=True, **kwargs)
     return wrapper
 
 # ---------------------- 登录注册界面 ----------------------
@@ -275,7 +274,7 @@ def main():
     st.set_page_config(
         page_title="Student Council Management System",
         page_icon="🏛️",
-        layout="wide"  # 确保使用宽屏布局
+        layout="wide"
     )
     
     # 初始化会话状态
@@ -302,13 +301,13 @@ def main():
             # 重置认证相关会话状态
             st.session_state.auth_logged_in = False
             st.session_state.auth_username = ""
-            st.session_state.auth_is_admin = False
+            st.session_state.auth_is_admin = ""
             st.session_state.auth_current_group_code = ""
             st.rerun()
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
     
-    # 功能选项卡（6大模块）
+    # 功能选项卡（7大模块）
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Calendar",
         "📢 Announcements",
@@ -318,37 +317,19 @@ def main():
         "👥 Groups"
     ])
     
-    # 修复装饰器调用方式，确保所有模块可见
+    # 渲染各功能模块（通过装饰器控制权限）
     with tab1:
-        # 使用容器确保内容占满宽度
-        with st.container():
-            decorated_calendar = require_login(require_edit_permission(render_calendar))
-            decorated_calendar()
-    
+        require_login(require_edit_permission(render_calendar))()
     with tab2:
-        with st.container():
-            decorated_announcements = require_login(require_edit_permission(render_announcements))
-            decorated_announcements()
-    
+        require_login(require_edit_permission(render_announcements))()
     with tab3:
-        with st.container():
-            decorated_finance = require_login(require_edit_permission(render_financial_planning))
-            decorated_finance()
-    
+        require_login(require_edit_permission(render_financial_planning))()
     with tab4:
-        with st.container():
-            decorated_attendance = require_login(require_edit_permission(render_attendance))
-            decorated_attendance()
-    
+        require_login(require_edit_permission(render_attendance))()
     with tab5:
-        with st.container():
-            decorated_transfers = require_login(require_edit_permission(render_money_transfers))
-            decorated_transfers()
-    
+        require_login(require_edit_permission(render_money_transfers))()
     with tab6:
-        with st.container():
-            decorated_groups = require_login(require_group_edit_permission(render_groups))
-            decorated_groups()
+        require_login(require_group_edit_permission(render_groups))()
 
 if __name__ == "__main__":
     main()
