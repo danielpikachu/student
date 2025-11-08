@@ -7,4 +7,4 @@ def render_financial_planning():
     st.markdown("---")
     
     # 显示建设中提示
-    st.info("This module is under construction")
+    st.info("This module is under construction!")
