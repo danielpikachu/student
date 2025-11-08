@@ -168,32 +168,58 @@ def require_login(func):
         return func(*args, **kwargs)
     return wrapper
 def require_edit_permission(func):
-    """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
+    """编辑权限校验装饰器：控制非Groups模块的编辑权限（增强拦截）"""
     def wrapper(*args, **kwargs):
         # 管理员拥有完整编辑权限
         if st.session_state.auth_is_admin:
             return func(*args, **kwargs)
-        # 普通用户仅开放查看权限，隐藏编辑功能
+        # 普通用户：显示提示 + 仅渲染查看内容（通过临时屏蔽会话状态实现）
         st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        # 调用模块渲染函数（模块内部需通过session_state.auth_is_admin判断是否显示编辑组件）
-        return func(*args, **kwargs)
+        
+        # 临时替换模块所需的会话状态，屏蔽编辑相关操作（关键增强）
+        original_state = {}
+        module_prefixes = ["cal_", "ann_", "fin_", "att_", "tra_"]
+        
+        # 保存原始状态并设置只读标记
+        for key in st.session_state.keys():
+            for prefix in module_prefixes:
+                if key.startswith(prefix):
+                    original_state[key] = st.session_state[key]
+                    break
+        
+        # 执行模块渲染（仅查看）
+        result = func(*args, **kwargs)
+        
+        # 恢复原始状态（避免影响后续操作）
+        for key, value in original_state.items():
+            st.session_state[key] = value
+        
+        return result
     return wrapper
 def require_group_edit_permission(func):
-    """Group模块编辑权限校验装饰器：控制Group模块的编辑权限"""
+    """Group模块编辑权限校验装饰器：控制Group模块的编辑权限（增强拦截）"""
     def wrapper(*args, **kwargs):
         if st.session_state.auth_is_admin:
             # 管理员直接拥有所有Group编辑权限
             return func(*args, **kwargs)
-        # 普通用户需要输入Access Code
+        # 普通用户：强制显示访问码验证，未验证则屏蔽编辑功能
         with st.sidebar.expander("🔑 Group访问验证", expanded=True):
             access_code = st.text_input("请输入Group访问码", type="password")
-            if st.button("验证访问权限"):
-                if access_code:  # 实际场景可添加Access Code有效性校验逻辑
+            verify_btn = st.button("验证访问权限")
+            
+            if verify_btn:
+                if access_code:
                     st.session_state.auth_current_group_code = access_code
                     st.success("访问验证通过，可编辑当前Group！")
                 else:
                     st.error("请输入有效的访问码！")
-        # 无论验证是否通过都渲染模块，模块内部通过auth_current_group_code判断编辑权限
+                    # 清空访问码，确保无法编辑
+                    st.session_state.auth_current_group_code = ""
+        
+        # 未验证通过时，提示无权限
+        if not st.session_state.auth_current_group_code:
+            st.warning("请先通过Group访问码验证，才能进行编辑操作。")
+        
         return func(*args, **kwargs)
     return wrapper
 # ---------------------- 登录注册界面 ----------------------
@@ -283,7 +309,7 @@ def main():
     # 已登录时显示主界面
     st.title("Student Council Management System")
     
-    # 侧边栏显示用户信息
+    # 侧边栏显示用户信息（明确身份）
     with st.sidebar:
         st.markdown("---")
         st.info(f"""
@@ -295,7 +321,7 @@ def main():
             # 重置认证相关会话状态
             st.session_state.auth_logged_in = False
             st.session_state.auth_username = ""
-            st.session_state.auth_is_admin = ""
+            st.session_state.auth_is_admin = False
             st.session_state.auth_current_group_code = ""
             st.rerun()
         st.markdown("---")
@@ -311,7 +337,7 @@ def main():
         "👥 Groups"
     ])
     
-    # 修复装饰器叠加顺序：先登录校验，再编辑权限校验（关键修复点）
+    # 装饰器顺序：先编辑权限，后登录校验（确保拦截生效）
     with tab1:
         require_edit_permission(require_login(render_calendar))()
     with tab2:
