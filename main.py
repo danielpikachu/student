@@ -179,7 +179,13 @@ def require_login(func):
 def require_edit_permission(func):
     """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
+        # 管理员始终有编辑权限，普通用户无
+        if st.session_state.auth_is_admin:
+            return func(*args, **kwargs)
+        else:
+            # 对普通用户隐藏编辑功能，只显示查看功能
+            with st.disabled(True):
+                return func(*args, **kwargs)
     return wrapper
 
 def require_group_edit_permission(func):
@@ -228,17 +234,27 @@ def show_login_register_form():
                 st.error("密码错误！")
                 return
             
-            # 验证是否为管理员（处理不同格式的admin_users配置）
+            # 调试：显示从secrets获取的管理员列表
             admin_users = st.secrets.get("admin_users", [])
-            # 确保admin_users是列表格式
+            st.write(f"调试信息：从secrets获取的管理员列表: {admin_users}")
+            st.write(f"调试信息：当前登录用户名: {username}")
+            
+            # 处理不同格式的admin_users
             if isinstance(admin_users, str):
-                # 处理逗号分隔的字符串格式
-                admin_users = [user.strip() for user in admin_users.split(",")]
+                # 处理逗号分隔的字符串
+                admin_users = [u.strip() for u in admin_users.split(",") if u.strip()]
             elif not isinstance(admin_users, list):
                 admin_users = []
             
-            # 去除用户名和管理员列表项的前后空格后再比较
-            is_admin = username.strip() in [admin.strip() for admin in admin_users]
+            # 精确匹配用户名（不区分大小写调试）
+            is_admin = username in admin_users
+            # 额外增加不区分大小写的检查（防止大小写问题）
+            if not is_admin:
+                is_admin = username.lower() in [u.lower() for u in admin_users]
+                if is_admin:
+                    st.warning("注意：用户名大小写与管理员列表不一致，但已识别为管理员")
+            
+            st.write(f"调试信息：是否为管理员: {is_admin}")  # 调试信息
             
             # 更新会话状态
             st.session_state.auth_logged_in = True
@@ -306,11 +322,16 @@ def main():
         📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
         🕒 最后登录：{get_user_by_username(st.session_state.auth_username)['last_login']}
         """)
+        # 管理员额外显示的调试信息
+        if st.checkbox("显示调试信息"):
+            st.write("会话状态中的管理员标识:", st.session_state.auth_is_admin)
+            st.write("从secrets获取的管理员列表:", st.secrets.get("admin_users", []))
+        
         if st.button("退出登录"):
             # 重置认证相关会话状态
             st.session_state.auth_logged_in = False
             st.session_state.auth_username = ""
-            st.session_state.auth_is_admin = ""
+            st.session_state.auth_is_admin = False
             st.session_state.auth_current_group_code = ""
             st.rerun()
         st.markdown("---")
