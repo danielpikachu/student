@@ -1,4 +1,4 @@
-# modules/moneyoney_transfers.py
+# modules/money_transfers.py
 import streamlit as st
 from datetime import datetime
 import uuid
@@ -81,7 +81,9 @@ def render_money_transfers():
         with header_cols[5]:
             st.write("**Handled By**")
         with header_cols[6]:
-            st.write("**Action**")
+            # 只有管理员才显示Action列标题
+            if st.session_state.auth_is_admin:
+                st.write("**Action**")
         
         st.markdown("---")
         
@@ -106,25 +108,27 @@ def render_money_transfers():
                 with cols[5]:
                     st.write(trans["handler"])
                 with cols[6]:
-                    if st.button(
-                        "🗑️ Delete", 
-                        key=unique_key,
-                        use_container_width=True,
-                        type="secondary"
-                    ):
-                        # 从本地状态删除
-                        st.session_state.tra_records.pop(idx - 1)
-                        
-                        # 同步删除Google Sheets记录
-                        if transfers_sheet and sheet_handler:
-                            try:
-                                cell = transfers_sheet.find(trans["uuid"])
-                                if cell:
-                                    transfers_sheet.delete_rows(cell.row)
-                                st.success(f"Transaction {idx} deleted successfully!")
-                                st.rerun()
-                            except Exception as e:
-                                st.warning(f"同步删除失败: {str(e)}")
+                    # 只有管理员才能看到删除按钮
+                    if st.session_state.auth_is_admin:
+                        if st.button(
+                            "🗑️ Delete", 
+                            key=unique_key,
+                            use_container_width=True,
+                            type="secondary"
+                        ):
+                            # 从本地状态删除
+                            st.session_state.tra_records.pop(idx - 1)
+                            
+                            # 同步删除Google Sheets记录
+                            if transfers_sheet and sheet_handler:
+                                try:
+                                    cell = transfers_sheet.find(trans["uuid"])
+                                    if cell:
+                                        transfers_sheet.delete_rows(cell.row)
+                                    st.success(f"Transaction {idx} deleted successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.warning(f"同步删除失败: {str(e)}")
                 
                 # 行分隔线
                 st.markdown("---")
@@ -143,76 +147,80 @@ def render_money_transfers():
         </div>
         """, unsafe_allow_html=True)
     st.write("=" * 50)
-    # ---------------------- 新增交易 ----------------------
-    st.subheader("Record New Transaction")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        trans_date = st.date_input(
-            "Transaction Date", 
-            value=datetime.today(),
-            key="tra_input_date"
-        )
+    # ---------------------- 新增交易（仅管理员可见） ----------------------
+    if st.session_state.auth_is_admin:
+        st.subheader("Record New Transaction")
+        col1, col2 = st.columns(2)
         
-        amount = st.number_input(
-            "Amount ($)", 
-            min_value=0.01, 
-            step=10.00, 
-            value=100.00,
-            key="tra_input_amount"
-        )
+        with col1:
+            trans_date = st.date_input(
+                "Transaction Date", 
+                value=datetime.today(),
+                key="tra_input_date"
+            )
+            
+            amount = st.number_input(
+                "Amount ($)", 
+                min_value=0.01, 
+                step=10.00, 
+                value=100.00,
+                key="tra_input_amount"
+            )
+            
+            trans_type = st.radio(
+                "Transaction Type", 
+                ["Income", "Expense"], 
+                index=0,
+                key="tra_radio_type"
+            )
         
-        trans_type = st.radio(
-            "Transaction Type", 
-            ["Income", "Expense"], 
-            index=0,
-            key="tra_radio_type"
-        )
-    
-    with col2:
-        description = st.text_input(
-            "Description", 
-            value="Fundraiser proceeds",
-            key="tra_input_desc"
-        ).strip()
-        
-        handler = st.text_input(
-            "Handled By", 
-            value="",
-            key="tra_input_handler"
-        ).strip()
-    # 记录交易按钮
-    if st.button("Record Transaction", key="tra_btn_record", use_container_width=True, type="primary"):
-        # 验证必填字段
-        if not description or not handler:
-            st.error("Description and Handled By are required fields!")
-            return
-        
-        # 创建新交易记录
-        new_trans = {
-            "uuid": str(uuid.uuid4()),  # 生成唯一标识
-            "date": trans_date,
-            "type": trans_type,
-            "amount": round(amount, 2),
-            "description": description,
-            "handler": handler
-        }
-        
-        # 更新本地状态
-        st.session_state.tra_records.append(new_trans)
-        
-        # 同步到Google Sheets
-        if transfers_sheet and sheet_handler:
-            try:
-                transfers_sheet.append_row([
-                    new_trans["uuid"],
-                    new_trans["date"].strftime("%Y-%m-%d"),
-                    new_trans["type"],
-                    str(new_trans["amount"]),
-                    new_trans["description"],
-                    new_trans["handler"]
-                ])
-                st.success("Transaction recorded successfully!")
-                st.rerun()
-            except Exception as e:
-                st.warning(f"同步到Google Sheets失败: {str(e)}")
+        with col2:
+            description = st.text_input(
+                "Description", 
+                value="Fundraiser proceeds",
+                key="tra_input_desc"
+            ).strip()
+            
+            handler = st.text_input(
+                "Handled By", 
+                value="",
+                key="tra_input_handler"
+            ).strip()
+        # 记录交易按钮
+        if st.button("Record Transaction", key="tra_btn_record", use_container_width=True, type="primary"):
+            # 验证必填字段
+            if not description or not handler:
+                st.error("Description and Handled By are required fields!")
+                return
+            
+            # 创建新交易记录
+            new_trans = {
+                "uuid": str(uuid.uuid4()),  # 生成唯一标识
+                "date": trans_date,
+                "type": trans_type,
+                "amount": round(amount, 2),
+                "description": description,
+                "handler": handler
+            }
+            
+            # 更新本地状态
+            st.session_state.tra_records.append(new_trans)
+            
+            # 同步到Google Sheets
+            if transfers_sheet and sheet_handler:
+                try:
+                    transfers_sheet.append_row([
+                        new_trans["uuid"],
+                        new_trans["date"].strftime("%Y-%m-%d"),
+                        new_trans["type"],
+                        str(new_trans["amount"]),
+                        new_trans["description"],
+                        new_trans["handler"]
+                    ])
+                    st.success("Transaction recorded successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.warning(f"同步到Google Sheets失败: {str(e)}")
+    else:
+        # 非管理员显示提示信息
+        st.info("您没有编辑权限，只能查看交易记录")
