@@ -16,7 +16,7 @@ from modules.financial_planning import render_financial_planning
 from modules.attendance import render_attendance
 from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
-# ---------------------- 核心修复：包装GoogleSheetHandler，拦截写操作 ----------------------
+# ---------------------- 核心修复：包装GoogleSheetHandler，拦截写操作（双重保险） ----------------------
 class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
     """带权限控制的Google Sheet处理器，拦截普通用户的写操作"""
     def __init__(self, credentials_path, scope=None):
@@ -27,7 +27,6 @@ class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
         if st.session_state.get("auth_allow_edit", False):
             return super().append_record(worksheet, data)
         else:
-            st.warning("❌ 无编辑权限，无法添加数据！")
             return None
     
     # 拦截：追加多行数据
@@ -35,7 +34,6 @@ class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
         if st.session_state.get("auth_allow_edit", False):
             return worksheet.append_rows(data)
         else:
-            st.warning("❌ 无编辑权限，无法批量添加数据！")
             return None
     
     # 拦截：更新单元格
@@ -43,7 +41,6 @@ class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
         if st.session_state.get("auth_allow_edit", False):
             return worksheet.update_cell(row, col, value)
         else:
-            st.warning("❌ 无编辑权限，无法更新数据！")
             return None
     
     # 拦截：删除行
@@ -51,7 +48,6 @@ class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
         if st.session_state.get("auth_allow_edit", False):
             return super().delete_record_by_value(worksheet, value)
         else:
-            st.warning("❌ 无编辑权限，无法删除数据！")
             return False
     
     # 拦截：清空工作表
@@ -59,7 +55,6 @@ class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
         if st.session_state.get("auth_allow_edit", False):
             return worksheet.clear()
         else:
-            st.warning("❌ 无编辑权限，无法清空数据！")
             return None
     
     # 拦截：写入工作表（新增方法的拦截）
@@ -67,8 +62,44 @@ class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
         if st.session_state.get("auth_allow_edit", False):
             return super().write_sheet(spreadsheet_name, worksheet_name, data)
         else:
-            st.warning("❌ 无编辑权限，无法写入工作表！")
             return None
+# ---------------------- 核心功能：注入CSS隐藏编辑组件 ----------------------
+def inject_edit_hide_css():
+    """注入CSS样式，隐藏所有编辑相关组件（普通用户专用）"""
+    if not st.session_state.get("auth_allow_edit", False):
+        st.markdown("""
+        <style>
+        /* 隐藏所有按钮（除了退出登录和同步按钮） */
+        button:not([aria-label="退出登录"]):not([aria-label="🔄 同步数据"]):not([aria-label="Clear cache"]) {
+            display: none !important;
+        }
+        /* 隐藏输入框、文本域、文件上传器、单选框组 */
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        textarea,
+        input[type="file"],
+        div[data-baseweb="radio-group"],
+        div[data-baseweb="select"],
+        div[data-baseweb="date-input"],
+        /* 隐藏表单提交按钮 */
+        button[type="submit"],
+        /* 隐藏展开面板（管理员操作面板） */
+        div[data-baseweb="expander"][aria-label*="Admin"],
+        div[data-baseweb="expander"][aria-label*="管理"],
+        /* 隐藏标签页中的编辑相关区域 */
+        div[role="form"],
+        /* 隐藏侧边栏中的访问码输入区域（普通用户Groups模块） */
+        div[data-baseweb="expander"][aria-label="🔑 Group访问验证"] {
+            display: none !important;
+        }
+        /* 隐藏数字输入框的增减按钮 */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            display: none !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 # ---------------------- 全局配置 ----------------------
 # Google Sheet配置
 SHEET_NAME = "Student"
@@ -250,28 +281,39 @@ def require_login(func):
         return func(*args, **kwargs)
     return wrapper
 def require_edit_permission(func):
-    """编辑权限校验装饰器：强制阻止普通用户编辑"""
+    """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
         # 管理员：允许编辑
         if st.session_state.auth_is_admin:
             st.session_state.auth_allow_edit = True
+            # 注入CSS（管理员显示所有组件）
+            inject_edit_hide_css()
             result = func(*args, **kwargs)
             return result
-        # 普通用户：强制禁止编辑
+        # 普通用户：禁止编辑，隐藏组件
         st.session_state.auth_allow_edit = False
         st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
+        # 注入CSS隐藏编辑组件
+        inject_edit_hide_css()
         result = func(*args, **kwargs)
         return result
     return wrapper
 def require_group_edit_permission(func):
-    """Group模块编辑权限校验装饰器：强制控制编辑权限"""
+    """Group模块编辑权限校验装饰器：控制Group模块的编辑权限"""
     def wrapper(*args, **kwargs):
         if st.session_state.auth_is_admin:
             # 管理员：允许编辑所有Group
             st.session_state.auth_allow_edit = True
+            inject_edit_hide_css()
             result = func(*args, **kwargs)
             return result
-        # 普通用户：仅验证通过后允许编辑
+        # 普通用户：未验证则隐藏编辑组件
+        st.session_state.auth_allow_edit = False
+        st.warning("请先通过Group访问码验证，才能进行编辑操作。")
+        # 注入CSS隐藏编辑组件
+        inject_edit_hide_css()
+        
+        # 显示访问码验证（单独保留，不隐藏）
         with st.sidebar.expander("🔑 Group访问验证", expanded=True):
             access_code = st.text_input("请输入Group访问码", type="password")
             verify_btn = st.button("验证访问权限")
@@ -281,21 +323,19 @@ def require_group_edit_permission(func):
                     st.session_state.auth_current_group_code = access_code
                     st.session_state.auth_allow_edit = True
                     st.success("访问验证通过，可编辑当前Group！")
+                    st.rerun()  # 重新渲染，显示编辑组件
                 else:
                     st.error("请输入有效的访问码！")
                     st.session_state.auth_current_group_code = ""
                     st.session_state.auth_allow_edit = False
         
-        # 未验证通过：禁止编辑
-        if not st.session_state.auth_current_group_code:
-            st.session_state.auth_allow_edit = False
-            st.warning("请先通过Group访问码验证，才能进行编辑操作。")
-        
-        return func(*args, **kwargs)
+        result = func(*args, **kwargs)
+        return result
     return wrapper
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
     """显示登录注册表单"""
+    # 登录注册界面不隐藏组件
     tab1, tab2 = st.tabs(["登录", "注册"])
     
     with tab1:
@@ -391,7 +431,7 @@ def main():
         📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
         🕒 最后登录：{last_login}
         """)
-        if st.button("退出登录"):
+        if st.button("退出登录", key="logout_btn"):
             # 重置认证相关会话状态
             st.session_state.auth_logged_in = False
             st.session_state.auth_username = ""
@@ -412,7 +452,7 @@ def main():
         "👥 Groups"
     ])
     
-    # 装饰器顺序：先编辑权限（注入标记），后登录校验
+    # 装饰器顺序：先编辑权限（控制组件显示），后登录校验
     with tab1:
         require_edit_permission(require_login(render_calendar))()
     with tab2:
