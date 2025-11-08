@@ -179,7 +179,7 @@ def require_login(func):
 def require_edit_permission(func):
     """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
-        # 调用模块渲染函数（模块内部需通过session_state.auth_is_admin判断是否显示编辑组件）
+        # 向模块传递管理员权限标识
         return func(*args, **kwargs, is_admin=st.session_state.auth_is_admin)
     return wrapper
 
@@ -275,7 +275,7 @@ def main():
     st.set_page_config(
         page_title="Student Council Management System",
         page_icon="🏛️",
-        layout="wide"
+        layout="wide"  # 确保使用宽屏布局
     )
     
     # 初始化会话状态
@@ -302,13 +302,13 @@ def main():
             # 重置认证相关会话状态
             st.session_state.auth_logged_in = False
             st.session_state.auth_username = ""
-            st.session_state.auth_is_admin = ""
+            st.session_state.auth_is_admin = False
             st.session_state.auth_current_group_code = ""
             st.rerun()
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
     
-    # 功能选项卡（7大模块）
+    # 功能选项卡（6大模块）
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Calendar",
         "📢 Announcements",
@@ -318,48 +318,37 @@ def main():
         "👥 Groups"
     ])
     
-    # 渲染各功能模块（通过装饰器控制权限）
+    # 修复装饰器调用方式，确保所有模块可见
     with tab1:
-        @require_login
-        @require_edit_permission
-        def render():
-            render_calendar()
-        render()
+        # 使用容器确保内容占满宽度
+        with st.container():
+            decorated_calendar = require_login(require_edit_permission(render_calendar))
+            decorated_calendar()
     
     with tab2:
-        @require_login
-        @require_edit_permission
-        def render():
-            render_announcements()
-        render()
+        with st.container():
+            decorated_announcements = require_login(require_edit_permission(render_announcements))
+            decorated_announcements()
     
     with tab3:
-        @require_login
-        @require_edit_permission
-        def render():
-            render_financial_planning()
-        render()
+        with st.container():
+            decorated_finance = require_login(require_edit_permission(render_financial_planning))
+            decorated_finance()
     
     with tab4:
-        @require_login
-        @require_edit_permission
-        def render():
-            render_attendance()
-        render()
+        with st.container():
+            decorated_attendance = require_login(require_edit_permission(render_attendance))
+            decorated_attendance()
     
     with tab5:
-        @require_login
-        @require_edit_permission
-        def render():
-            render_money_transfers()
-        render()
+        with st.container():
+            decorated_transfers = require_login(require_edit_permission(render_money_transfers))
+            decorated_transfers()
     
     with tab6:
-        @require_login
-        @require_group_edit_permission
-        def render():
-            render_groups()
-        render()
+        with st.container():
+            decorated_groups = require_login(require_group_edit_permission(render_groups))
+            decorated_groups()
 
 if __name__ == "__main__":
     main()
