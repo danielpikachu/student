@@ -228,11 +228,17 @@ def show_login_register_form():
                 st.error("密码错误！")
                 return
             
-            # 验证是否为管理员（从Secrets读取admin_users列表）
+            # 验证是否为管理员（处理不同格式的admin_users配置）
             admin_users = st.secrets.get("admin_users", [])
+            # 确保admin_users是列表格式
             if isinstance(admin_users, str):
+                # 处理逗号分隔的字符串格式
                 admin_users = [user.strip() for user in admin_users.split(",")]
-            is_admin = username.strip() in admin_users
+            elif not isinstance(admin_users, list):
+                admin_users = []
+            
+            # 去除用户名和管理员列表项的前后空格后再比较
+            is_admin = username.strip() in [admin.strip() for admin in admin_users]
             
             # 更新会话状态
             st.session_state.auth_logged_in = True
