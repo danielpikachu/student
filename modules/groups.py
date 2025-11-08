@@ -173,226 +173,253 @@ def render_groups():
         except Exception as e:
             st.warning(f"数据同步失败: {str(e)}")
 
-    # ---------------------- 成员管理模块 ----------------------
-    st.subheader("👥 成员管理")
-    st.write("管理成员的基本信息（姓名、学生ID）")
-    st.divider()
+    # 创建三个横向标签页
+    tab1, tab2, tab3 = st.tabs(["👥 成员管理", "💰 收入管理", "🧾 报销管理"])
 
-    # 添加新成员
-    with st.container():
-        st.markdown("**添加新成员**", unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("成员姓名*", placeholder="请输入姓名")
-        with col2:
-            student_id = st.text_input("学生ID*", placeholder="请输入唯一标识ID")
-        
-        if st.button("确认添加成员", use_container_width=True, key="add_member"):
-            if not name or not student_id:
-                st.error("姓名和学生ID不能为空")
-                return
-            if any(m["student_id"] == student_id for m in st.session_state.members):
-                st.error(f"学生ID {student_id} 已存在")
-                return
+    # ---------------------- 成员管理模块（标签页1） ----------------------
+    with tab1:
+        st.subheader("成员管理")
+        st.write("管理成员的基本信息（姓名、学生ID）")
+        st.divider()
 
-            # 生成唯一码
-            member_uuid = str(uuid.uuid4())
-            new_member = {
-                "uuid": member_uuid,
-                "name": name.strip(),
-                "student_id": student_id.strip()
-            }
-            st.session_state.members.append(new_member)
+        # 添加新成员
+        with st.container():
+            st.markdown("**添加新成员**", unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("成员姓名*", placeholder="请输入姓名")
+            with col2:
+                student_id = st.text_input("学生ID*", placeholder="请输入唯一标识ID")
+            
+            if st.button("确认添加成员", use_container_width=True, key="add_member"):
+                if not name or not student_id:
+                    st.error("姓名和学生ID不能为空")
+                    return
+                if any(m["student_id"] == student_id for m in st.session_state.members):
+                    st.error(f"学生ID {student_id} 已存在")
+                    return
 
-            # 写入Google Sheet（单表）
-            if main_sheet:
-                try:
-                    main_sheet.append_row([
-                        current_code,  # group_code
-                        "member",      # data_type
-                        member_uuid,   # uuid
-                        name.strip(),  # name
-                        student_id.strip(),  # student_id
-                        "", "", "",    # 收入/报销字段留空
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # created_at
-                    ])
-                    st.success(f"成功添加成员：{name}")
-                except Exception as e:
-                    st.warning(f"同步到表格失败: {str(e)}")
+                # 生成唯一码
+                member_uuid = str(uuid.uuid4())
+                new_member = {
+                    "uuid": member_uuid,
+                    "name": name.strip(),
+                    "student_id": student_id.strip()
+                }
+                st.session_state.members.append(new_member)
 
-    # 显示成员列表
-    st.divider()
-    st.markdown("**成员列表**", unsafe_allow_html=True)
-    if not st.session_state.members:
-        st.info("暂无成员，请添加")
-    else:
-        member_df = pd.DataFrame([
-            {"序号": i+1, "姓名": m["name"], "学生ID": m["student_id"]}
-            for i, m in enumerate(st.session_state.members)
-        ])
-        st.dataframe(member_df, use_container_width=True)
+                # 写入Google Sheet（单表）
+                if main_sheet:
+                    try:
+                        main_sheet.append_row([
+                            current_code,  # group_code
+                            "member",      # data_type
+                            member_uuid,   # uuid
+                            name.strip(),  # name
+                            student_id.strip(),  # student_id
+                            "", "", "",    # 收入/报销字段留空
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # created_at
+                        ])
+                        st.success(f"成功添加成员：{name}")
+                    except Exception as e:
+                        st.warning(f"同步到表格失败: {str(e)}")
 
-        # 删除成员
-        with st.expander("删除成员", expanded=False):
-            for m in st.session_state.members:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"{m['name']}（ID：{m['student_id']}）")
-                with col2:
-                    if st.button("删除", key=f"del_member_{m['uuid']}"):
-                        # 本地删除
-                        st.session_state.members = [x for x in st.session_state.members if x["uuid"] != m["uuid"]]
-                        # 表格删除（通过uuid定位）
-                        if main_sheet:
-                            try:
-                                cell = main_sheet.find(m["uuid"])
-                                if cell:
-                                    row = main_sheet.row_values(cell.row)
-                                    # 双重验证：确保是当前组的数据
-                                    if row[0] == current_code and row[1] == "member":
-                                        main_sheet.delete_rows(cell.row)
-                                        st.success(f"已删除 {m['name']}")
-                                        st.rerun()
-                            except Exception as e:
-                                st.warning(f"删除同步失败: {str(e)}")
+        # 显示成员列表
+        st.divider()
+        st.markdown("**成员列表**", unsafe_allow_html=True)
+        if not st.session_state.members:
+            st.info("暂无成员，请添加")
+        else:
+            member_df = pd.DataFrame([
+                {"序号": i+1, "姓名": m["name"], "学生ID": m["student_id"]}
+                for i, m in enumerate(st.session_state.members)
+            ])
+            st.dataframe(member_df, use_container_width=True)
 
-    # ---------------------- 收入管理模块 ----------------------
-    st.subheader("💰 收入管理")
-    st.write("记录和管理各项收入信息")
-    st.divider()
+            # 删除成员
+            with st.expander("删除成员", expanded=False):
+                for m in st.session_state.members:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"{m['name']}（ID：{m['student_id']}）")
+                    with col2:
+                        if st.button("删除", key=f"del_member_{m['uuid']}"):
+                            # 本地删除
+                            st.session_state.members = [x for x in st.session_state.members if x["uuid"] != m["uuid"]]
+                            # 表格删除（通过uuid定位）
+                            if main_sheet:
+                                try:
+                                    cell = main_sheet.find(m["uuid"])
+                                    if cell:
+                                        row = main_sheet.row_values(cell.row)
+                                        # 双重验证：确保是当前组的数据
+                                        if row[0] == current_code and row[1] == "member":
+                                            main_sheet.delete_rows(cell.row)
+                                            st.success(f"已删除 {m['name']}")
+                                            st.rerun()
+                                except Exception as e:
+                                    st.warning(f"删除同步失败: {str(e)}")
 
-    # 添加新收入
-    with st.container():
-        st.markdown("**添加新收入**", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            income_date = st.date_input("日期*", datetime.now())
-        with col2:
-            income_amount = st.number_input("金额*", min_value=0.01, step=0.01, format="%.2f")
-        with col3:
-            income_desc = st.text_input("描述*", placeholder="请输入收入来源")
-        
-        if st.button("确认添加收入", use_container_width=True, key="add_income"):
-            if not income_desc:
-                st.error("收入描述不能为空")
-                return
+    # ---------------------- 收入管理模块（标签页2） ----------------------
+    with tab2:
+        st.subheader("收入管理")
+        st.write("记录和管理各项收入信息")
+        st.divider()
 
-            income_uuid = str(uuid.uuid4())
-            new_income = {
-                "uuid": income_uuid,
-                "date": income_date.strftime("%Y-%m-%d"),
-                "amount": f"{income_amount:.2f}",
-                "description": income_desc.strip()
-            }
-            st.session_state.incomes.append(new_income)
+        # 添加新收入
+        with st.container():
+            st.markdown("**添加新收入**", unsafe_allow_html=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                income_date = st.date_input("日期*", datetime.now())
+            with col2:
+                income_amount = st.number_input("金额*", min_value=0.01, step=0.01, format="%.2f")
+            with col3:
+                income_desc = st.text_input("描述*", placeholder="请输入收入来源")
+            
+            if st.button("确认添加收入", use_container_width=True, key="add_income"):
+                if not income_desc:
+                    st.error("收入描述不能为空")
+                    return
 
-            # 写入Google Sheet
-            if main_sheet:
-                try:
-                    main_sheet.append_row([
-                        current_code,
-                        "income",
-                        income_uuid,
-                        "", "",  # 成员字段留空
-                        new_income["date"],
-                        new_income["amount"],
-                        new_income["description"],
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    ])
-                    st.success(f"成功添加收入：{income_amount:.2f}元")
-                except Exception as e:
-                    st.warning(f"同步到表格失败: {str(e)}")
+                income_uuid = str(uuid.uuid4())
+                new_income = {
+                    "uuid": income_uuid,
+                    "date": income_date.strftime("%Y-%m-%d"),
+                    "amount": f"{income_amount:.2f}",
+                    "description": income_desc.strip()
+                }
+                st.session_state.incomes.append(new_income)
 
-    # 显示收入列表
-    st.divider()
-    st.markdown("**收入列表**", unsafe_allow_html=True)
-    if not st.session_state.incomes:
-        st.info("暂无收入，请添加")
-    else:
-        income_df = pd.DataFrame([
-            {"序号": i+1, "日期": m["date"], "金额(元)": m["amount"], "描述": m["description"]}
-            for i, m in enumerate(st.session_state.incomes)
-        ])
-        st.dataframe(income_df, use_container_width=True)
+                # 写入Google Sheet
+                if main_sheet:
+                    try:
+                        main_sheet.append_row([
+                            current_code,
+                            "income",
+                            income_uuid,
+                            "", "",  # 成员字段留空
+                            new_income["date"],
+                            new_income["amount"],
+                            new_income["description"],
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                        st.success(f"成功添加收入：{income_amount:.2f}元")
+                    except Exception as e:
+                        st.warning(f"同步到表格失败: {str(e)}")
 
-        # 删除收入
-        with st.expander("删除收入", expanded=False):
-            for income in st.session_state.incomes:
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    st.write(f"{income['date']} - {income['amount']}元：{income['description']}")
-                with col2:
-                    if st.button("删除", key=f"del_income_{income['uuid']}"):
-                        st.session_state.incomes = [x for x in st.session_state.incomes if x["uuid"] != income["uuid"]]
-                        if main_sheet:
-                            try:
-                                cell = main_sheet.find(income["uuid"])
-                                if cell:
-                                    row = main_sheet.row_values(cell.row)
-                                    if row[0] == current_code and row[1] == "income":
-                                        main_sheet.delete_rows(cell.row)
-                                        st.success("已删除收入记录")
-                                        st.rerun()
-                            except Exception as e:
-                                st.warning(f"删除同步失败: {str(e)}")
+        # 显示收入列表
+        st.divider()
+        st.markdown("**收入列表**", unsafe_allow_html=True)
+        if not st.session_state.incomes:
+            st.info("暂无收入，请添加")
+        else:
+            income_df = pd.DataFrame([
+                {"序号": i+1, "日期": m["date"], "金额(元)": m["amount"], "描述": m["description"]}
+                for i, m in enumerate(st.session_state.incomes)
+            ])
+            st.dataframe(income_df, use_container_width=True)
 
-    # ---------------------- 报销管理模块 ----------------------
-    st.subheader("🧾 报销管理")
-    st.write("记录和管理各项报销信息")
-    st.divider()
+            # 删除收入
+            with st.expander("删除收入", expanded=False):
+                for income in st.session_state.incomes:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"{income['date']} - {income['amount']}元：{income['description']}")
+                    with col2:
+                        if st.button("删除", key=f"del_income_{income['uuid']}"):
+                            st.session_state.incomes = [x for x in st.session_state.incomes if x["uuid"] != income["uuid"]]
+                            if main_sheet:
+                                try:
+                                    cell = main_sheet.find(income["uuid"])
+                                    if cell:
+                                        row = main_sheet.row_values(cell.row)
+                                        if row[0] == current_code and row[1] == "income":
+                                            main_sheet.delete_rows(cell.row)
+                                            st.success("已删除收入记录")
+                                            st.rerun()
+                                except Exception as e:
+                                    st.warning(f"删除同步失败: {str(e)}")
 
-    # 添加新报销（逻辑同收入，仅data_type不同）
-    with st.container():
-        st.markdown("**添加新报销**", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            exp_date = st.date_input("报销日期*", datetime.now(), key="exp_date")
-        with col2:
-            exp_amount = st.number_input("报销金额*", min_value=0.01, step=0.01, format="%.2f", key="exp_amount")
-        with col3:
-            exp_desc = st.text_input("报销描述*", placeholder="请输入报销事由", key="exp_desc")
-        
-        if st.button("确认添加报销", use_container_width=True, key="add_expense"):
-            if not exp_desc:
-                st.error("报销描述不能为空")
-                return
+    # ---------------------- 报销管理模块（标签页3） ----------------------
+    with tab3:
+        st.subheader("报销管理")
+        st.write("记录和管理各项报销信息")
+        st.divider()
 
-            exp_uuid = str(uuid.uuid4())
-            new_exp = {
-                "uuid": exp_uuid,
-                "date": exp_date.strftime("%Y-%m-%d"),
-                "amount": f"{exp_amount:.2f}",
-                "description": exp_desc.strip()
-            }
-            st.session_state.expenses.append(new_exp)
+        # 添加新报销（逻辑同收入，仅data_type不同）
+        with st.container():
+            st.markdown("**添加新报销**", unsafe_allow_html=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                exp_date = st.date_input("报销日期*", datetime.now(), key="exp_date")
+            with col2:
+                exp_amount = st.number_input("报销金额*", min_value=0.01, step=0.01, format="%.2f", key="exp_amount")
+            with col3:
+                exp_desc = st.text_input("报销描述*", placeholder="请输入报销事由", key="exp_desc")
+            
+            if st.button("确认添加报销", use_container_width=True, key="add_expense"):
+                if not exp_desc:
+                    st.error("报销描述不能为空")
+                    return
 
-            # 写入Google Sheet
-            if main_sheet:
-                try:
-                    main_sheet.append_row([
-                        current_code,
-                        "expense",  # 数据类型为expense
-                        exp_uuid,
-                        "", "",  # 成员字段留空
-                        new_exp["date"],
-                        new_exp["amount"],
-                        new_exp["description"],
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    ])
-                    st.success(f"成功添加报销：{exp_amount:.2f}元")
-                except Exception as e:
-                    st.warning(f"同步到表格失败: {str(e)}")
+                exp_uuid = str(uuid.uuid4())
+                new_exp = {
+                    "uuid": exp_uuid,
+                    "date": exp_date.strftime("%Y-%m-%d"),
+                    "amount": f"{exp_amount:.2f}",
+                    "description": exp_desc.strip()
+                }
+                st.session_state.expenses.append(new_exp)
 
-    # 显示报销列表
-    st.divider()
-    st.markdown("**报销列表**", unsafe_allow_html=True)
-    if not st.session_state.expenses:
-        st.info("暂无报销记录，请添加")
-    else:
-        exp_df = pd.DataFrame([
-            {"序号": i+1, "日期": m["date"], "金额(元)": m["amount"], "描述": m["description"]}
-            for i, m in enumerate(st.session_state.expenses)
-        ])
-        st.dataframe(exp_df, use_container_width=True)
+                # 写入Google Sheet
+                if main_sheet:
+                    try:
+                        main_sheet.append_row([
+                            current_code,
+                            "expense",  # 数据类型为expense
+                            exp_uuid,
+                            "", "",  # 成员字段留空
+                            new_exp["date"],
+                            new_exp["amount"],
+                            new_exp["description"],
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                        st.success(f"成功添加报销：{exp_amount:.2f}元")
+                    except Exception as e:
+                        st.warning(f"同步到表格失败: {str(e)}")
+
+        # 显示报销列表
+        st.divider()
+        st.markdown("**报销列表**", unsafe_allow_html=True)
+        if not st.session_state.expenses:
+            st.info("暂无报销记录，请添加")
+        else:
+            exp_df = pd.DataFrame([
+                {"序号": i+1, "日期": m["date"], "金额(元)": m["amount"], "描述": m["description"]}
+                for i, m in enumerate(st.session_state.expenses)
+            ])
+            st.dataframe(exp_df, use_container_width=True)
+
+            # 删除报销
+            with st.expander("删除报销", expanded=False):
+                for exp in st.session_state.expenses:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"{exp['date']} - {exp['amount']}元：{exp['description']}")
+                    with col2:
+                        if st.button("删除", key=f"del_expense_{exp['uuid']}"):
+                            st.session_state.expenses = [x for x in st.session_state.expenses if x["uuid"] != exp["uuid"]]
+                            if main_sheet:
+                                try:
+                                    cell = main_sheet.find(exp["uuid"])
+                                    if cell:
+                                        row = main_sheet.row_values(cell.row)
+                                        if row[0] == current_code and row[1] == "expense":
+                                            main_sheet.delete_rows(cell.row)
+                                            st.success("已删除报销记录")
+                                            st.rerun()
+                                except Exception as e:
+                                    st.warning(f"删除同步失败: {str(e)}")
 
     st.divider()
