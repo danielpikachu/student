@@ -33,7 +33,7 @@ def hash_password(password):
 def init_user_sheet():
     """初始化用户表结构（如果不存在）"""
     try:
-        # 检查用户表是否存在
+        # 检查用户表是否存在（使用正确的get_worksheet方法）
         gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
     except:
         # 创建用户表：用户名、加密密码、注册时间、最后登录时间
@@ -179,64 +179,33 @@ def require_login(func):
 def require_edit_permission(func):
     """编辑权限校验装饰器：控制非Groups模块的编辑权限"""
     def wrapper(*args, **kwargs):
-        # 设置是否可编辑的标志
-        is_editable = st.session_state.auth_is_admin
-        # 将权限标志通过kwargs传递给被装饰的函数
-        return func(*args, **kwargs, is_editable=is_editable)
+        # 管理员拥有完整编辑权限
+        if st.session_state.auth_is_admin:
+            return func(*args, **kwargs)
+        # 普通用户仅开放查看权限，隐藏编辑功能
+        st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
+        # 调用模块渲染函数（模块内部需通过session_state.auth_is_admin判断是否显示编辑组件）
+        return func(*args, **kwargs)
     return wrapper
 
 def require_group_edit_permission(func):
     """Group模块编辑权限校验装饰器：控制Group模块的编辑权限"""
     def wrapper(*args, **kwargs):
-        is_editable = False
         if st.session_state.auth_is_admin:
             # 管理员直接拥有所有Group编辑权限
-            is_editable = True
-        else:
-            # 普通用户需要输入Access Code
-            with st.sidebar.expander("🔑 Group访问验证", expanded=True):
-                access_code = st.text_input("请输入Group访问码", type="password")
-                if st.button("验证访问权限"):
-                    if access_code:  # 实际场景可添加Access Code有效性校验逻辑
-                        st.session_state.auth_current_group_code = access_code
-                        st.success("访问验证通过，可编辑当前Group！")
-                        is_editable = True
-                    else:
-                        st.error("请输入有效的访问码！")
-        # 传递编辑权限状态给模块
-        return func(*args, **kwargs, is_editable=is_editable)
+            return func(*args, **kwargs)
+        # 普通用户需要输入Access Code
+        with st.sidebar.expander("🔑 Group访问验证", expanded=True):
+            access_code = st.text_input("请输入Group访问码", type="password")
+            if st.button("验证访问权限"):
+                if access_code:  # 实际场景可添加Access Code有效性校验逻辑
+                    st.session_state.auth_current_group_code = access_code
+                    st.success("访问验证通过，可编辑当前Group！")
+                else:
+                    st.error("请输入有效的访问码！")
+        # 无论验证是否通过都渲染模块，模块内部通过auth_current_group_code判断编辑权限
+        return func(*args, **kwargs)
     return wrapper
-
-# ---------------------- 功能模块包装函数（带权限控制） ----------------------
-@require_login
-@require_edit_permission
-def render_calendar_wrapper(** kwargs):
-    render_calendar(**kwargs)
-
-@require_login
-@require_edit_permission
-def render_announcements_wrapper(** kwargs):
-    render_announcements(**kwargs)
-
-@require_login
-@require_edit_permission
-def render_financial_wrapper(** kwargs):
-    render_financial_planning(**kwargs)
-
-@require_login
-@require_edit_permission
-def render_attendance_wrapper(** kwargs):
-    render_attendance(**kwargs)
-
-@require_login
-@require_edit_permission
-def render_transfers_wrapper(** kwargs):
-    render_money_transfers(**kwargs)
-
-@require_login
-@require_group_edit_permission
-def render_groups_wrapper(** kwargs):
-    render_groups(**kwargs)
 
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
@@ -344,7 +313,7 @@ def main():
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
     
-    # 功能选项卡（6大模块）
+    # 功能选项卡（7大模块）
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Calendar",
         "📢 Announcements",
@@ -354,24 +323,19 @@ def main():
         "👥 Groups"
     ])
     
-    # 渲染各功能模块
+    # 渲染各功能模块（修复装饰器顺序，先检查编辑权限再检查登录状态）
     with tab1:
-        render_calendar_wrapper()
-    
+        require_edit_permission(require_login(render_calendar))()
     with tab2:
-        render_announcements_wrapper()
-    
+        require_edit_permission(require_login(render_announcements))()
     with tab3:
-        render_financial_wrapper()
-    
+        require_edit_permission(require_login(render_financial_planning))()
     with tab4:
-        render_attendance_wrapper()
-    
+        require_edit_permission(require_login(render_attendance))()
     with tab5:
-        render_transfers_wrapper()
-    
+        require_edit_permission(require_login(render_money_transfers))()
     with tab6:
-        render_groups_wrapper()
+        require_group_edit_permission(require_login(render_groups))()
 
 if __name__ == "__main__":
     main()
