@@ -3,12 +3,15 @@ import sys
 import os
 import hashlib
 from datetime import datetime
+
 # 解决根目录模块导入问题
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
+
 # 导入Google Sheets工具类
 from google_sheet_utils import GoogleSheetHandler
+
 # 导入功能模块
 from modules.calendar import render_calendar
 from modules.announcements import render_announcements
@@ -21,8 +24,12 @@ from modules.groups import render_groups
 # Google Sheet配置
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
+
 # 初始化Google Sheet处理器
 gs_handler = GoogleSheetHandler(credentials_path="")
+
+# 有效Group访问码列表（实际可从Google Sheet读取，此处为示例）
+VALID_GROUP_ACCESS_CODES = ["group_sc_01", "sc_team_2025", "student_group_001", "admin_grp_999"]
 
 # ---------------------- 密码加密工具 ----------------------
 def hash_password(password):
@@ -194,15 +201,15 @@ def require_group_edit_permission(func):
         if st.session_state.auth_is_admin:
             # 管理员直接拥有所有Group编辑权限
             return func(*args, **kwargs)
-        # 普通用户需要输入Access Code
+        # 普通用户需要输入有效Access Code
         with st.sidebar.expander("🔑 Group访问验证", expanded=True):
             access_code = st.text_input("请输入Group访问码", type="password")
             if st.button("验证访问权限"):
-                if access_code:  # 实际场景可添加Access Code有效性校验逻辑
+                if access_code in VALID_GROUP_ACCESS_CODES:
                     st.session_state.auth_current_group_code = access_code
                     st.success("访问验证通过，可编辑当前Group！")
                 else:
-                    st.error("请输入有效的访问码！")
+                    st.error("无效的访问码，请重新输入！")
         # 无论验证是否通过都渲染模块，模块内部通过auth_current_group_code判断编辑权限
         return func(*args, **kwargs)
     return wrapper
@@ -323,19 +330,48 @@ def main():
         "👥 Groups"
     ])
     
-    # 渲染各功能模块（通过装饰器控制权限）
+    # 渲染各功能模块（修正装饰器调用方式，确保权限生效）
     with tab1:
-        require_login(require_edit_permission(render_calendar))()
+        @require_login
+        @require_edit_permission
+        def render_calendar_tab():
+            render_calendar()
+        render_calendar_tab()
+    
     with tab2:
-        require_login(require_edit_permission(render_announcements))()
+        @require_login
+        @require_edit_permission
+        def render_announcements_tab():
+            render_announcements()
+        render_announcements_tab()
+    
     with tab3:
-        require_login(require_edit_permission(render_financial_planning))()
+        @require_login
+        @require_edit_permission
+        def render_financial_planning_tab():
+            render_financial_planning()
+        render_financial_planning_tab()
+    
     with tab4:
-        require_login(require_edit_permission(render_attendance))()
+        @require_login
+        @require_edit_permission
+        def render_attendance_tab():
+            render_attendance()
+        render_attendance_tab()
+    
     with tab5:
-        require_login(require_edit_permission(render_money_transfers))()
+        @require_login
+        @require_edit_permission
+        def render_money_transfers_tab():
+            render_money_transfers()
+        render_money_transfers_tab()
+    
     with tab6:
-        require_login(require_group_edit_permission(render_groups))()
+        @require_login
+        @require_group_edit_permission
+        def render_groups_tab():
+            render_groups()
+        render_groups_tab()
 
 if __name__ == "__main__":
     main()
