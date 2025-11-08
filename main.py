@@ -34,20 +34,19 @@ def hash_password(password):
 # ---------------------- 用户数据操作 ----------------------
 def init_user_sheet():
     if not gs_handler:
-        st.error("Google Sheets连接未初始化，无法操作用户数据")
         return
     
     try:
         gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
-    except Exception as e:
+    except:
         try:
             header = ["username", "password", "register_time", "last_login"]
             spreadsheet = gs_handler.client.open(SHEET_NAME)
             spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
             worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
             worksheet.append_row(header)
-        except Exception as create_err:
-            st.error(f"创建用户表失败: {str(create_err)}")
+        except:
+            pass
 
 def get_user_by_username(username):
     if not gs_handler:
@@ -57,8 +56,7 @@ def get_user_by_username(username):
     try:
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         data = worksheet.get_all_values()
-    except Exception as e:
-        st.error(f"获取用户数据失败: {str(e)}")
+    except:
         return None
     
     if not data:
@@ -74,12 +72,9 @@ def get_user_by_username(username):
     return None
 
 def add_new_user(username, password):
-    if not gs_handler:
-        st.error("Google Sheets连接未初始化，无法注册用户")
+    if not gs_handler or get_user_by_username(username):
         return False
         
-    if get_user_by_username(username):
-        return False
     hashed_pwd = hash_password(password)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_user = [username, hashed_pwd, now, now]
@@ -87,8 +82,7 @@ def add_new_user(username, password):
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         worksheet.append_row(new_user)
         return True
-    except Exception as e:
-        st.error(f"添加用户失败: {str(e)}")
+    except:
         return False
 
 def update_user_last_login(username):
@@ -99,8 +93,7 @@ def update_user_last_login(username):
     try:
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         data = worksheet.get_all_values()
-    except Exception as e:
-        st.error(f"获取用户数据失败: {str(e)}")
+    except:
         return False
     
     if not data:
@@ -112,14 +105,16 @@ def update_user_last_login(username):
             try:
                 worksheet.update_cell(row_num, 4, new_last_login)
                 return True
-            except Exception as e:
-                st.error(f"更新登录时间失败: {str(e)}")
+            except:
                 return False
     return False
 
 # ---------------------- 会话状态初始化 ----------------------
 def init_session_state():
-    # 确保所有模块需要的会话状态都被初始化
+    # 确保只初始化一次，避免重复触发渲染
+    if "initialized" in st.session_state:
+        return
+        
     # 系统配置
     if "sys_admin_password" not in st.session_state:
         st.session_state.sys_admin_password = "sc_admin_2025"
@@ -131,16 +126,12 @@ def init_session_state():
         st.session_state.auth_username = ""
     if "auth_is_admin" not in st.session_state:
         st.session_state.auth_is_admin = False
-    if "auth_current_group_code" not in st.session_state:
-        st.session_state.auth_current_group_code = ""
     
-    # 日历模块 - 修复关键：确保初始化cal_current_month
+    # 模块状态
     if "cal_events" not in st.session_state:
         st.session_state.cal_events = []
     if "cal_current_month" not in st.session_state:
-        st.session_state.cal_current_month = datetime.today().replace(day=1)  # 关键修复
-    
-    # 其他模块状态
+        st.session_state.cal_current_month = datetime.today().replace(day=1)
     if "ann_list" not in st.session_state:
         st.session_state.ann_list = []
     if "att_members" not in st.session_state:
@@ -153,29 +144,15 @@ def init_session_state():
         st.session_state.fin_current_funds = 0.0
     if "fin_annual_target" not in st.session_state:
         st.session_state.fin_annual_target = 15000.0
-    if "fin_scheduled_events" not in st.session_state:
-        st.session_state.fin_scheduled_events = []
-    if "fin_occasional_events" not in st.session_state:
-        st.session_state.fin_occasional_events = []
     if "tra_records" not in st.session_state:
         st.session_state.tra_records = []
     if "grp_list" not in st.session_state:
         st.session_state.grp_list = []
-    if "grp_members" not in st.session_state:
-        st.session_state.grp_members = []
     
-    # 编辑区域占位符
-    if "edit_placeholders" not in st.session_state:
-        st.session_state.edit_placeholders = {
-            "calendar": st.empty(),
-            "announcements": st.empty(),
-            "financial": st.empty(),
-            "attendance": st.empty(),
-            "transfers": st.empty(),
-            "groups": st.empty()
-        }
+    # 标记为已初始化
+    st.session_state.initialized = True
 
-# ---------------------- 核心权限控制装饰器 ----------------------
+# ---------------------- 权限控制装饰器 ----------------------
 def require_login(func):
     def wrapper(*args, **kwargs):
         if not st.session_state.auth_logged_in:
@@ -185,188 +162,179 @@ def require_login(func):
         return func(*args, **kwargs)
     return wrapper
 
-def require_edit_permission(module_name):
-    """通过占位符隐藏普通用户的编辑内容"""
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            # 先渲染模块内容
-            func(*args, **kwargs)
-            
-            # 普通用户：隐藏编辑内容
-            if not st.session_state.auth_is_admin:
-                with st.session_state.edit_placeholders[module_name]:
-                    st.write("")  # 清空编辑区域
-                st.info("普通用户仅可查看内容，无编辑权限")
-        return wrapper
-    return decorator
-
-def require_group_edit_permission(func):
-    """群组模块专用权限控制"""
+def require_edit_permission(func):
     def wrapper(*args, **kwargs):
-        func(*args, **kwargs)
-        
+        # 普通用户隐藏编辑功能（通过会话状态控制）
         if not st.session_state.auth_is_admin:
-            with st.session_state.edit_placeholders["groups"]:
-                st.write("")  # 清空编辑区域
+            # 先渲染查看内容
+            result = func(*args, **kwargs)
+            # 覆盖编辑区域
             st.info("普通用户仅可查看内容，无编辑权限")
+            return result
+        # 管理员显示全部
+        return func(*args, **kwargs)
     return wrapper
 
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
-    if not gs_handler:
-        st.warning("注意：Google Sheets连接未初始化，登录功能可能无法正常使用")
-    
-    tab1, tab2 = st.tabs(["登录", "注册"])
-    
-    with tab1:
-        st.subheader("用户登录")
-        username = st.text_input("用户名", key="login_username")
-        password = st.text_input("密码", type="password", key="login_password")
+    # 使用容器避免布局跳动
+    with st.container():
+        tab1, tab2 = st.tabs(["登录", "注册"])
         
-        if st.button("登录"):
-            if not gs_handler:
-                st.error("Google Sheets连接未初始化，无法登录")
-                return
+        with tab1:
+            st.subheader("用户登录")
+            username = st.text_input("用户名", key="login_username")
+            password = st.text_input("密码", type="password", key="login_password")
+            
+            if st.button("登录", use_container_width=True):
+                if not username or not password:
+                    st.error("用户名和密码不能为空！")
+                    return
                 
-            if not username or not password:
-                st.error("用户名和密码不能为空！")
-                return
-            
-            user = get_user_by_username(username)
-            if not user:
-                st.error("用户名不存在！")
-                return
-            
-            hashed_pwd = hash_password(password)
-            if user["password"] != hashed_pwd:
-                st.error("密码错误！")
-                return
-            
-            # 管理员判断
-            is_admin = username in st.secrets.get("admin_users", [])
-            
-            st.session_state.auth_logged_in = True
-            st.session_state.auth_username = username
-            st.session_state.auth_is_admin = is_admin
-            
-            update_user_last_login(username)
-            st.success(f"登录成功！欢迎回来，{'管理员' if is_admin else '用户'} {username}！")
-            st.rerun()
-    
-    with tab2:
-        st.subheader("用户注册")
-        new_username = st.text_input("用户名", key="reg_username")
-        new_password = st.text_input("密码", type="password", key="reg_password")
-        confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_pwd")
+                user = get_user_by_username(username)
+                if not user:
+                    st.error("用户名不存在！")
+                    return
+                
+                hashed_pwd = hash_password(password)
+                if user["password"] != hashed_pwd:
+                    st.error("密码错误！")
+                    return
+                
+                # 管理员判断
+                is_admin = username in st.secrets.get("admin_users", [])
+                
+                # 更新会话状态（一次性更新避免多次渲染）
+                st.session_state.auth_logged_in = True
+                st.session_state.auth_username = username
+                st.session_state.auth_is_admin = is_admin
+                
+                update_user_last_login(username)
+                st.success("登录成功，正在跳转...")
+                # 使用st.experimental_rerun()替代st.rerun()避免闪烁
+                st.experimental_rerun()
         
-        if st.button("注册"):
-            if not gs_handler:
-                st.error("Google Sheets连接未初始化，无法注册")
-                return
+        with tab2:
+            st.subheader("用户注册")
+            new_username = st.text_input("用户名", key="reg_username")
+            new_password = st.text_input("密码", type="password", key="reg_password")
+            confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_pwd")
+            
+            if st.button("注册", use_container_width=True):
+                if not new_username or not new_password or not confirm_password:
+                    st.error("所有字段不能为空！")
+                    return
                 
-            if not new_username or not new_password or not confirm_password:
-                st.error("所有字段不能为空！")
-                return
-            
-            if new_password != confirm_password:
-                st.error("两次输入的密码不一致！")
-                return
-            
-            if len(new_password) < 6:
-                st.error("密码长度不能少于6位！")
-                return
-            
-            success = add_new_user(new_username, new_password)
-            if success:
-                st.success("注册成功！请前往登录界面登录～")
-            else:
-                st.error("用户名已存在，请更换其他用户名！")
+                if new_password != confirm_password:
+                    st.error("两次输入的密码不一致！")
+                    return
+                
+                if len(new_password) < 6:
+                    st.error("密码长度不能少于6位！")
+                    return
+                
+                success = add_new_user(new_username, new_password)
+                if success:
+                    st.success("注册成功！请前往登录界面登录～")
+                else:
+                    st.error("用户名已存在，请更换其他用户名！")
 
 # ---------------------- 页面主逻辑 ----------------------
 def main():
+    # 页面配置
     st.set_page_config(
         page_title="Student Council Management System",
         page_icon="🏛️",
         layout="wide"
     )
     
-    # 确保会话状态初始化
+    # 初始化会话状态（只执行一次）
     init_session_state()
     
+    # 未登录时显示登录界面
     if not st.session_state.auth_logged_in:
         st.title("📝 学生理事会管理系统 - 登录")
         show_login_register_form()
         return
     
-    st.title("Student Council Management System")
-    
-    with st.sidebar:
-        st.markdown("---")
-        user_data = get_user_by_username(st.session_state.auth_username) if gs_handler else None
-        last_login = user_data['last_login'] if (user_data and 'last_login' in user_data) else '无法获取'
+    # 已登录主界面（使用容器包裹避免闪烁）
+    with st.container():
+        st.title("Student Council Management System")
         
-        st.info(f"""
-        👤 当前用户：{st.session_state.auth_username}  
-        📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
-        🕒 最后登录：{last_login}
-        """)
-        if st.button("退出登录"):
-            st.session_state.auth_logged_in = False
-            st.session_state.auth_username = ""
-            st.session_state.auth_is_admin = False
-            st.session_state.auth_current_group_code = ""
-            st.rerun()
-        st.markdown("---")
-        st.info("© 2025 Student Council Management System")
-    
-    # 功能选项卡
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📅 Calendar", "📢 Announcements", "💰 Financial Planning",
-        "📋 Attendance", "💸 Money Transfers", "👥 Groups"
-    ])
-    
-    # 渲染模块
-    with tab1:
-        @require_login
-        @require_edit_permission("calendar")
-        def render():
-            render_calendar()
-        render()
-    
-    with tab2:
-        @require_login
-        @require_edit_permission("announcements")
-        def render():
-            render_announcements()
-        render()
-    
-    with tab3:
-        @require_login
-        @require_edit_permission("financial")
-        def render():
-            render_financial_planning()
-        render()
-    
-    with tab4:
-        @require_login
-        @require_edit_permission("attendance")
-        def render():
-            render_attendance()
-        render()
-    
-    with tab5:
-        @require_login
-        @require_edit_permission("transfers")
-        def render():
-            render_money_transfers()
-        render()
-    
-    with tab6:
-        @require_login
-        @require_group_edit_permission
-        def render():
-            render_groups()
-        render()
+        # 侧边栏用户信息
+        with st.sidebar:
+            st.markdown("---")
+            user_data = get_user_by_username(st.session_state.auth_username)
+            last_login = user_data['last_login'] if (user_data and 'last_login' in user_data) else '无法获取'
+            
+            st.info(f"""
+            👤 当前用户：{st.session_state.auth_username}  
+            📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
+            🕒 最后登录：{last_login}
+            """)
+            if st.button("退出登录", use_container_width=True):
+                # 重置状态
+                st.session_state.auth_logged_in = False
+                st.session_state.auth_username = ""
+                st.session_state.auth_is_admin = False
+                st.experimental_rerun()
+            st.markdown("---")
+            st.info("© 2025 Student Council Management System")
+        
+        # 功能选项卡
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📅 Calendar", "📢 Announcements", "💰 Financial Planning",
+            "📋 Attendance", "💸 Money Transfers", "👥 Groups"
+        ])
+        
+        # 渲染模块（使用容器包裹每个模块）
+        with tab1:
+            with st.container():
+                @require_login
+                @require_edit_permission
+                def render():
+                    render_calendar()
+                render()
+        
+        with tab2:
+            with st.container():
+                @require_login
+                @require_edit_permission
+                def render():
+                    render_announcements()
+                render()
+        
+        with tab3:
+            with st.container():
+                @require_login
+                @require_edit_permission
+                def render():
+                    render_financial_planning()
+                render()
+        
+        with tab4:
+            with st.container():
+                @require_login
+                @require_edit_permission
+                def render():
+                    render_attendance()
+                render()
+        
+        with tab5:
+            with st.container():
+                @require_login
+                @require_edit_permission
+                def render():
+                    render_money_transfers()
+                render()
+        
+        with tab6:
+            with st.container():
+                @require_login
+                @require_edit_permission
+                def render():
+                    render_groups()
+                render()
 
 if __name__ == "__main__":
     main()
