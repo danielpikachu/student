@@ -178,7 +178,7 @@ def render_groups():
 
     # ---------------------- 成员管理模块（标签页1）----------------------
     with tab1:
-        st.subheader("成员管理")
+        st.markdown("<h3 style='font-size: 16px'>成员管理</h3>", unsafe_allow_html=True)
         st.write("管理成员的基本信息（姓名、学生ID）")
         st.divider()
 
