@@ -63,17 +63,23 @@ class PermissionedGoogleSheetHandler(OriginalGoogleSheetHandler):
             return super().write_sheet(spreadsheet_name, worksheet_name, data)
         else:
             return None
-# ---------------------- 核心功能：注入CSS隐藏编辑组件 ----------------------
+# ---------------------- 核心功能：注入CSS隐藏编辑组件（精准匹配，不影响模块切换） ----------------------
 def inject_edit_hide_css():
-    """注入CSS样式，隐藏所有编辑相关组件（普通用户专用）"""
+    """注入CSS样式，仅隐藏编辑相关组件，保留模块标签页和查看功能"""
     if not st.session_state.get("auth_allow_edit", False):
         st.markdown("""
         <style>
-        /* 隐藏所有按钮（除了退出登录和同步按钮） */
-        button:not([aria-label="退出登录"]):not([aria-label="🔄 同步数据"]):not([aria-label="Clear cache"]) {
+        /* 1. 隐藏所有编辑类按钮（精准排除保留按钮） */
+        button:not(
+            [aria-label="退出登录"], 
+            [aria-label="🔄 同步数据"],
+            [data-testid="stTab"] button,  /* 保留标签页切换按钮 */
+            [data-baseweb="tab"] button     /* 保留模块内子标签页按钮 */
+        ) {
             display: none !important;
         }
-        /* 隐藏输入框、文本域、文件上传器、单选框组 */
+        
+        /* 2. 隐藏编辑类输入组件（不影响查看类展示） */
         input[type="text"],
         input[type="password"],
         input[type="number"],
@@ -82,21 +88,32 @@ def inject_edit_hide_css():
         div[data-baseweb="radio-group"],
         div[data-baseweb="select"],
         div[data-baseweb="date-input"],
-        /* 隐藏表单提交按钮 */
-        button[type="submit"],
-        /* 隐藏展开面板（管理员操作面板） */
+        div[data-baseweb="checkbox"],
+        
+        /* 3. 隐藏表单和管理员操作面板 */
+        div[role="form"],
         div[data-baseweb="expander"][aria-label*="Admin"],
         div[data-baseweb="expander"][aria-label*="管理"],
-        /* 隐藏标签页中的编辑相关区域 */
-        div[role="form"],
-        /* 隐藏侧边栏中的访问码输入区域（普通用户Groups模块） */
-        div[data-baseweb="expander"][aria-label="🔑 Group访问验证"] {
+        div[data-baseweb="expander"][aria-label*="删除"],
+        
+        /* 4. 隐藏Groups模块未验证时的编辑区域 */
+        div[data-testid="stSidebar"] div[data-baseweb="expander"][aria-label="🔑 Group访问验证"] {
             display: none !important;
         }
-        /* 隐藏数字输入框的增减按钮 */
+        
+        /* 5. 禁用数字输入框的增减按钮（仅隐藏，不影响查看） */
         input[type="number"]::-webkit-inner-spin-button,
         input[type="number"]::-webkit-outer-spin-button {
             display: none !important;
+        }
+        
+        /* 6. 确保标签页正常显示（防止被误隐藏） */
+        div[data-testid="stTabs"],
+        div[data-baseweb="tabs"],
+        div[data-baseweb="tab-list"],
+        div[data-baseweb="tab"] {
+            display: flex !important;
+            visibility: visible !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -286,14 +303,12 @@ def require_edit_permission(func):
         # 管理员：允许编辑
         if st.session_state.auth_is_admin:
             st.session_state.auth_allow_edit = True
-            # 注入CSS（管理员显示所有组件）
             inject_edit_hide_css()
             result = func(*args, **kwargs)
             return result
         # 普通用户：禁止编辑，隐藏组件
         st.session_state.auth_allow_edit = False
         st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        # 注入CSS隐藏编辑组件
         inject_edit_hide_css()
         result = func(*args, **kwargs)
         return result
@@ -307,13 +322,23 @@ def require_group_edit_permission(func):
             inject_edit_hide_css()
             result = func(*args, **kwargs)
             return result
-        # 普通用户：未验证则隐藏编辑组件
+        # 普通用户：单独处理访问码验证（不隐藏）
         st.session_state.auth_allow_edit = False
         st.warning("请先通过Group访问码验证，才能进行编辑操作。")
-        # 注入CSS隐藏编辑组件
+        
+        # 注入CSS（先隐藏编辑组件）
         inject_edit_hide_css()
         
-        # 显示访问码验证（单独保留，不隐藏）
+        # 重新显示访问码验证区域（覆盖CSS隐藏）
+        st.markdown("""
+        <style>
+        div[data-testid="stSidebar"] div[data-baseweb="expander"][aria-label="🔑 Group访问验证"] {
+            display: block !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # 显示访问码验证表单
         with st.sidebar.expander("🔑 Group访问验证", expanded=True):
             access_code = st.text_input("请输入Group访问码", type="password")
             verify_btn = st.button("验证访问权限")
@@ -442,7 +467,7 @@ def main():
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
     
-    # 功能选项卡（7大模块）
+    # 功能选项卡（7大模块）- 确保标签页正常显示
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Calendar",
         "📢 Announcements",
