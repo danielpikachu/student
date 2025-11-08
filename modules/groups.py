@@ -38,9 +38,6 @@ def render_groups():
     for key in ["members", "incomes", "expenses"]:
         if key not in st.session_state:
             st.session_state[key] = []
-    # Initialize edit permission state
-    if "can_edit" not in st.session_state:
-        st.session_state.can_edit = False
 
     # Login interface
     if not st.session_state.logged_in:
@@ -48,7 +45,7 @@ def render_groups():
         st.caption("Please enter the access code to enter the corresponding group management")
         st.divider()
         
-        access_code = st.text_input("Access Code", placeholder="e.g.: GROUP001", type="password")
+        access_code = st.text_input("Access Code", placeholder="e.g., GROUP001", type="password")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Login", use_container_width=True):
@@ -56,18 +53,15 @@ def render_groups():
                     st.session_state.logged_in = True
                     st.session_state.current_group = ACCESS_CODES[access_code]
                     st.session_state.current_group_code = access_code
-                    # Determine edit permission (all groups have edit permission in this version)
-                    st.session_state.can_edit = True
                     st.success(f"Login successful, welcome to {ACCESS_CODES[access_code]}")
                     st.rerun()
                 else:
-                    st.error("Invalid access code, please re-enter")
+                    st.error("Invalid access code, please try again")
         with col2:
             if st.button("Clear", use_container_width=True):
                 st.session_state.logged_in = False
                 st.session_state.current_group = None
                 st.session_state.current_group_code = None
-                st.session_state.can_edit = False
                 st.rerun()
         return
 
@@ -76,12 +70,11 @@ def render_groups():
     st.caption("Includes three functional modules: member management, income management, and reimbursement management")
     st.divider()
 
-    # Logout/switch group button
+    # Logout/Switch group button
     if st.button("Switch Group", key="logout_btn"):
         st.session_state.logged_in = False
         st.session_state.current_group = None
         st.session_state.current_group_code = None
-        st.session_state.can_edit = False
         st.session_state.members = []
         st.session_state.incomes = []
         st.session_state.expenses = []
@@ -99,7 +92,7 @@ def render_groups():
         )
     except Exception as e:
         st.error(f"Google Sheets initialization failed: {str(e)}")
-        # If the worksheet does not exist, try to create it automatically (ensure permission)
+        # If worksheet doesn't exist, try to create it automatically (ensure permission)
         if "Worksheet not found" in str(e) and sheet_handler:
             with st.spinner("Trying to create worksheet AllGroupsData..."):
                 try:
@@ -109,7 +102,7 @@ def render_groups():
                         rows=1000,
                         cols=20
                     )
-                    # Initialize header
+                    # Initialize header row
                     headers = ["group_code", "data_type", "uuid", 
                                "name", "student_id",  # Member-specific fields
                                "date", "amount", "description",  # Income/reimbursement specific fields
@@ -131,7 +124,7 @@ def render_groups():
                 main_sheet.append_row(headers)
                 all_rows = [headers]
             
-            # Parse header to determine field indices (avoid errors due to field order changes)
+            # Parse header row to determine field indices (avoid errors from field order changes)
             header = all_rows[0]
             col_indices = {col: idx for idx, col in enumerate(header)}
             required_cols = ["group_code", "data_type", "uuid", "created_at"]
@@ -146,7 +139,7 @@ def render_groups():
                     "name": row[col_indices["name"]],
                     "student_id": row[col_indices["student_id"]]
                 }
-                for row in all_rows[1:]  # Skip header
+                for row in all_rows[1:]  # Skip header row
                 if row[col_indices["group_code"]] == current_code 
                 and row[col_indices["data_type"]] == "member"
             ]
@@ -183,54 +176,53 @@ def render_groups():
     # Create horizontal tabs
     tab1, tab2, tab3 = st.tabs(["👥 Member Management", "💰 Income Management", "🧾 Reimbursement Management"])
 
-    # ---------------------- Member Management Module (Tab 1)----------------------
+    # ---------------------- Member Management Module (Tab 1) ----------------------
     with tab1:
         st.markdown("<h3 style='font-size: 16px'>Member Management</h3>", unsafe_allow_html=True)
         st.write("Manage basic information of members (name, student ID)")
         st.divider()
 
-        # Add new member - only visible if can_edit is True
-        if st.session_state.can_edit:
-            with st.container():
-                st.markdown("**Add New Member**", unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
-                with col1:
-                    name = st.text_input("Member Name*", placeholder="Please enter name")
-                with col2:
-                    student_id = st.text_input("Student ID*", placeholder="Please enter unique ID")
-                
-                if st.button("Confirm Add Member", use_container_width=True, key="add_member"):
-                    if not name or not student_id:
-                        st.error("Name and Student ID cannot be empty")
-                        return
-                    if any(m["student_id"] == student_id for m in st.session_state.members):
-                        st.error(f"Student ID {student_id} already exists")
-                        return
+        # Add new member
+        with st.container():
+            st.markdown("**Add New Member**", unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                name = st.text_input("Member Name*", placeholder="Please enter name")
+            with col2:
+                student_id = st.text_input("Student ID*", placeholder="Please enter unique ID")
+            
+            if st.button("Confirm Add Member", use_container_width=True, key="add_member"):
+                if not name or not student_id:
+                    st.error("Name and Student ID cannot be empty")
+                    return
+                if any(m["student_id"] == student_id for m in st.session_state.members):
+                    st.error(f"Student ID {student_id} already exists")
+                    return
 
-                    # Generate unique ID
-                    member_uuid = str(uuid.uuid4())
-                    new_member = {
-                        "uuid": member_uuid,
-                        "name": name.strip(),
-                        "student_id": student_id.strip()
-                    }
-                    st.session_state.members.append(new_member)
+                # Generate unique ID
+                member_uuid = str(uuid.uuid4())
+                new_member = {
+                    "uuid": member_uuid,
+                    "name": name.strip(),
+                    "student_id": student_id.strip()
+                }
+                st.session_state.members.append(new_member)
 
-                    # Write to Google Sheet (single sheet)
-                    if main_sheet:
-                        try:
-                            main_sheet.append_row([
-                                current_code,  # group_code
-                                "member",      # data_type
-                                member_uuid,   # uuid
-                                name.strip(),  # name
-                                student_id.strip(),  # student_id
-                                "", "", "",    # Leave income/reimbursement fields empty
-                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # created_at
-                            ])
-                            st.success(f"Successfully added member: {name}")
-                        except Exception as e:
-                            st.warning(f"Failed to sync to sheet: {str(e)}")
+                # Write to Google Sheet (single sheet)
+                if main_sheet:
+                    try:
+                        main_sheet.append_row([
+                            current_code,  # group_code
+                            "member",      # data_type
+                            member_uuid,   # uuid
+                            name.strip(),  # name
+                            student_id.strip(),  # student_id
+                            "", "", "",    # Leave income/reimbursement fields empty
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # created_at
+                        ])
+                        st.success(f"Successfully added member: {name}")
+                    except Exception as e:
+                        st.warning(f"Failed to sync to sheet: {str(e)}")
 
         # Display member list
         st.divider()
@@ -239,84 +231,82 @@ def render_groups():
             st.info("No members yet, please add")
         else:
             member_df = pd.DataFrame([
-                {"Serial Number": i+1, "Name": m["name"], "Student ID": m["student_id"]}
+                {"Serial No.": i+1, "Name": m["name"], "Student ID": m["student_id"]}
                 for i, m in enumerate(st.session_state.members)
             ])
             st.dataframe(member_df, use_container_width=True)
 
-            # Delete member - only visible if can_edit is True
-            if st.session_state.can_edit:
-                with st.expander("Delete Member", expanded=False):
-                    for m in st.session_state.members:
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            st.write(f"{m['name']} (ID: {m['student_id']})")
-                        with col2:
-                            if st.button("Delete", key=f"del_member_{m['uuid']}"):
-                                # Local deletion
-                                st.session_state.members = [x for x in st.session_state.members if x["uuid"] != m["uuid"]]
-                                # Sheet deletion (locate by uuid)
-                                if main_sheet:
-                                    try:
-                                        cell = main_sheet.find(m["uuid"])
-                                        if cell:
-                                            row = main_sheet.row_values(cell.row)
-                                            # Double verification: ensure it's current group's data
-                                            if row[0] == current_code and row[1] == "member":
-                                                main_sheet.delete_rows(cell.row)
-                                                st.success(f"Deleted {m['name']}")
-                                                st.rerun()
-                                    except Exception as e:
-                                        st.warning(f"Deletion sync failed: {str(e)}")
+            # Delete member
+            with st.expander("Delete Member", expanded=False):
+                for m in st.session_state.members:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"{m['name']} (ID: {m['student_id']})")
+                    with col2:
+                        if st.button("Delete", key=f"del_member_{m['uuid']}"):
+                            # Local deletion
+                            st.session_state.members = [x for x in st.session_state.members if x["uuid"] != m["uuid"]]
+                            # Sheet deletion (locate by uuid)
+                            if main_sheet:
+                                try:
+                                    cell = main_sheet.find(m["uuid"])
+                                    if cell:
+                                        row = main_sheet.row_values(cell.row)
+                                        # Double verification: ensure it's current group's data
+                                        if row[0] == current_code and row[1] == "member":
+                                            main_sheet.delete_rows(cell.row)
+                                            st.success(f"Deleted {m['name']}")
+                                            st.rerun()
+                                except Exception as e:
+                                    st.warning(f"Deletion sync failed: {str(e)}")
 
-    # ---------------------- Income Management Module (Tab 2)----------------------
+    # ---------------------- Income Management Module (Tab 2) ----------------------
     with tab2:
         st.markdown("<h3 style='font-size: 16px'>Income Management</h3>", unsafe_allow_html=True)
         st.write("Record and manage various income information")
         st.divider()
 
-        # Add new income - only visible if can_edit is True
-        if st.session_state.can_edit:
-            with st.container():
-                st.markdown("**Add New Income**", unsafe_allow_html=True)
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    income_date = st.date_input("Date*", datetime.now())
-                with col2:
-                    income_amount = st.number_input("Amount*", min_value=0.01, step=0.01, format="%.2f")
-                with col3:
-                    income_desc = st.text_input("Description*", placeholder="Please enter income source")
-                
-                if st.button("Confirm Add Income", use_container_width=True, key="add_income"):
-                    if not income_desc:
-                        st.error("Income description cannot be empty")
-                        return
+        # Add new income
+        with st.container():
+            st.markdown("**Add New Income**", unsafe_allow_html=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                income_date = st.date_input("Date*", datetime.now())
+            with col2:
+                income_amount = st.number_input("Amount*", min_value=0.01, step=0.01, format="%.2f")
+            with col3:
+                income_desc = st.text_input("Description*", placeholder="Please enter income source")
+            
+            if st.button("Confirm Add Income", use_container_width=True, key="add_income"):
+                if not income_desc:
+                    st.error("Income description cannot be empty")
+                    return
 
-                    income_uuid = str(uuid.uuid4())
-                    new_income = {
-                        "uuid": income_uuid,
-                        "date": income_date.strftime("%Y-%m-%d"),
-                        "amount": f"{income_amount:.2f}",
-                        "description": income_desc.strip()
-                    }
-                    st.session_state.incomes.append(new_income)
+                income_uuid = str(uuid.uuid4())
+                new_income = {
+                    "uuid": income_uuid,
+                    "date": income_date.strftime("%Y-%m-%d"),
+                    "amount": f"{income_amount:.2f}",
+                    "description": income_desc.strip()
+                }
+                st.session_state.incomes.append(new_income)
 
-                    # Write to Google Sheet
-                    if main_sheet:
-                        try:
-                            main_sheet.append_row([
-                                current_code,
-                                "income",
-                                income_uuid,
-                                "", "",  # Leave member fields empty
-                                new_income["date"],
-                                new_income["amount"],
-                                new_income["description"],
-                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            ])
-                            st.success(f"Successfully added income: ¥{income_amount:.2f}")
-                        except Exception as e:
-                            st.warning(f"Failed to sync to sheet: {str(e)}")
+                # Write to Google Sheet
+                if main_sheet:
+                    try:
+                        main_sheet.append_row([
+                            current_code,
+                            "income",
+                            income_uuid,
+                            "", "",  # Leave member fields empty
+                            new_income["date"],
+                            new_income["amount"],
+                            new_income["description"],
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                        st.success(f"Successfully added income: ¥{income_amount:.2f}")
+                    except Exception as e:
+                        st.warning(f"Failed to sync to sheet: {str(e)}")
 
         # Display income list
         st.divider()
@@ -325,81 +315,79 @@ def render_groups():
             st.info("No income records yet, please add")
         else:
             income_df = pd.DataFrame([
-                {"Serial Number": i+1, "Date": m["date"], "Amount (¥)": m["amount"], "Description": m["description"]}
+                {"Serial No.": i+1, "Date": m["date"], "Amount (¥)": m["amount"], "Description": m["description"]}
                 for i, m in enumerate(st.session_state.incomes)
             ])
             st.dataframe(income_df, use_container_width=True)
 
-            # Delete income - only visible if can_edit is True
-            if st.session_state.can_edit:
-                with st.expander("Delete Income", expanded=False):
-                    for income in st.session_state.incomes:
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            st.write(f"{income['date']} - ¥{income['amount']}: {income['description']}")
-                        with col2:
-                            if st.button("Delete", key=f"del_income_{income['uuid']}"):
-                                st.session_state.incomes = [x for x in st.session_state.incomes if x["uuid"] != income["uuid"]]
-                                if main_sheet:
-                                    try:
-                                        cell = main_sheet.find(income["uuid"])
-                                        if cell:
-                                            row = main_sheet.row_values(cell.row)
-                                            if row[0] == current_code and row[1] == "income":
-                                                main_sheet.delete_rows(cell.row)
-                                                st.success("Income record deleted")
-                                                st.rerun()
-                                    except Exception as e:
-                                        st.warning(f"Deletion sync failed: {str(e)}")
+            # Delete income
+            with st.expander("Delete Income", expanded=False):
+                for income in st.session_state.incomes:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"{income['date']} - ¥{income['amount']}: {income['description']}")
+                    with col2:
+                        if st.button("Delete", key=f"del_income_{income['uuid']}"):
+                            st.session_state.incomes = [x for x in st.session_state.incomes if x["uuid"] != income["uuid"]]
+                            if main_sheet:
+                                try:
+                                    cell = main_sheet.find(income["uuid"])
+                                    if cell:
+                                        row = main_sheet.row_values(cell.row)
+                                        if row[0] == current_code and row[1] == "income":
+                                            main_sheet.delete_rows(cell.row)
+                                            st.success("Income record deleted")
+                                            st.rerun()
+                                except Exception as e:
+                                    st.warning(f"Deletion sync failed: {str(e)}")
 
-    # ---------------------- Reimbursement Management Module (Tab 3)----------------------
+    # ---------------------- Reimbursement Management Module (Tab 3) ----------------------
     with tab3:
         st.markdown("<h3 style='font-size: 16px'>Reimbursement Management</h3>", unsafe_allow_html=True)
         st.write("Record and manage various reimbursement information")
         st.divider()
 
-        # Add new reimbursement - only visible if can_edit is True
-        if st.session_state.can_edit:
-            with st.container():
-                st.markdown("**Add New Reimbursement**", unsafe_allow_html=True)
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    exp_date = st.date_input("Reimbursement Date*", datetime.now(), key="exp_date")
-                with col2:
-                    exp_amount = st.number_input("Reimbursement Amount*", min_value=0.01, step=0.01, format="%.2f", key="exp_amount")
-                with col3:
-                    exp_desc = st.text_input("Reimbursement Description*", placeholder="Please enter reimbursement reason", key="exp_desc")
-                
-                if st.button("Confirm Add Reimbursement", use_container_width=True, key="add_expense"):
-                    if not exp_desc:
-                        st.error("Reimbursement description cannot be empty")
-                        return
+        # Add new reimbursement
+        with st.container():
+            st.markdown("**Add New Reimbursement**", unsafe_allow_html=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                exp_date = st.date_input("Reimbursement Date*", datetime.now(), key="exp_date")
+            with col2:
+                exp_amount = st.number_input("Reimbursement Amount*", min_value=0.01, step=0.01, format="%.2f", key="exp_amount")
+            with col3:
+                exp_desc = st.text_input("Reimbursement Description*", placeholder="Please enter reimbursement reason", key="exp_desc")
+            
+            if st.button("Confirm Add Reimbursement", use_container_width=True, key="add_expense"):
+                if not exp_desc:
+                    st.error("Reimbursement description cannot be empty")
+                    return
 
-                    exp_uuid = str(uuid.uuid4())
-                    new_exp = {
-                        "uuid": exp_uuid,
-                        "date": exp_date.strftime("%Y-%m-%d"),
-                        "amount": f"{exp_amount:.2f}",
-                        "description": exp_desc.strip()
-                    }
-                    st.session_state.expenses.append(new_exp)
+                exp_uuid = str(uuid.uuid4())
+                new_exp = {
+                    "uuid": exp_uuid,
+                    "date": exp_date.strftime("%Y-%m-%d"),
+                    "amount": f"{exp_amount:.2f}",
+                    "description": exp_desc.strip()
+                }
+                st.session_state.expenses.append(new_exp)
 
-                    # Write to Google Sheet
-                    if main_sheet:
-                        try:
-                            main_sheet.append_row([
-                                current_code,
-                                "expense",  # Data type is expense
-                                exp_uuid,
-                                "", "",  # Leave member fields empty
-                                new_exp["date"],
-                                new_exp["amount"],
-                                new_exp["description"],
-                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            ])
-                            st.success(f"Successfully added reimbursement: ¥{exp_amount:.2f}")
-                        except Exception as e:
-                            st.warning(f"Failed to sync to sheet: {str(e)}")
+                # Write to Google Sheet
+                if main_sheet:
+                    try:
+                        main_sheet.append_row([
+                            current_code,
+                            "expense",  # data type is expense
+                            exp_uuid,
+                            "", "",  # Leave member fields empty
+                            new_exp["date"],
+                            new_exp["amount"],
+                            new_exp["description"],
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ])
+                        st.success(f"Successfully added reimbursement: ¥{exp_amount:.2f}")
+                    except Exception as e:
+                        st.warning(f"Failed to sync to sheet: {str(e)}")
 
         # Display reimbursement list
         st.divider()
@@ -408,31 +396,30 @@ def render_groups():
             st.info("No reimbursement records yet, please add")
         else:
             exp_df = pd.DataFrame([
-                {"Serial Number": i+1, "Date": m["date"], "Amount (¥)": m["amount"], "Description": m["description"]}
+                {"Serial No.": i+1, "Date": m["date"], "Amount (¥)": m["amount"], "Description": m["description"]}
                 for i, m in enumerate(st.session_state.expenses)
             ])
             st.dataframe(exp_df, use_container_width=True)
 
             # Add reimbursement deletion function (same logic as income deletion)
-            if st.session_state.can_edit:
-                with st.expander("Delete Reimbursement", expanded=False):
-                    for exp in st.session_state.expenses:
-                        col1, col2 = st.columns([4, 1])
-                        with col1:
-                            st.write(f"{exp['date']} - ¥{exp['amount']}: {exp['description']}")
-                        with col2:
-                            if st.button("Delete", key=f"del_expense_{exp['uuid']}"):
-                                st.session_state.expenses = [x for x in st.session_state.expenses if x["uuid"] != exp["uuid"]]
-                                if main_sheet:
-                                    try:
-                                        cell = main_sheet.find(exp["uuid"])
-                                        if cell:
-                                            row = main_sheet.row_values(cell.row)
-                                            if row[0] == current_code and row[1] == "expense":
-                                                main_sheet.delete_rows(cell.row)
-                                                st.success("Reimbursement record deleted")
-                                                st.rerun()
-                                    except Exception as e:
-                                        st.warning(f"Deletion sync failed: {str(e)}")
+            with st.expander("Delete Reimbursement", expanded=False):
+                for exp in st.session_state.expenses:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"{exp['date']} - ¥{exp['amount']}: {exp['description']}")
+                    with col2:
+                        if st.button("Delete", key=f"del_expense_{exp['uuid']}"):
+                            st.session_state.expenses = [x for x in st.session_state.expenses if x["uuid"] != exp["uuid"]]
+                            if main_sheet:
+                                try:
+                                    cell = main_sheet.find(exp["uuid"])
+                                    if cell:
+                                        row = main_sheet.row_values(cell.row)
+                                        if row[0] == current_code and row[1] == "expense":
+                                            main_sheet.delete_rows(cell.row)
+                                            st.success("Reimbursement record deleted")
+                                            st.rerun()
+                                except Exception as e:
+                                    st.warning(f"Deletion sync failed: {str(e)}")
 
     st.divider()
