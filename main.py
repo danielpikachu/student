@@ -145,6 +145,9 @@ def init_session_state():
         st.session_state.auth_is_admin = False
     if "auth_current_group_code" not in st.session_state:
         st.session_state.auth_current_group_code = ""  # 存储当前验证的Group访问码
+    # 新增：强制权限标记（供模块识别）
+    if "auth_allow_edit" not in st.session_state:
+        st.session_state.auth_allow_edit = False
     
     # 公告模块（ann_前缀）
     if "ann_list" not in st.session_state:
@@ -194,22 +197,31 @@ def require_login(func):
         return func(*args, **kwargs)
     return wrapper
 def require_edit_permission(func):
-    """编辑权限校验装饰器：控制非Groups模块的编辑权限（增强拦截）"""
+    """编辑权限校验装饰器：强制阻止普通用户编辑（核心修复）"""
     def wrapper(*args, **kwargs):
-        # 管理员拥有完整编辑权限
+        # 管理员：允许编辑
         if st.session_state.auth_is_admin:
-            return func(*args, **kwargs)
-        # 普通用户：显示提示 + 仅渲染查看内容
+            st.session_state.auth_allow_edit = True
+            result = func(*args, **kwargs)
+            return result
+        # 普通用户：强制禁止编辑
+        st.session_state.auth_allow_edit = False
         st.info("您是普通用户，仅拥有查看权限，无编辑权限。")
-        return func(*args, **kwargs)
+        
+        # 执行模块渲染，但通过auth_allow_edit标记阻止编辑逻辑
+        result = func(*args, **kwargs)
+        
+        return result
     return wrapper
 def require_group_edit_permission(func):
-    """Group模块编辑权限校验装饰器：控制Group模块的编辑权限（增强拦截）"""
+    """Group模块编辑权限校验装饰器：强制控制编辑权限"""
     def wrapper(*args, **kwargs):
         if st.session_state.auth_is_admin:
-            # 管理员直接拥有所有Group编辑权限
-            return func(*args, **kwargs)
-        # 普通用户：强制显示访问码验证，未验证则屏蔽编辑功能
+            # 管理员：允许编辑所有Group
+            st.session_state.auth_allow_edit = True
+            result = func(*args, **kwargs)
+            return result
+        # 普通用户：仅验证通过后允许编辑
         with st.sidebar.expander("🔑 Group访问验证", expanded=True):
             access_code = st.text_input("请输入Group访问码", type="password")
             verify_btn = st.button("验证访问权限")
@@ -217,13 +229,16 @@ def require_group_edit_permission(func):
             if verify_btn:
                 if access_code:
                     st.session_state.auth_current_group_code = access_code
+                    st.session_state.auth_allow_edit = True
                     st.success("访问验证通过，可编辑当前Group！")
                 else:
                     st.error("请输入有效的访问码！")
                     st.session_state.auth_current_group_code = ""
+                    st.session_state.auth_allow_edit = False
         
-        # 未验证通过时，提示无权限
+        # 未验证通过：禁止编辑
         if not st.session_state.auth_current_group_code:
+            st.session_state.auth_allow_edit = False
             st.warning("请先通过Group访问码验证，才能进行编辑操作。")
         
         return func(*args, **kwargs)
@@ -262,6 +277,7 @@ def show_login_register_form():
             st.session_state.auth_logged_in = True
             st.session_state.auth_username = username
             st.session_state.auth_is_admin = is_admin
+            st.session_state.auth_allow_edit = is_admin  # 登录时直接设置编辑权限
             
             # 更新最后登录时间（忽略失败，不影响登录）
             update_user_last_login(username)
@@ -294,6 +310,77 @@ def show_login_register_form():
                 st.success("注册成功！请前往登录界面登录～")
             else:
                 st.error("用户名已存在，请更换其他用户名！")
+# ---------------------- 重写模块核心操作函数（强制权限拦截） ----------------------
+# 核心原理：在模块执行前，重写Google Sheet的写入/删除方法，普通用户调用时直接拦截
+original_append_row = None
+original_append_rows = None
+original_update_cell = None
+original_delete_rows = None
+original_clear = None
+
+def override_sheet_methods():
+    """重写Google Sheet操作方法，根据权限控制是否执行"""
+    global original_append_row, original_append_rows, original_update_cell, original_delete_rows, original_clear
+    
+    # 保存原始方法（仅首次重写时保存）
+    if original_append_row is None:
+        from gspread.models import Worksheet
+        original_append_row = Worksheet.append_row
+        original_append_rows = Worksheet.append_rows
+        original_update_cell = Worksheet.update_cell
+        original_delete_rows = Worksheet.delete_rows
+        original_clear = Worksheet.clear
+        
+        # 重写append_row（单行追加）
+        def new_append_row(self, values, **kwargs):
+            if st.session_state.get("auth_allow_edit", False):
+                return original_append_row(self, values, **kwargs)
+            else:
+                st.warning("❌ 无编辑权限，无法添加数据！")
+                return None
+        
+        # 重写append_rows（多行追加）
+        def new_append_rows(self, values, **kwargs):
+            if st.session_state.get("auth_allow_edit", False):
+                return original_append_rows(self, values, **kwargs)
+            else:
+                st.warning("❌ 无编辑权限，无法批量添加数据！")
+                return None
+        
+        # 重写update_cell（更新单元格）
+        def new_update_cell(self, row, col, value):
+            if st.session_state.get("auth_allow_edit", False):
+                return original_update_cell(self, row, col, value)
+            else:
+                st.warning("❌ 无编辑权限，无法更新数据！")
+                return None
+        
+        # 重写delete_rows（删除行）
+        def new_delete_rows(self, row, **kwargs):
+            if st.session_state.get("auth_allow_edit", False):
+                return original_delete_rows(self, row, **kwargs)
+            else:
+                st.warning("❌ 无编辑权限，无法删除数据！")
+                return None
+        
+        # 重写clear（清空工作表）
+        def new_clear(self):
+            if st.session_state.get("auth_allow_edit", False):
+                return original_clear(self)
+            else:
+                st.warning("❌ 无编辑权限，无法清空数据！")
+                return None
+        
+        # 替换原始方法
+        Worksheet.append_row = new_append_row
+        Worksheet.append_rows = new_append_rows
+        Worksheet.update_cell = new_update_cell
+        Worksheet.delete_rows = new_delete_rows
+        Worksheet.clear = new_clear
+
+# 初始化时执行方法重写（仅执行一次）
+override_sheet_methods()
+
 # ---------------------- 页面主逻辑 ----------------------
 def main():
     # 页面配置
@@ -331,6 +418,7 @@ def main():
             st.session_state.auth_username = ""
             st.session_state.auth_is_admin = False
             st.session_state.auth_current_group_code = ""
+            st.session_state.auth_allow_edit = False
             st.rerun()
         st.markdown("---")
         st.info("© 2025 Student Council Management System")
@@ -345,7 +433,7 @@ def main():
         "👥 Groups"
     ])
     
-    # 装饰器顺序：先编辑权限，后登录校验（确保拦截生效）
+    # 装饰器顺序：先编辑权限（注入标记），后登录校验
     with tab1:
         require_edit_permission(require_login(render_calendar))()
     with tab2:
