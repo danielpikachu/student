@@ -17,6 +17,7 @@ from modules.financial_planning import render_financial_planning
 from modules.attendance import render_attendance
 from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
+from modules.credit_rewards import render_credit_rewards
 
 # ---------------------- 全局配置 ----------------------
 SHEET_NAME = "Student"
@@ -279,7 +280,7 @@ def main():
     
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📅 Calendar", "📢 Announcements", "💰 Financial Planning",
-        "📋 Attendance", "💸 Money Transfers", "👥 Groups"
+        "📋 Attendance","🎁 Credit & Rewards","💸 Money Transfers", "👥 Groups"
     ])
     
     with tab1:
@@ -291,8 +292,10 @@ def main():
     with tab4:
         require_login(require_edit_permission(render_attendance))()
     with tab5:
+        require_login(require_edit_permission(render_credit_rewards))()
+    with tab6:   
         require_login(require_edit_permission(render_money_transfers))()
-    with tab6:
+    with tab7:
         require_login(require_group_edit_permission(render_groups))()
 
 if __name__ == "__main__":
