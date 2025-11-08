@@ -119,9 +119,12 @@ def update_user_last_login(username):
 
 # ---------------------- 会话状态初始化 ----------------------
 def init_session_state():
+    # 确保所有模块需要的会话状态都被初始化
+    # 系统配置
     if "sys_admin_password" not in st.session_state:
         st.session_state.sys_admin_password = "sc_admin_2025"
     
+    # 认证相关
     if "auth_logged_in" not in st.session_state:
         st.session_state.auth_logged_in = False
     if "auth_username" not in st.session_state:
@@ -131,7 +134,37 @@ def init_session_state():
     if "auth_current_group_code" not in st.session_state:
         st.session_state.auth_current_group_code = ""
     
-    # 初始化编辑区域占位符（用于隐藏普通用户的编辑内容）
+    # 日历模块 - 修复关键：确保初始化cal_current_month
+    if "cal_events" not in st.session_state:
+        st.session_state.cal_events = []
+    if "cal_current_month" not in st.session_state:
+        st.session_state.cal_current_month = datetime.today().replace(day=1)  # 关键修复
+    
+    # 其他模块状态
+    if "ann_list" not in st.session_state:
+        st.session_state.ann_list = []
+    if "att_members" not in st.session_state:
+        st.session_state.att_members = []
+    if "att_meetings" not in st.session_state:
+        st.session_state.att_meetings = []
+    if "att_records" not in st.session_state:
+        st.session_state.att_records = {}
+    if "fin_current_funds" not in st.session_state:
+        st.session_state.fin_current_funds = 0.0
+    if "fin_annual_target" not in st.session_state:
+        st.session_state.fin_annual_target = 15000.0
+    if "fin_scheduled_events" not in st.session_state:
+        st.session_state.fin_scheduled_events = []
+    if "fin_occasional_events" not in st.session_state:
+        st.session_state.fin_occasional_events = []
+    if "tra_records" not in st.session_state:
+        st.session_state.tra_records = []
+    if "grp_list" not in st.session_state:
+        st.session_state.grp_list = []
+    if "grp_members" not in st.session_state:
+        st.session_state.grp_members = []
+    
+    # 编辑区域占位符
     if "edit_placeholders" not in st.session_state:
         st.session_state.edit_placeholders = {
             "calendar": st.empty(),
@@ -153,15 +186,14 @@ def require_login(func):
     return wrapper
 
 def require_edit_permission(module_name):
-    """通过占位符隐藏普通用户的编辑内容，仅显示查看内容"""
+    """通过占位符隐藏普通用户的编辑内容"""
     def decorator(func):
         def wrapper(*args, **kwargs):
-            # 先渲染模块内容（包含查看和编辑部分）
+            # 先渲染模块内容
             func(*args, **kwargs)
             
-            # 普通用户：清除编辑区域内容（假设编辑内容在特定位置）
+            # 普通用户：隐藏编辑内容
             if not st.session_state.auth_is_admin:
-                # 使用占位符覆盖编辑区域（实际场景可能需要调整选择器）
                 with st.session_state.edit_placeholders[module_name]:
                     st.write("")  # 清空编辑区域
                 st.info("普通用户仅可查看内容，无编辑权限")
@@ -169,7 +201,7 @@ def require_edit_permission(module_name):
     return decorator
 
 def require_group_edit_permission(func):
-    """群组模块专用：普通用户隐藏编辑内容"""
+    """群组模块专用权限控制"""
     def wrapper(*args, **kwargs):
         func(*args, **kwargs)
         
@@ -210,7 +242,7 @@ def show_login_register_form():
                 st.error("密码错误！")
                 return
             
-            # 仅Secrets中配置的用户才是管理员
+            # 管理员判断
             is_admin = username in st.secrets.get("admin_users", [])
             
             st.session_state.auth_logged_in = True
@@ -258,6 +290,7 @@ def main():
         layout="wide"
     )
     
+    # 确保会话状态初始化
     init_session_state()
     
     if not st.session_state.auth_logged_in:
@@ -292,7 +325,7 @@ def main():
         "📋 Attendance", "💸 Money Transfers", "👥 Groups"
     ])
     
-    # 渲染模块（为每个模块绑定专用占位符，用于隐藏编辑内容）
+    # 渲染模块
     with tab1:
         @require_login
         @require_edit_permission("calendar")
