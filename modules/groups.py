@@ -174,11 +174,7 @@ def render_groups():
             st.warning(f"数据同步失败: {str(e)}")
 
     # 创建横向标签页
-    tab1, tab2, tab3 = st.tabs([
-    "<span style='font-size: 18px'>👥 成员管理</span>",
-    "<span style='font-size: 18px'>💰 收入管理</span>",
-    "<span style='font-size: 18px'>🧾 报销管理</span>"
-    ], unsafe_allow_html=True)
+    tab1, tab2, tab3 = st.tabs(["👥 成员管理", "💰 收入管理", "🧾 报销管理"])
 
     # ---------------------- 成员管理模块（标签页1）----------------------
     with tab1:
