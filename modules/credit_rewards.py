@@ -64,7 +64,8 @@ def render_credit_rewards():
     if rewards_sheet and sheet_handler:
         try:
             all_data = rewards_sheet.get_all_values()
-            expected_headers = ["student_id", "student_name", "points", "reason", "date"]
+            # 更新表头，移除reason字段
+            expected_headers = ["student_id", "student_name", "points", "date"]
             
             # 检查表头
             if not all_data or all_data[0] != expected_headers:
@@ -72,14 +73,13 @@ def render_credit_rewards():
                 rewards_sheet.append_row(expected_headers)
                 records = []
             else:
-                # 处理数据（跳过表头）
+                # 处理数据（跳过表头），不再读取reason字段
                 records = [
                     {
                         "student_id": row[0],
                         "student_name": row[1],
                         "points": int(row[2]) if row[2].isdigit() else 0,
-                        "reason": row[3],
-                        "date": datetime.strptime(row[4], "%Y-%m-%d").date() if row[4] else None
+                        "date": datetime.strptime(row[3], "%Y-%m-%d").date() if row[3] else None
                     } 
                     for row in all_data[1:] 
                     if row[0] and row[1]  # 确保学生ID和姓名不为空
@@ -109,14 +109,13 @@ def render_credit_rewards():
         reverse=True
     )
     
-    # 显示前10条记录
+    # 显示前10条记录，移除理由显示
     for reward in sorted_rewards[:10]:
         with st.container():
             st.markdown(f"""
             <div class='reward-card'>
                 <div class='reward-header'>{reward['student_name']} ({reward['student_id']})</div>
                 <div>Points: <span class='reward-points'>{reward['points']}</span></div>
-                <div>Reason: {reward['reason']}</div>
                 <div>Date: {reward['date'].strftime('%Y-%m-%d') if reward['date'] else 'N/A'}</div>
             </div>
             """, unsafe_allow_html=True)
@@ -127,7 +126,7 @@ def render_credit_rewards():
         with st.container(border=True):
             st.subheader("📝 Manage Reward Records")
             
-            # 表单输入
+            # 表单输入，移除理由输入框
             col1, col2 = st.columns(2)
             with col1:
                 student_id = st.text_input("Student ID", placeholder="Enter student ID")
@@ -137,40 +136,32 @@ def render_credit_rewards():
                 points = st.number_input("Points", min_value=1, value=10)
                 record_date = st.date_input("Date", value=datetime.today())
             
-            reason = st.text_area(
-                "Reason for Reward", 
-                placeholder="Enter reason for this reward",
-                max_chars=200
-            )
-            
             # 操作按钮
             col_save, col_delete = st.columns(2)
             with col_save:
                 if st.button("💾 Save Record", use_container_width=True, type="primary", key="cr_btn_save"):
-                    if not all([student_id, student_name, reason]):
-                        st.error("Please fill in all required fields!")
+                    if not all([student_id, student_name]):  # 不再检查reason
+                        st.error("Please fill in Student ID and Student Name!")
                         return
                     
-                    # 准备新记录
+                    # 准备新记录，不含reason字段
                     new_record = {
                         "student_id": student_id,
                         "student_name": student_name,
                         "points": points,
-                        "reason": reason,
                         "date": record_date
                     }
                     
                     # 更新本地状态
                     st.session_state.cr_rewards.append(new_record)
                     
-                    # 同步到Google Sheets
+                    # 同步到Google Sheets，不再包含reason
                     if rewards_sheet and sheet_handler:
                         try:
                             rewards_sheet.append_row([
                                 student_id,
                                 student_name,
                                 str(points),
-                                reason,
                                 record_date.strftime("%Y-%m-%d")
                             ])
                             st.success("✅ Record saved successfully!")
@@ -206,7 +197,7 @@ def render_credit_rewards():
                         try:
                             all_rows = rewards_sheet.get_all_values()
                             for i, row in enumerate(all_rows[1:], start=2):
-                                if row[0] == student_id and row[4] == record_date.strftime("%Y-%m-%d"):
+                                if row[0] == student_id and row[3] == record_date.strftime("%Y-%m-%d"):
                                     rewards_sheet.delete_rows(i)
                             st.success("✅ Record deleted successfully!")
                             st.rerun()
