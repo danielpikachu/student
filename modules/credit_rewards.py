@@ -2,7 +2,7 @@
 import streamlit as st
 import sys
 import os
-import gspread  # For handling spreadsheet/worksheet not found exceptions
+import gspread
 
 # Fix root directory import issue
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,37 +19,35 @@ def render_credit_rewards():
     st.caption("Data is synced in real-time from Google Sheets (Spreadsheet: Student, Worksheet: credits)")
 
     try:
-        # 1. Initialize the utility class (ensure authentication works)
-        credentials_path = ""  # Fill in the path as required by your utility class
+        # 1. Initialize the utility class
+        credentials_path = ""
         gsheet = GoogleSheetHandler(credentials_path=credentials_path)
 
         # 2. Configure spreadsheet and worksheet information
-        spreadsheet_name = "Student"  # Name of your Google Sheet
-        worksheet_name = "credits"    # Name of the worksheet containing credit data
+        spreadsheet_name = "Student"
+        worksheet_name = "credits"
 
-        # 3. Step 1: Verify spreadsheet exists
+        # 3. Verify spreadsheet exists (without success message)
         try:
-            # Open spreadsheet by name
             spreadsheet = gsheet.client.open(spreadsheet_name)
-            st.success(f"✅ Successfully accessed spreadsheet: '{spreadsheet_name}'")
+            # 已删除成功提示行
         except gspread.SpreadsheetNotFound:
             st.error(f"❌ Spreadsheet '{spreadsheet_name}' not found")
             st.info("Please check if the Google Sheet named 'Student' exists and hasn't been renamed")
             return
 
-        # 4. Step 2: Verify worksheet exists in the spreadsheet
+        # 4. Verify worksheet exists (without success message)
         try:
             worksheet = spreadsheet.worksheet(worksheet_name)
-            st.success(f"✅ Successfully accessed worksheet: '{worksheet_name}'")
+            # 已删除成功提示行
         except gspread.WorksheetNotFound:
             st.error(f"❌ Worksheet '{worksheet_name}' not found in spreadsheet '{spreadsheet_name}'")
             st.info("Please check if a worksheet named 'credits' exists in your 'Student' spreadsheet (case-sensitive)")
             return
 
-        # 5. Read data from the worksheet (adjust parameters based on your utility class)
+        # 5. Read and display data
         credit_data = gsheet.get_all_records(worksheet)
 
-        # 6. Display data with scrollable container
         if not credit_data:
             st.info(f"No data found in worksheet '{worksheet_name}'. Please add data in Google Sheets and try again.")
             return
@@ -57,7 +55,6 @@ def render_credit_rewards():
         with st.container(height=450):
             st.dataframe(credit_data, use_container_width=True, hide_index=True)
 
-        # 7. Display statistics
         st.markdown("### Statistics")
         st.markdown(f"- Total records: **{len(credit_data)}**")
 
