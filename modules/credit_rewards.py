@@ -19,36 +19,36 @@ def render_credit_rewards():
     st.header("🎓 Credit Rewards")
     st.markdown("---")
     
-    # 初始化Google Sheets连接（使用Streamlit Cloud密钥）
+    # 初始化Google Sheets连接
     sheet_handler = None
     rewards_sheet = None
     try:
-        # 从Streamlit Secrets获取认证信息
+        # 从Streamlit Secrets获取认证信息（兼容AttrDict类型）
         if 'google_credentials' in st.secrets:
-            # 解析JSON字符串为字典
-            creds_dict = json.loads(st.secrets['google_credentials'])
-            # 创建认证对象
+            # 处理AttrDict类型，转换为标准字典
+            creds_json = json.dumps(st.secrets['google_credentials'])
+            creds_dict = json.loads(creds_json)
             credentials = Credentials.from_service_account_info(creds_dict)
-            # 初始化GoogleSheetHandler
             sheet_handler = GoogleSheetHandler(credentials=credentials)
-            
-            # 获取工作表
-            rewards_sheet = sheet_handler.get_worksheet(
-                spreadsheet_name="Student",
-                worksheet_name="CreditRewards"
-            )
         else:
-            st.error("未配置Google认证信息，请检查Streamlit Secrets")
+            # 兼容本地开发环境（如果需要）
+            sheet_handler = GoogleSheetHandler(credentials_path="")
+        
+        # 获取指定工作表
+        rewards_sheet = sheet_handler.get_worksheet(
+            spreadsheet_name="Student",
+            worksheet_name="CreditRewards"
+        )
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
     
     # 从Google Sheets同步数据（使用cre_records状态）
-    if rewards_sheet and sheet_handler and (not st.session_state.get("cre_records")):
+    if transfers_sheet and sheet_handler and (not st.session_state.get("cre_records")):
         try:
             all_data = rewards_sheet.get_all_values()
             expected_headers = ["uuid", "date", "student_id", "student_name", "reward_points", "reason", "handler"]
             
-            # 检查表头
+            # 检查表头是否匹配，不匹配则重新初始化
             if not all_data or all_data[0] != expected_headers:
                 rewards_sheet.clear()
                 rewards_sheet.append_row(expected_headers)
@@ -77,13 +77,13 @@ def render_credit_rewards():
     if "cre_records" not in st.session_state:
         st.session_state.cre_records = []
     
-    # ---------------------- 学分奖励记录展示 ----------------------
+    # ---------------------- 学分奖励记录展示（带滚动栏） ----------------------
     st.subheader("Reward Records")
     if not st.session_state.cre_records:
         st.info("No credit reward records yet")
     else:
-        # 定义列宽比例
-        col_widths = [0.3, 1.0, 1.2, 1.5, 1.2, 2.5, 1.5, 1.0]
+        # 定义列宽比例（与转账模块保持一致风格）
+        col_widths = [0.3, 1.2, 1.2, 1.5, 1.2, 2.5, 1.5, 1.0]
         
         # 显示固定表头
         header_cols = st.columns(col_widths)
@@ -106,7 +106,7 @@ def render_credit_rewards():
         
         st.markdown("---")
         
-        # 创建滚动容器
+        # 创建滚动容器（固定高度，保持与转账模块一致）
         scroll_container = st.container(height=320)
         with scroll_container:
             # 遍历显示每条记录
