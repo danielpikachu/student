@@ -161,7 +161,7 @@ def require_group_edit_permission(func):
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
     # 左右布局：左侧登录注册框，右侧系统介绍
-    col1, col2 = st.columns([1, 1], gap="large")
+    col1, col2 = st.columns([0.7, 1.3], gap="large")
     
     with col1:
         st.markdown("""
