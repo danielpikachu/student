@@ -4,18 +4,18 @@ from datetime import datetime
 import uuid
 import sys
 import os
-# 解决根目录模块导入问题
+# Resolve root directory module import issue
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-# 导入Google Sheets工具类
+# Import Google Sheets utility class
 from google_sheet_utils import GoogleSheetHandler
 
 def render_money_transfers():
-    """渲染转账模块界面（tra_前缀命名空间）"""
+    """Render money transfer module interface (tra_ namespace)"""
     st.header("💸 Money Transfers")
     st.markdown("---")
-    # 初始化Google Sheets连接
+    # Initialize Google Sheets connection
     sheet_handler = None
     transfers_sheet = None
     try:
@@ -25,20 +25,20 @@ def render_money_transfers():
             worksheet_name="MoneyTransfers"
         )
     except Exception as e:
-        st.error(f"Google Sheets 初始化失败: {str(e)}")
-    # 从Google Sheets同步数据（使用tra_records状态）
+        st.error(f"Google Sheets initialization failed: {str(e)}")
+    # Sync data from Google Sheets (using tra_records state)
     if transfers_sheet and sheet_handler and (not st.session_state.get("tra_records")):
         try:
             all_data = transfers_sheet.get_all_values()
             expected_headers = ["uuid", "date", "type", "amount", "description", "handler"]
             
-            # 检查表头
+            # Check headers
             if not all_data or all_data[0] != expected_headers:
                 transfers_sheet.clear()
                 transfers_sheet.append_row(expected_headers)
                 records = []
             else:
-                # 处理数据（跳过表头）
+                # Process data (skip header row)
                 records = [
                     {
                         "uuid": row[0],
@@ -49,24 +49,24 @@ def render_money_transfers():
                         "handler": row[5]
                     } 
                     for row in all_data[1:] 
-                    if row[0]  # 确保UUID不为空
+                    if row[0]  # Ensure UUID is not empty
                 ]
             
             st.session_state.tra_records = records
         except Exception as e:
-            st.warning(f"数据同步失败: {str(e)}")
-    # 初始化状态（防止首次加载时出错）
+            st.warning(f"Data synchronization failed: {str(e)}")
+    # Initialize state (prevent errors on first load)
     if "tra_records" not in st.session_state:
         st.session_state.tra_records = []
-    # ---------------------- 交易历史展示（带滚动栏，显示4条记录） ----------------------
+    # ---------------------- Transaction History Display (with scrollbar, showing 4 records) ----------------------
     st.subheader("Transaction History")
     if not st.session_state.tra_records:
         st.info("No financial transactions recorded yet")
     else:
-        # 定义列宽比例（确保最后一列足够放置删除按钮）
-        col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]  # 总和保持8.9
+        # Define column width ratios (ensure last column has enough space for delete button)
+        col_widths = [0.3, 1.2, 1.2, 1.2, 2.5, 1.5, 1.0]  # Total remains 8.9
         
-        # 显示固定表头
+        # Display fixed header
         header_cols = st.columns(col_widths)
         with header_cols[0]:
             st.write("**#**")
@@ -81,16 +81,16 @@ def render_money_transfers():
         with header_cols[5]:
             st.write("**Handled By**")
         with header_cols[6]:
-            # 只有管理员才显示Action列标题
+            # Only show Action column header for admins
             if st.session_state.auth_is_admin:
                 st.write("**Action**")
         
         st.markdown("---")
         
-        # 创建滚动容器（固定高度，仅显示4条记录）
-        scroll_container = st.container(height=320)  # 每条记录约80px，4条共320px
+        # Create scrollable container (fixed height, shows 4 records)
+        scroll_container = st.container(height=320)  # Each record ~80px, 4 records = 320px
         with scroll_container:
-            # 遍历显示每笔交易
+            # Iterate through and display each transaction
             for idx, trans in enumerate(st.session_state.tra_records, 1):
                 unique_key = f"tra_delete_{idx}_{trans['uuid']}"
                 cols = st.columns(col_widths)
@@ -108,7 +108,7 @@ def render_money_transfers():
                 with cols[5]:
                     st.write(trans["handler"])
                 with cols[6]:
-                    # 只有管理员才能看到删除按钮
+                    # Only admins can see delete button
                     if st.session_state.auth_is_admin:
                         if st.button(
                             "🗑️ Delete", 
@@ -116,10 +116,10 @@ def render_money_transfers():
                             use_container_width=True,
                             type="secondary"
                         ):
-                            # 从本地状态删除
+                            # Delete from local state
                             st.session_state.tra_records.pop(idx - 1)
                             
-                            # 同步删除Google Sheets记录
+                            # Sync deletion to Google Sheets
                             if transfers_sheet and sheet_handler:
                                 try:
                                     cell = transfers_sheet.find(trans["uuid"])
@@ -128,12 +128,12 @@ def render_money_transfers():
                                     st.success(f"Transaction {idx} deleted successfully!")
                                     st.rerun()
                                 except Exception as e:
-                                    st.warning(f"同步删除失败: {str(e)}")
+                                    st.warning(f"Synchronization of deletion failed: {str(e)}")
                 
-                # 行分隔线
+                # Row separator
                 st.markdown("---")
         
-        # 显示汇总信息
+        # Display summary information
         total_income = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Income")
         total_expense = sum(t["amount"] for t in st.session_state.tra_records if t["type"] == "Expense")
         net_balance = total_income - total_expense
@@ -147,7 +147,7 @@ def render_money_transfers():
         </div>
         """, unsafe_allow_html=True)
     st.write("=" * 50)
-    # ---------------------- 新增交易（仅管理员可见） ----------------------
+    # ---------------------- Add New Transaction (Admin only) ----------------------
     if st.session_state.auth_is_admin:
         st.subheader("Record New Transaction")
         col1, col2 = st.columns(2)
@@ -186,16 +186,16 @@ def render_money_transfers():
                 value="",
                 key="tra_input_handler"
             ).strip()
-        # 记录交易按钮
+        # Record transaction button
         if st.button("Record Transaction", key="tra_btn_record", use_container_width=True, type="primary"):
-            # 验证必填字段
+            # Validate required fields
             if not description or not handler:
                 st.error("Description and Handled By are required fields!")
                 return
             
-            # 创建新交易记录
+            # Create new transaction record
             new_trans = {
-                "uuid": str(uuid.uuid4()),  # 生成唯一标识
+                "uuid": str(uuid.uuid4()),  # Generate unique identifier
                 "date": trans_date,
                 "type": trans_type,
                 "amount": round(amount, 2),
@@ -203,10 +203,10 @@ def render_money_transfers():
                 "handler": handler
             }
             
-            # 更新本地状态
+            # Update local state
             st.session_state.tra_records.append(new_trans)
             
-            # 同步到Google Sheets
+            # Sync to Google Sheets
             if transfers_sheet and sheet_handler:
                 try:
                     transfers_sheet.append_row([
@@ -220,7 +220,7 @@ def render_money_transfers():
                     st.success("Transaction recorded successfully!")
                     st.rerun()
                 except Exception as e:
-                    st.warning(f"同步到Google Sheets失败: {str(e)}")
+                    st.warning(f"Synchronization to Google Sheets failed: {str(e)}")
     else:
-        # 非管理员显示提示信息
-        st.info("您没有编辑权限，只能查看交易记录")
+        # Display message for non-admins
+        st.info("You do not have editing permissions. You can only view transaction records.")
