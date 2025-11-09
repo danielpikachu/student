@@ -2,9 +2,9 @@
 import streamlit as st
 
 def render_financial_planning():
-    """渲染财务规划模块界面（建设中）"""
+    """still in the process of construction"""
     st.subheader("💰 Financial Dashboard")
     st.markdown("---")
     
-    # 显示建设中提示
+    # show 
     st.info("This module is under construction!")
