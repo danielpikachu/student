@@ -4,15 +4,15 @@ from datetime import datetime, timedelta
 import sys
 import os
 
-# 解决根目录模块导入问题
+# Resolve root directory module import issue
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# 导入Google Sheets工具类
+# Import Google Sheets utility class
 from google_sheet_utils import GoogleSheetHandler
 
-# 自定义CSS样式
+# Custom CSS styles
 def add_custom_css():
     st.markdown("""
     <style>
@@ -52,12 +52,12 @@ def add_custom_css():
     """, unsafe_allow_html=True)
 
 def render_calendar():
-    """渲染日历模块界面（cal_前缀命名空间）"""
+    """Render calendar module interface (cal_ prefix namespace)"""
     add_custom_css()
     st.header("📅 Event Calendar")
     st.divider()
 
-    # 初始化Google Sheets连接
+    # Initialize Google Sheets connection
     sheet_handler = None
     calendar_sheet = None
     try:
@@ -68,28 +68,28 @@ def render_calendar():
             worksheet_name="Calendar"
         )
     except Exception as e:
-        st.error(f"Google Sheets 初始化失败: {str(e)}")
+        st.error(f"Google Sheets initialization failed: {str(e)}")
 
-    # 从Google Sheets同步数据（使用cal_events状态）
+    # Sync data from Google Sheets (using cal_events state)
     if calendar_sheet and sheet_handler:
         try:
             all_data = calendar_sheet.get_all_values()
             expected_headers = ["date", "event"]
             
-            # 检查表头
+            # Check headers
             if not all_data or all_data[0] != expected_headers:
                 calendar_sheet.clear()
                 calendar_sheet.append_row(expected_headers)
                 records = []
             else:
-                # 处理数据（跳过表头）
+                # Process data (skip header)
                 records = [
                     {"date": row[0], "event": row[1]} 
                     for row in all_data[1:] 
-                    if row[0] and row[1]  # 确保日期和事件都不为空
+                    if row[0] and row[1]  # Ensure date and event are not empty
                 ]
             
-            # 转换为datetime格式并更新会话状态
+            # Convert to datetime format and update session state
             st.session_state.cal_events = [
                 {
                     "date": datetime.strptime(record["date"], "%Y-%m-%d").date(),
@@ -98,14 +98,14 @@ def render_calendar():
                 for record in records
             ]
         except Exception as e:
-            st.warning(f"数据同步失败: {str(e)}")
+            st.warning(f"Data synchronization failed: {str(e)}")
 
-    # ---------------------- 月份导航 ----------------------
+    # ---------------------- Month Navigation ----------------------
     col_prev, col_title, col_next = st.columns([1, 3, 1])
     
     with col_prev:
         if st.button("← Previous Month", use_container_width=True, type="secondary", key="cal_btn_prev_month"):
-            # 计算上一个月
+            # Calculate previous month
             current = st.session_state.cal_current_month
             prev_month = current.month - 1
             prev_year = current.year
@@ -119,7 +119,7 @@ def render_calendar():
     
     with col_next:
         if st.button("Next Month →", use_container_width=True, type="secondary", key="cal_btn_next_month"):
-            # 计算下一个月
+            # Calculate next month
             current = st.session_state.cal_current_month
             next_month = current.month + 1
             next_year = current.year
@@ -128,63 +128,63 @@ def render_calendar():
                 next_year += 1
             st.session_state.cal_current_month = datetime(next_year, next_month, 1)
 
-    # ---------------------- 日历网格计算 ----------------------
+    # ---------------------- Calendar Grid Calculation ----------------------
     year, month = st.session_state.cal_current_month.year, st.session_state.cal_current_month.month
     first_day = datetime(year, month, 1)
     
-    # 计算当月最后一天
+    # Calculate last day of the month
     if month < 12:
         last_day = datetime(year, month + 1, 1) - timedelta(days=1)
     else:
         last_day = datetime(year, 12, 31)
     
     days_in_month = last_day.day
-    first_weekday = first_day.weekday()  # 0=周一, 6=周日
+    first_weekday = first_day.weekday()  # 0=Monday, 6=Sunday
 
-    # 构建日期-事件映射
+    # Build date-event mapping
     date_event_map = {}
     for event in st.session_state.cal_events:
         date_key = event["date"].strftime("%Y-%m-%d")
         date_event_map[date_key] = event["description"]
 
-    # ---------------------- 渲染日历网格 ----------------------
-    # 渲染星期标题
+    # ---------------------- Render Calendar Grid ----------------------
+    # Render weekday headers
     weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     weekday_cols = st.columns(7)
     for i, day in enumerate(weekdays):
         with weekday_cols[i]:
             st.markdown(f"<div class='weekday-label'>{day}</div>", unsafe_allow_html=True)
 
-    # 渲染日期网格
+    # Render date grid
     current_day = 1
     while current_day <= days_in_month:
         day_cols = st.columns(7)
         for col_idx in range(7):
             with day_cols[col_idx]:
-                # 处理月初前的空白单元格
+                # Handle empty cells before first day of month
                 if current_day == 1 and col_idx < first_weekday:
                     st.markdown("<div class='calendar-day'></div>", unsafe_allow_html=True)
                 elif current_day > days_in_month:
-                    # 处理月末后的空白单元格
+                    # Handle empty cells after last day of month
                     st.markdown("<div class='calendar-day'></div>", unsafe_allow_html=True)
                 else:
-                    # 渲染有效日期单元格
+                    # Render valid date cell
                     current_date = datetime(year, month, current_day).date()
                     date_key = current_date.strftime("%Y-%m-%d")
                     is_today = (current_date == datetime.today().date())
                     has_event = date_key in date_event_map
 
-                    # 构建CSS类
+                    # Build CSS classes
                     day_classes = "calendar-day"
                     if is_today:
                         day_classes += " calendar-day-today"
                     if has_event:
                         day_classes += " calendar-day-has-event"
 
-                    # 构建事件文本
+                    # Build event text
                     event_text = f"<div class='event-text'>{date_event_map[date_key]}</div>" if has_event else ""
 
-                    # 渲染单元格
+                    # Render cell
                     st.markdown(f"""
                     <div class='{day_classes}'>
                         <div class='day-number'>{current_day}</div>
@@ -194,14 +194,14 @@ def render_calendar():
 
                     current_day += 1
 
-    # ---------------------- 事件管理面板（仅管理员可见） ----------------------
+    # ---------------------- Event Management Panel (Admin Only) ----------------------
     st.divider()
-    # 仅管理员显示编辑区域
+    # Show edit area only for admins
     if st.session_state.auth_is_admin:
         with st.container(border=True):
             st.subheader("📝 Manage Calendar Events")
             
-            # 事件编辑区域（移除了密码验证）
+            # Event edit area (removed password verification)
             col_date, col_desc = st.columns([1, 2])
             
             with col_date:
@@ -213,7 +213,7 @@ def render_calendar():
                 )
             
             with col_desc:
-                # 检查选中日期是否已有事件
+                # Check if there's an existing event for the selected date
                 existing_event = next(
                     (e for e in st.session_state.cal_events if e["date"] == selected_date),
                     None
@@ -229,7 +229,7 @@ def render_calendar():
                     key="cal_input_event_desc"
                 )
             
-            # 操作按钮
+            # Action buttons
             col_save, col_delete = st.columns(2)
             with col_save:
                 if st.button("💾 Save Event", use_container_width=True, type="primary", key="cal_btn_save_event"):
@@ -237,34 +237,34 @@ def render_calendar():
                         st.error("Event description cannot be empty!")
                         return
                     
-                    # 删除同日期的旧事件
+                    # Delete old event with the same date
                     st.session_state.cal_events = [
                         e for e in st.session_state.cal_events 
                         if e["date"] != selected_date
                     ]
                     
-                    # 添加新事件
+                    # Add new event
                     new_event = {
                         "date": selected_date,
                         "description": event_desc.strip()
                     }
                     st.session_state.cal_events.append(new_event)
                     
-                    # 同步到Google Sheets
+                    # Sync to Google Sheets
                     if calendar_sheet and sheet_handler:
                         try:
-                            # 删除旧记录
+                            # Delete old records
                             all_rows = calendar_sheet.get_all_values()
                             for i, row in enumerate(all_rows[1:], start=2):
                                 if row[0] == str(selected_date):
                                     calendar_sheet.delete_rows(i)
                             
-                            # 添加新记录
+                            # Add new record
                             calendar_sheet.append_row([str(selected_date), event_desc.strip()])
                             st.success("✅ Event saved successfully!")
                             st.rerun()
                         except Exception as e:
-                            st.warning(f"同步到Google Sheets失败: {str(e)}")
+                            st.warning(f"Failed to sync to Google Sheets: {str(e)}")
             
             with col_delete:
                 if st.button("🗑️ Delete Event", use_container_width=True, key="cal_btn_delete_event"):
@@ -272,13 +272,13 @@ def render_calendar():
                         st.warning("No event found for this date!")
                         return
                     
-                    # 删除本地事件
+                    # Delete local event
                     st.session_state.cal_events = [
                         e for e in st.session_state.cal_events 
                         if e["date"] != selected_date
                     ]
                     
-                    # 同步删除Google Sheets记录
+                    # Sync deletion to Google Sheets
                     if calendar_sheet and sheet_handler:
                         try:
                             all_rows = calendar_sheet.get_all_values()
@@ -288,4 +288,4 @@ def render_calendar():
                             st.success("✅ Event deleted successfully!")
                             st.rerun()
                         except Exception as e:
-                            st.warning(f"从Google Sheets删除失败: {str(e)}")
+                            st.warning(f"Failed to delete from Google Sheets: {str(e)}")
