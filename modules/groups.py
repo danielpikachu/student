@@ -1,3 +1,4 @@
+# modules/groups.py
 import streamlit as st
 import pandas as pd
 import uuid
@@ -27,7 +28,7 @@ def render_groups():
     st.set_page_config(page_title="Student Affairs Management", layout="wide")
     
     # Initialize session state (record login status, current group information)
-    if "group_logged_in" not in st.session_state:  # 命名修改：logged_in -> group_logged_in
+    if "group_logged_in" not in st.session_state:
         st.session_state.group_logged_in = False
     if "current_group" not in st.session_state:
         st.session_state.current_group = None
@@ -39,7 +40,7 @@ def render_groups():
             st.session_state[key] = []
 
     # Login interface
-    if not st.session_state.group_logged_in:  # 状态判断修改
+    if not st.session_state.group_logged_in:
         st.markdown("<h2>📋 Student Affairs Management System</h2>", unsafe_allow_html=True)
         st.caption("Please enter the access code to enter the corresponding group management")
         st.divider()
@@ -49,7 +50,7 @@ def render_groups():
         with col1:
             if st.button("Login", use_container_width=True):
                 if access_code in ACCESS_CODES:
-                    st.session_state.group_logged_in = True  # 状态更新修改
+                    st.session_state.group_logged_in = True
                     st.session_state.current_group = ACCESS_CODES[access_code]
                     st.session_state.current_group_code = access_code
                     st.success(f"Login successful, welcome to {ACCESS_CODES[access_code]}")
@@ -58,7 +59,7 @@ def render_groups():
                     st.error("Invalid access code, please try again")
         with col2:
             if st.button("Clear", use_container_width=True):
-                st.session_state.group_logged_in = False  # 状态重置修改
+                st.session_state.group_logged_in = False
                 st.session_state.current_group = None
                 st.session_state.current_group_code = None
                 st.rerun()
@@ -71,7 +72,7 @@ def render_groups():
 
     # Logout/Switch group button
     if st.button("Switch Group", key="logout_btn"):
-        st.session_state.group_logged_in = False  # 状态重置修改
+        st.session_state.group_logged_in = False
         st.session_state.current_group = None
         st.session_state.current_group_code = None
         st.session_state.members = []
