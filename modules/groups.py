@@ -1,425 +1,221 @@
-# modules/groups.py
 import streamlit as st
-import pandas as pd
-import uuid
-import sys
-import os
+from googleapiclient.errors import HttpError
+import time
 from datetime import datetime
+import pandas as pd
+# 关键调整：从上级目录导入google_sheet_utils（因groups.py在modules文件夹内）
+import sys
+from pathlib import Path
+# 将项目根目录添加到Python路径（确保能找到google_sheet_utils）
+sys.path.append(str(Path(__file__).parent.parent))
+from google_sheet_utils import get_sheets_service, get_gspread_client
 
-# Solve root directory module import issue
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-from google_sheet_utils import GoogleSheetHandler
+# --------------------------
+# 1. 初始化配置（依赖工具类）
+# --------------------------
+service = get_sheets_service()  # 复用工具类的认证服务
+gc = get_gspread_client()
 
-# Define allowed access codes and corresponding group names (8 groups)
-ACCESS_CODES = {
-    "GROUP001": "Group 1",
-    "GROUP002": "Group 2",
-    "GROUP003": "Group 3",
-    "GROUP004": "Group 4",
-    "GROUP005": "Group 5",
-    "GROUP006": "Group 6",
-    "GROUP007": "Group 7",
-    "GROUP008": "Group 8"
+SPREADSHEET_ID = st.secrets.get("GROUPS_SPREADSHEET_ID")
+SHEET_NAMES = {
+    "members": "成员表",
+    "income": "收入表",
+    "expense": "支出表"
 }
 
-def render_groups():
-    st.set_page_config(page_title="Student Affairs Management", layout="wide")
+# --------------------------
+# 2. 本地缓存与状态管理（不变）
+# --------------------------
+def init_session_state():
+    if "groups_data" not in st.session_state:
+        st.session_state.groups_data = {
+            "members": pd.DataFrame(),
+            "income": pd.DataFrame(),
+            "expense": pd.DataFrame()
+        }
+    if "last_sync_time" not in st.session_state:
+        st.session_state.last_sync_time = {
+            "members": None,
+            "income": None,
+            "expense": None
+        }
+    if "batch_operations" not in st.session_state:
+        st.session_state.batch_operations = {
+            "add": {"members": [], "income": [], "expense": []},
+            "delete": {"members": [], "income": [], "expense": []}
+        }
+    if "batch_timer" not in st.session_state:
+        st.session_state.batch_timer = time.time()
+
+# --------------------------
+# 3. 增量同步逻辑（不变，依赖工具类服务）
+# --------------------------
+def sync_sheet(sheet_type):
+    if not SPREADSHEET_ID:
+        st.error("请配置GROUPS_SPREADSHEET_ID")
+        return False
+
+    sheet_name = SHEET_NAMES[sheet_type]
+    last_sync = st.session_state.last_sync_time[sheet_type]
     
-    # Initialize session state (record login status, current group information)
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-    if "current_group" not in st.session_state:
-        st.session_state.current_group = None
-    if "current_group_code" not in st.session_state:  # Store current group's access code (e.g., GROUP001)
-        st.session_state.current_group_code = None
-    # Initialize data storage (members, incomes, expenses)
-    for key in ["members", "incomes", "expenses"]:
-        if key not in st.session_state:
-            st.session_state[key] = []
-
-    # Login interface
-    if not st.session_state.logged_in:
-        st.markdown("<h2>📋 Student Affairs Management System</h2>", unsafe_allow_html=True)
-        st.caption("Please enter the access code to enter the corresponding group management")
-        st.divider()
-        
-        access_code = st.text_input("Access Code", placeholder="e.g., GROUP001", type="password")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Login", use_container_width=True):
-                if access_code in ACCESS_CODES:
-                    st.session_state.logged_in = True
-                    st.session_state.current_group = ACCESS_CODES[access_code]
-                    st.session_state.current_group_code = access_code
-                    st.success(f"Login successful, welcome to {ACCESS_CODES[access_code]}")
-                    st.rerun()
-                else:
-                    st.error("Invalid access code, please try again")
-        with col2:
-            if st.button("Clear", use_container_width=True):
-                st.session_state.logged_in = False
-                st.session_state.current_group = None
-                st.session_state.current_group_code = None
-                st.rerun()
-        return
-
-    # Logged in state - display group name
-    st.markdown(f"<h2>📋 Student Affairs Management System - {st.session_state.current_group}</h2>", unsafe_allow_html=True)
-    st.caption("Includes three functional modules: member management, income management, and reimbursement management")
-    st.divider()
-
-    # Logout/Switch group button
-    if st.button("Switch Group", key="logout_btn"):
-        st.session_state.logged_in = False
-        st.session_state.current_group = None
-        st.session_state.current_group_code = None
-        st.session_state.members = []
-        st.session_state.incomes = []
-        st.session_state.expenses = []
-        st.rerun()
-
-    # Initialize Google Sheets connection (single sheet AllGroupsData)
-    sheet_handler = None
-    main_sheet = None
     try:
-        sheet_handler = GoogleSheetHandler(credentials_path="")  # Ensure credentials are configured correctly
-        # Connect to the AllGroupsData worksheet in the existing Group file
-        main_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="Student",  # Your Google Sheet file name
-            worksheet_name="AllGroupsData"  # Worksheet name
+        spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+        sheet_id = next(
+            sheet["properties"]["sheetId"] 
+            for sheet in spreadsheet["sheets"] 
+            if sheet["properties"]["title"] == sheet_name
         )
+
+        range_name = f"{sheet_name}!A:Z"
+        request_kwargs = {
+            "spreadsheetId": SPREADSHEET_ID,
+            "range": range_name,
+            "majorDimension": "ROWS"
+        }
+        if last_sync:
+            request_kwargs["updatedAfter"] = last_sync.isoformat() + "Z"
+
+        response = service.spreadsheets().values().get(** request_kwargs).execute()
+        values = response.get("values", [])
+
+        if values:
+            df = pd.DataFrame(values[1:], columns=values[0])
+            st.session_state.groups_data[sheet_type] = df
+            st.session_state.last_sync_time[sheet_type] = datetime.utcnow()
+            st.success(f"✅ {sheet_name}同步完成（{len(df)}条数据）")
+        else:
+            st.info(f"ℹ️ {sheet_name}无更新数据")
+        return True
+
+    except HttpError as e:
+        if e.resp.status == 429:
+            retry_after = int(e.resp.get("Retry-After", 5))
+            st.warning(f"配额超限，{retry_after}秒后重试...")
+            time.sleep(retry_after)
+            return sync_sheet(sheet_type)
+        else:
+            st.error(f"同步失败: {e.content.decode()}")
+            return False
     except Exception as e:
-        st.error(f"Google Sheets initialization failed: {str(e)}")
-        # If worksheet doesn't exist, try to create it automatically (ensure permission)
-        if "Worksheet not found" in str(e) and sheet_handler:
-            with st.spinner("Trying to create worksheet AllGroupsData..."):
-                try:
-                    main_sheet = sheet_handler.create_worksheet(
-                        spreadsheet_name="Student",
-                        worksheet_name="AllGroupsData",
-                        rows=1000,
-                        cols=20
-                    )
-                    # Initialize header row
-                    headers = ["group_code", "data_type", "uuid", 
-                               "name", "student_id",  # Member-specific fields
-                               "date", "amount", "description",  # Income/reimbursement specific fields
-                               "created_at"]  # Data creation time
-                    main_sheet.append_row(headers)
-                    st.success("Worksheet AllGroupsData created successfully!")
-                except Exception as e2:
-                    st.error(f"Failed to create worksheet: {str(e2)}")
+        st.error(f"同步错误: {str(e)}")
+        return False
 
-    # Sync current group's data from single sheet (members, incomes, reimbursements)
-    current_code = st.session_state.current_group_code
-    if main_sheet and sheet_handler:
+# --------------------------
+# 4. 批量操作逻辑（不变）
+# --------------------------
+def flush_batch_operations():
+    current_time = time.time()
+    if (
+        sum(len(v) for v in st.session_state.batch_operations["add"].values()) >=5 
+        or sum(len(v) for v in st.session_state.batch_operations["delete"].values()) >=5
+        or (current_time - st.session_state.batch_timer) >=10
+    ):
+        st.toast("正在批量同步数据...")
         try:
-            all_rows = main_sheet.get_all_values()
-            if len(all_rows) < 1:
-                st.warning("Worksheet is empty, initializing header...")
-                headers = ["group_code", "data_type", "uuid", "name", "student_id", 
-                           "date", "amount", "description", "created_at"]
-                main_sheet.append_row(headers)
-                all_rows = [headers]
-            
-            # Parse header row to determine field indices (avoid errors from field order changes)
-            header = all_rows[0]
-            col_indices = {col: idx for idx, col in enumerate(header)}
-            required_cols = ["group_code", "data_type", "uuid", "created_at"]
-            if not all(col in col_indices for col in required_cols):
-                st.error("Worksheet header format is incorrect, please check if fields are complete")
-                return
+            spreadsheet = service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+            requests = []
 
-            # Filter current group's member data (data_type=member)
-            st.session_state.members = [
-                {
-                    "uuid": row[col_indices["uuid"]],
-                    "name": row[col_indices["name"]],
-                    "student_id": row[col_indices["student_id"]]
-                }
-                for row in all_rows[1:]  # Skip header row
-                if row[col_indices["group_code"]] == current_code 
-                and row[col_indices["data_type"]] == "member"
-            ]
+            # 批量添加
+            for sheet_type, rows in st.session_state.batch_operations["add"].items():
+                if not rows:
+                    continue
+                sheet_name = SHEET_NAMES[sheet_type]
+                service.spreadsheets().values().append(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range=f"{sheet_name}!A1",
+                    valueInputOption="USER_ENTERED",
+                    body={"values": rows}
+                ).execute()
+                st.success(f"✅ 批量添加{len(rows)}条{sheet_name}数据")
 
-            # Filter current group's income data (data_type=income)
-            st.session_state.incomes = [
-                {
-                    "uuid": row[col_indices["uuid"]],
-                    "date": row[col_indices["date"]],
-                    "amount": row[col_indices["amount"]],
-                    "description": row[col_indices["description"]]
-                }
-                for row in all_rows[1:]
-                if row[col_indices["group_code"]] == current_code 
-                and row[col_indices["data_type"]] == "income"
-            ]
+            # 批量删除
+            for sheet_type, row_indices in st.session_state.batch_operations["delete"].items():
+                if not row_indices:
+                    continue
+                sheet_name = SHEET_NAMES[sheet_type]
+                sheet_id = next(
+                    sheet["properties"]["sheetId"] 
+                    for sheet in spreadsheet["sheets"] 
+                    if sheet["properties"]["title"] == sheet_name
+                )
+                for row_idx in sorted(row_indices, reverse=True):
+                    requests.append({
+                        "deleteDimension": {
+                            "range": {
+                                "sheetId": sheet_id,
+                                "dimension": "ROWS",
+                                "startIndex": row_idx,
+                                "endIndex": row_idx + 1
+                            }
+                        }
+                    })
+                if requests:
+                    service.spreadsheets().batchUpdate(
+                        spreadsheetId=SPREADSHEET_ID,
+                        body={"requests": requests}
+                    ).execute()
+                    st.success(f"✅ 批量删除{len(row_indices)}条{sheet_name}数据")
 
-            # Filter current group's reimbursement data (data_type=expense)
-            st.session_state.expenses = [
-                {
-                    "uuid": row[col_indices["uuid"]],
-                    "date": row[col_indices["date"]],
-                    "amount": row[col_indices["amount"]],
-                    "description": row[col_indices["description"]]
-                }
-                for row in all_rows[1:]
-                if row[col_indices["group_code"]] == current_code 
-                and row[col_indices["data_type"]] == "expense"
-            ]
+            # 清空缓存
+            st.session_state.batch_operations = {
+                "add": {"members": [], "income": [], "expense": []},
+                "delete": {"members": [], "income": [], "expense": []}
+            }
+            st.session_state.batch_timer = current_time
 
         except Exception as e:
-            st.warning(f"Data synchronization failed: {str(e)}")
+            st.error(f"批量操作失败: {str(e)}")
 
-    # Create horizontal tabs
-    tab1, tab2, tab3 = st.tabs(["👥 Member Management", "💰 Income Management", "🧾 Reimbursement Management"])
+# --------------------------
+# 5. 操作接口与UI（不变）
+# --------------------------
+def add_record(sheet_type, data):
+    st.session_state.batch_operations["add"][sheet_type].append(data)
+    flush_batch_operations()
 
-    # ---------------------- Member Management Module (Tab 1) ----------------------
-    with tab1:
-        st.markdown("<h3 style='font-size: 16px'>Member Management</h3>", unsafe_allow_html=True)
-        st.write("Manage basic information of members (name, student ID)")
-        st.divider()
+def delete_record(sheet_type, row_index):
+    st.session_state.batch_operations["delete"][sheet_type].append(row_index)
+    flush_batch_operations()
 
-        # Add new member
-        with st.container():
-            st.markdown("**Add New Member**", unsafe_allow_html=True)
-            col1, col2 = st.columns(2)
-            with col1:
-                name = st.text_input("Member Name*", placeholder="Please enter name")
-            with col2:
-                student_id = st.text_input("Student ID*", placeholder="Please enter unique ID")
-            
-            if st.button("Confirm Add Member", use_container_width=True, key="add_member"):
-                if not name or not student_id:
-                    st.error("Name and Student ID cannot be empty")
-                    return
-                if any(m["student_id"] == student_id for m in st.session_state.members):
-                    st.error(f"Student ID {student_id} already exists")
-                    return
+def show_groups_module():
+    st.title("Groups 管理")
+    init_session_state()
 
-                # Generate unique ID
-                member_uuid = str(uuid.uuid4())
-                new_member = {
-                    "uuid": member_uuid,
-                    "name": name.strip(),
-                    "student_id": student_id.strip()
-                }
-                st.session_state.members.append(new_member)
+    sheet_type = st.selectbox("选择数据类型", ["members", "income", "expense"], 
+                             format_func=lambda x: SHEET_NAMES[x])
 
-                # Write to Google Sheet (single sheet)
-                if main_sheet:
-                    try:
-                        main_sheet.append_row([
-                            current_code,  # group_code
-                            "member",      # data_type
-                            member_uuid,   # uuid
-                            name.strip(),  # name
-                            student_id.strip(),  # student_id
-                            "", "", "",    # Leave income/reimbursement fields empty
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # created_at
-                        ])
-                        st.success(f"Successfully added member: {name}")
-                    except Exception as e:
-                        st.warning(f"Failed to sync to sheet: {str(e)}")
+    if st.button("同步数据") or st.session_state.groups_data[sheet_type].empty:
+        with st.spinner(f"正在同步{SHEET_NAMES[sheet_type]}..."):
+            sync_sheet(sheet_type)
 
-        # Display member list
-        st.divider()
-        st.markdown("**Member List**", unsafe_allow_html=True)
-        if not st.session_state.members:
-            st.info("No members yet, please add")
-        else:
-            member_df = pd.DataFrame([
-                {"Serial No.": i+1, "Name": m["name"], "Student ID": m["student_id"]}
-                for i, m in enumerate(st.session_state.members)
-            ])
-            st.dataframe(member_df, use_container_width=True)
+    st.subheader(f"{SHEET_NAMES[sheet_type]}数据")
+    df = st.session_state.groups_data[sheet_type]
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+        delete_idx = st.number_input("输入要删除的行索引（从0开始）", min_value=0, max_value=len(df)-1, step=1)
+        if st.button("删除选中行"):
+            delete_record(sheet_type, delete_idx)
+            st.session_state.groups_data[sheet_type] = df.drop(index=delete_idx).reset_index(drop=True)
+            st.experimental_rerun()
+    else:
+        st.info("暂无数据，请先同步")
 
-            # Delete member
-            with st.expander("Delete Member", expanded=False):
-                for m in st.session_state.members:
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        st.write(f"{m['name']} (ID: {m['student_id']})")
-                    with col2:
-                        if st.button("Delete", key=f"del_member_{m['uuid']}"):
-                            # Local deletion
-                            st.session_state.members = [x for x in st.session_state.members if x["uuid"] != m["uuid"]]
-                            # Sheet deletion (locate by uuid)
-                            if main_sheet:
-                                try:
-                                    cell = main_sheet.find(m["uuid"])
-                                    if cell:
-                                        row = main_sheet.row_values(cell.row)
-                                        # Double verification: ensure it's current group's data
-                                        if row[0] == current_code and row[1] == "member":
-                                            main_sheet.delete_rows(cell.row)
-                                            st.success(f"Deleted {m['name']}")
-                                            st.rerun()
-                                except Exception as e:
-                                    st.warning(f"Deletion sync failed: {str(e)}")
+    st.subheader(f"添加新{sheet_type}记录")
+    if sheet_type == "members":
+        name = st.text_input("成员姓名")
+        role = st.text_input("角色")
+        if st.button("添加成员"):
+            add_record("members", [name, role, datetime.now().strftime("%Y-%m-%d")])
+    elif sheet_type == "income":
+        amount = st.number_input("收入金额", min_value=0)
+        source = st.text_input("收入来源")
+        if st.button("添加收入"):
+            add_record("income", [source, amount, datetime.now().strftime("%Y-%m-%d")])
+    elif sheet_type == "expense":
+        amount = st.number_input("支出金额", min_value=0)
+        reason = st.text_input("支出原因")
+        if st.button("添加支出"):
+            add_record("expense", [reason, amount, datetime.now().strftime("%Y-%m-%d")])
 
-    # ---------------------- Income Management Module (Tab 2) ----------------------
-    with tab2:
-        st.markdown("<h3 style='font-size: 16px'>Income Management</h3>", unsafe_allow_html=True)
-        st.write("Record and manage various income information")
-        st.divider()
-
-        # Add new income
-        with st.container():
-            st.markdown("**Add New Income**", unsafe_allow_html=True)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                income_date = st.date_input("Date*", datetime.now())
-            with col2:
-                income_amount = st.number_input("Amount*", min_value=0.01, step=0.01, format="%.2f")
-            with col3:
-                income_desc = st.text_input("Description*", placeholder="Please enter income source")
-            
-            if st.button("Confirm Add Income", use_container_width=True, key="add_income"):
-                if not income_desc:
-                    st.error("Income description cannot be empty")
-                    return
-
-                income_uuid = str(uuid.uuid4())
-                new_income = {
-                    "uuid": income_uuid,
-                    "date": income_date.strftime("%Y-%m-%d"),
-                    "amount": f"{income_amount:.2f}",
-                    "description": income_desc.strip()
-                }
-                st.session_state.incomes.append(new_income)
-
-                # Write to Google Sheet
-                if main_sheet:
-                    try:
-                        main_sheet.append_row([
-                            current_code,
-                            "income",
-                            income_uuid,
-                            "", "",  # Leave member fields empty
-                            new_income["date"],
-                            new_income["amount"],
-                            new_income["description"],
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        ])
-                        st.success(f"Successfully added income: ¥{income_amount:.2f}")
-                    except Exception as e:
-                        st.warning(f"Failed to sync to sheet: {str(e)}")
-
-        # Display income list
-        st.divider()
-        st.markdown("**Income List**", unsafe_allow_html=True)
-        if not st.session_state.incomes:
-            st.info("No income records yet, please add")
-        else:
-            income_df = pd.DataFrame([
-                {"Serial No.": i+1, "Date": m["date"], "Amount (¥)": m["amount"], "Description": m["description"]}
-                for i, m in enumerate(st.session_state.incomes)
-            ])
-            st.dataframe(income_df, use_container_width=True)
-
-            # Delete income
-            with st.expander("Delete Income", expanded=False):
-                for income in st.session_state.incomes:
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        st.write(f"{income['date']} - ¥{income['amount']}: {income['description']}")
-                    with col2:
-                        if st.button("Delete", key=f"del_income_{income['uuid']}"):
-                            st.session_state.incomes = [x for x in st.session_state.incomes if x["uuid"] != income["uuid"]]
-                            if main_sheet:
-                                try:
-                                    cell = main_sheet.find(income["uuid"])
-                                    if cell:
-                                        row = main_sheet.row_values(cell.row)
-                                        if row[0] == current_code and row[1] == "income":
-                                            main_sheet.delete_rows(cell.row)
-                                            st.success("Income record deleted")
-                                            st.rerun()
-                                except Exception as e:
-                                    st.warning(f"Deletion sync failed: {str(e)}")
-
-    # ---------------------- Reimbursement Management Module (Tab 3) ----------------------
-    with tab3:
-        st.markdown("<h3 style='font-size: 16px'>Reimbursement Management</h3>", unsafe_allow_html=True)
-        st.write("Record and manage various reimbursement information")
-        st.divider()
-
-        # Add new reimbursement
-        with st.container():
-            st.markdown("**Add New Reimbursement**", unsafe_allow_html=True)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                exp_date = st.date_input("Reimbursement Date*", datetime.now(), key="exp_date")
-            with col2:
-                exp_amount = st.number_input("Reimbursement Amount*", min_value=0.01, step=0.01, format="%.2f", key="exp_amount")
-            with col3:
-                exp_desc = st.text_input("Reimbursement Description*", placeholder="Please enter reimbursement reason", key="exp_desc")
-            
-            if st.button("Confirm Add Reimbursement", use_container_width=True, key="add_expense"):
-                if not exp_desc:
-                    st.error("Reimbursement description cannot be empty")
-                    return
-
-                exp_uuid = str(uuid.uuid4())
-                new_exp = {
-                    "uuid": exp_uuid,
-                    "date": exp_date.strftime("%Y-%m-%d"),
-                    "amount": f"{exp_amount:.2f}",
-                    "description": exp_desc.strip()
-                }
-                st.session_state.expenses.append(new_exp)
-
-                # Write to Google Sheet
-                if main_sheet:
-                    try:
-                        main_sheet.append_row([
-                            current_code,
-                            "expense",  # data type is expense
-                            exp_uuid,
-                            "", "",  # Leave member fields empty
-                            new_exp["date"],
-                            new_exp["amount"],
-                            new_exp["description"],
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        ])
-                        st.success(f"Successfully added reimbursement: ¥{exp_amount:.2f}")
-                    except Exception as e:
-                        st.warning(f"Failed to sync to sheet: {str(e)}")
-
-        # Display reimbursement list
-        st.divider()
-        st.markdown("**Reimbursement List**", unsafe_allow_html=True)
-        if not st.session_state.expenses:
-            st.info("No reimbursement records yet, please add")
-        else:
-            exp_df = pd.DataFrame([
-                {"Serial No.": i+1, "Date": m["date"], "Amount (¥)": m["amount"], "Description": m["description"]}
-                for i, m in enumerate(st.session_state.expenses)
-            ])
-            st.dataframe(exp_df, use_container_width=True)
-
-            # Add reimbursement deletion function (same logic as income deletion)
-            with st.expander("Delete Reimbursement", expanded=False):
-                for exp in st.session_state.expenses:
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        st.write(f"{exp['date']} - ¥{exp['amount']}: {exp['description']}")
-                    with col2:
-                        if st.button("Delete", key=f"del_expense_{exp['uuid']}"):
-                            st.session_state.expenses = [x for x in st.session_state.expenses if x["uuid"] != exp["uuid"]]
-                            if main_sheet:
-                                try:
-                                    cell = main_sheet.find(exp["uuid"])
-                                    if cell:
-                                        row = main_sheet.row_values(cell.row)
-                                        if row[0] == current_code and row[1] == "expense":
-                                            main_sheet.delete_rows(cell.row)
-                                            st.success("Reimbursement record deleted")
-                                            st.rerun()
-                                except Exception as e:
-                                    st.warning(f"Deletion sync failed: {str(e)}")
-
-    st.divider()
+if __name__ == "__main__":
+    show_groups_module()
