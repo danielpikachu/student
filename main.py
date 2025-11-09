@@ -257,7 +257,7 @@ def main():
         # 第二行提示文本（保持原样式）
         st.markdown(
             """
-            <div style="background-color: #f0f2f6; padding: 1.5rem; border-radius: 8px; text-align: center; margin: 0 2rem;">
+            <div style="background-color: #f0f2f6; padding: 1rem; border-radius: 8px; text-align: center; margin: 0 2rem;">
                 <p style="margin-bottom: 0.5rem;">Please log in using the form in the sidebar to access the Student Council management tools.</p>
                 <p>If you don't have an account, please contact an administrator to create one for you.</p>
             </div>
