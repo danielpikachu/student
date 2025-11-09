@@ -4,14 +4,14 @@ import os
 import hashlib
 from datetime import datetime
 
-# 解决根目录模块导入问题
+# Solve root directory module import issue
 ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# 导入真实的 Google Sheets 工具类（请确保 google_sheet_utils.py 存在且正常）
+# Import real Google Sheets utility class (ensure google_sheet_utils.py exists and works properly)
 from google_sheet_utils import GoogleSheetHandler
-# 导入所有功能模块（保持不变）
+# Import all functional modules (unchanged)
 from modules.calendar import render_calendar
 from modules.announcements import render_announcements
 from modules.financial_planning import render_financial_planning
@@ -20,17 +20,17 @@ from modules.credit_rewards import render_credit_rewards
 from modules.money_transfers import render_money_transfers
 from modules.groups import render_groups
 
-# ---------------------- 全局配置 ----------------------
+# ---------------------- Global Configuration ----------------------
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
-DEFAULT_ADMIN_USERS = ["admin", "root"]  # 默认管理员用户名
-gs_handler = GoogleSheetHandler(credentials_path="")  # 按实际凭据路径配置
+DEFAULT_ADMIN_USERS = ["admin", "root"]  # Default admin usernames
+gs_handler = GoogleSheetHandler(credentials_path="")  # Configure according to actual credential path
 
-# ---------------------- 密码加密工具（未修改，保持原逻辑） ----------------------
+# ---------------------- Password Encryption Tool (unchanged) ----------------------
 def hash_password(password):
     return hashlib.md5(password.encode()).hexdigest()
 
-# ---------------------- 用户数据操作（恢复真实逻辑，删除模拟数据） ----------------------
+# ---------------------- User Data Operations (real logic restored, mock data removed) ----------------------
 def init_user_sheet():
     try:
         gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
@@ -47,17 +47,17 @@ def get_user_by_username(username):
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         data = worksheet.get_all_values()
     except Exception as e:
-        st.error(f"获取用户数据失败: {str(e)}")
+        st.error(f"Failed to retrieve user data: {str(e)}")
         return None
     
     if not data:
         return None
-    # 遍历真实表格数据，匹配用户名（恢复原逻辑）
+    # Iterate through real table data to match username (original logic restored)
     for row in data[1:]:
         if row[0] == username:
             return {
                 "username": row[0],
-                "password": row[1],  # 读取表格中存储的加密密码
+                "password": row[1],  # Encrypted password stored in the table
                 "register_time": row[2],
                 "last_login": row[3]
             }
@@ -74,7 +74,7 @@ def add_new_user(username, password):
         worksheet.append_row(new_user)
         return True
     except Exception as e:
-        st.error(f"添加用户失败: {str(e)}")
+        st.error(f"Failed to create user: {str(e)}")
         return False
 
 def update_user_last_login(username):
@@ -83,7 +83,7 @@ def update_user_last_login(username):
         worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
         data = worksheet.get_all_values()
     except Exception as e:
-        st.error(f"获取用户数据失败: {str(e)}")
+        st.error(f"Failed to retrieve user data: {str(e)}")
         return False
     
     if not data:
@@ -96,7 +96,7 @@ def update_user_last_login(username):
             return True
     return False
 
-# ---------------------- 会话状态初始化（保持不变） ----------------------
+# ---------------------- Session State Initialization (unchanged) ----------------------
 def init_session_state():
     if "sys_admin_password" not in st.session_state:
         st.session_state.sys_admin_password = "sc_admin_2025"
@@ -137,11 +137,11 @@ def init_session_state():
     if "grp_members" not in st.session_state:
         st.session_state.grp_members = []
 
-# ---------------------- 权限控制装饰器（保持不变） ----------------------
+# ---------------------- Permission Control Decorators (unchanged) ----------------------
 def require_login(func):
     def wrapper(*args, **kwargs):
         if not st.session_state.auth_logged_in:
-            st.error("请先登录后再操作！")
+            st.error("Please log in first to operate!")
             show_login_register_form()
             return
         return func(*args, **kwargs)
@@ -150,7 +150,7 @@ def require_login(func):
 def require_edit_permission(func):
     def wrapper(*args, **kwargs):
         if not st.session_state.auth_is_admin:
-            st.info("您没有编辑权限，只能查看内容")
+            st.info("You do not have edit permission, only view access.")
         return func(*args, **kwargs)
     return wrapper
 
@@ -158,42 +158,42 @@ def require_group_edit_permission(func):
     def wrapper(*args, **kwargs):
         if st.session_state.auth_is_admin:
             return func(*args, **kwargs)
-        with st.sidebar.expander("🔑 Group访问验证", expanded=True):
-            access_code = st.text_input("请输入Group访问码", type="password")
-            if st.button("验证访问权限"):
+        with st.sidebar.expander("🔑 Group Access Verification", expanded=True):
+            access_code = st.text_input("Please enter Group access code", type="password")
+            if st.button("Verify Access Permission"):
                 if access_code:
                     st.session_state.auth_current_group_code = access_code
-                    st.success("访问验证通过，可编辑当前Group！")
+                    st.success("Access verified! You can edit the current Group.")
                 else:
-                    st.error("请输入有效的访问码！")
+                    st.error("Please enter a valid access code!")
         return func(*args, **kwargs)
     return wrapper
 
-# ---------------------- 登录注册界面（保持原逻辑，未修改） ----------------------
+# ---------------------- Login/Registration Interface (all text localized to English) ----------------------
 def show_login_register_form():
     with st.sidebar:
         st.markdown("---")
-        st.subheader("用户登录")
-        username = st.text_input("用户名", key="login_username")
-        password = st.text_input("密码", type="password", key="login_password")
+        st.subheader("User Login")
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input("Password", type="password", key="login_password")
         
-        if st.button("登录"):
+        if st.button("Log In"):
             if not username or not password:
-                st.error("用户名和密码不能为空！")
+                st.error("Username and password cannot be empty!")
                 return
             
             user = get_user_by_username(username)
             if not user:
-                st.error("用户名不存在！")
+                st.error("Username does not exist!")
                 return
             
-            # 密码加密比对（原逻辑，未修改）
+            # Password encryption verification (original logic unchanged)
             hashed_pwd = hash_password(password)
             if user["password"] != hashed_pwd:
-                st.error("密码错误！")
+                st.error("Incorrect password!")
                 return
             
-            # 管理员判断（原逻辑）
+            # Admin judgment (original logic unchanged)
             try:
                 admin_users = st.secrets.get("admin_users", DEFAULT_ADMIN_USERS)
                 if isinstance(admin_users, str):
@@ -205,38 +205,38 @@ def show_login_register_form():
             st.session_state.auth_logged_in = True
             st.session_state.auth_username = username
             update_user_last_login(username)
-            st.success(f"登录成功！欢迎回来，{'管理员' if st.session_state.auth_is_admin else '用户'} {username}！")
+            st.success(f"Login successful! Welcome back, {'Admin' if st.session_state.auth_is_admin else 'User'} {username}!")
             st.rerun()
         
-        st.subheader("用户注册")
-        new_username = st.text_input("用户名", key="reg_username")
-        new_password = st.text_input("密码", type="password", key="reg_password")
-        confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_pwd")
+        st.subheader("User Registration")
+        new_username = st.text_input("Username", key="reg_username")
+        new_password = st.text_input("Password", type="password", key="reg_password")
+        confirm_password = st.text_input("Confirm Password", type="password", key="reg_confirm_pwd")
         
-        if st.button("注册"):
+        if st.button("Register"):
             if not new_username or not new_password or not confirm_password:
-                st.error("所有字段不能为空！")
+                st.error("All fields cannot be empty!")
                 return
             
             if new_password != confirm_password:
-                st.error("两次输入的密码不一致！")
+                st.error("The two password entries do not match!")
                 return
             
             if len(new_password) < 6:
-                st.error("密码长度不能少于6位！")
+                st.error("Password length must be at least 6 characters!")
                 return
             
             success = add_new_user(new_username, new_password)
             if success:
-                st.success("注册成功！请前往登录界面登录～")
+                st.success("Registration successful! Please log in via the login page～")
             else:
-                st.error("用户名已存在，请更换其他用户名！")
+                st.error("Username already exists! Please choose another username.")
         st.markdown("---")
 
-# ---------------------- 页面主逻辑（包含所有样式修改） ----------------------
+# ---------------------- Page Main Logic (all text localized to English) ----------------------
 def main():
     st.set_page_config(
-        page_title="Student Council Management System",
+        page_title="SCIS Student Council Management System",
         page_icon="🏛️",
         layout="wide"
     )
@@ -244,7 +244,7 @@ def main():
     init_session_state()
     
     if not st.session_state.auth_logged_in:
-        # 1. 居中标题（已设置）
+        # 1. Centered title
         st.markdown(
             """
             <div style="text-align: center; margin-bottom: 2rem;">
@@ -254,7 +254,7 @@ def main():
             unsafe_allow_html=True
         )
         
-        # 2. 灰底提示文本（优化内边距，避免底部拥挤）
+        # 2. Gray background prompt text
         st.markdown(
             """
             <div style="background-color: #f0f2f6; padding: 1.5rem; border-radius: 8px; text-align: center; margin: 0 2rem;">
@@ -265,7 +265,7 @@ def main():
             unsafe_allow_html=True
         )
         
-        # 3. 功能标签行（添加顶部间距，与上面彻底分开）
+        # 3. Function tags (with top margin to separate from above)
         col1, col2, col3 = st.columns(3, gap="medium")
         with col1:
             st.markdown(
@@ -298,28 +298,28 @@ def main():
                 unsafe_allow_html=True
             )
         
-        # 显示登录注册表单（侧边栏）
+        # Show login/registration form (sidebar)
         show_login_register_form()
         return
     
-    # 登录后的主界面（保持原逻辑不变）
-    st.title("Student Council Management System")
+    # Main interface after login (original logic unchanged)
+    st.title("SCIS Student Council Management System")
     
     with st.sidebar:
         st.markdown("---")
         st.info(f"""
-        👤 当前用户：{st.session_state.auth_username}  
-        📌 身份：{'管理员' if st.session_state.auth_is_admin else '普通用户'}  
-        🕒 最后登录：{get_user_by_username(st.session_state.auth_username)['last_login']}
+        👤 Current User: {st.session_state.auth_username}  
+        📌 Role: {'Admin' if st.session_state.auth_is_admin else 'Regular User'}  
+        🕒 Last Login: {get_user_by_username(st.session_state.auth_username)['last_login']}
         """)
-        if st.button("退出登录"):
+        if st.button("Log Out"):
             st.session_state.auth_logged_in = False
             st.session_state.auth_username = ""
             st.session_state.auth_is_admin = False
             st.session_state.auth_current_group_code = ""
             st.rerun()
         st.markdown("---")
-        st.info("© 2025 Student Council Management System")
+        st.info("© 2025 SCIS Student Council Management System")
     
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📅 Calendar", "📢 Announcements", "💰 Financial Planning",
