@@ -2,73 +2,64 @@
 import streamlit as st
 import sys
 import os
-import json
-from google.oauth2.service_account import Credentials
-import gspread
 
-# 解决根目录导入问题
-ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
+# 解决根目录导入问题（google_sheet_utils与modules同级）
+current_dir = os.path.dirname(os.path.abspath(__file__))  # 获取当前模块目录
+parent_dir = os.path.dirname(current_dir)  # 父目录（与google_sheet_utils同级）
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+# 复用现有Google Sheets工具类
+from google_sheet_utils import GoogleSheetHandler
 
 def render_credit_rewards():
-    st.header("🎓 Credits List")
+    """渲染学分列表模块，实时同步Google Sheets的credits工作表数据"""
+    # 页面标题与说明
+    st.header("🎓 学分信息列表")
     st.markdown("---")
-    st.info("数据实时同步自 Google Sheets，更新表格后刷新页面即可查看最新内容")
+    st.caption("数据实时同步自Google Sheets，更新表格后刷新页面即可查看最新内容")
 
-    # 1. 从环境变量读取认证信息（无需修改Streamlit Secrets）
     try:
-        # 环境变量名称自定义（例如：GOOGLE_CREDS_JSON）
-        creds_json = os.getenv("GOOGLE_CREDS_JSON")
-        if not creds_json:
-            st.error("未检测到环境变量GOOGLE_CREDS_JSON，请配置后重试")
+        # 1. 初始化工具类（复用现有认证配置，无需修改Secrets）
+        gsheet = GoogleSheetHandler()
+
+        # 2. 读取credits工作表数据（替换为你的表格ID）
+        spreadsheet_id = "你的Google表格ID"  # 例如："1Abcdefg1234567890hijklmnopqrstuvwxyz"
+        worksheet_name = "credits"  # 目标工作表名称
+        credit_data = gsheet.get_all_records(spreadsheet_id, worksheet_name)
+
+        # 3. 处理无数据情况
+        if not credit_data:
+            st.info("当前工作表中暂无数据，请在Google Sheets中添加内容后重试")
             return
 
-        # 解析JSON字符串为字典
-        creds_dict = json.loads(creds_json)
-        
-        # 验证关键字段
-        required_fields = ["client_email", "token_uri", "private_key"]
-        for field in required_fields:
-            if field not in creds_dict:
-                st.error(f"认证信息缺少必要字段: {field}")
-                return
+        # 4. 带滚动条显示数据（适配46条记录）
+        st.subheader("当前学分记录")
+        with st.container(height=450):  # 固定高度，超出自动显示滚动条
+            st.dataframe(
+                credit_data,
+                use_container_width=True,  # 自适应容器宽度
+                hide_index=True,  # 隐藏默认索引列
+                column_config={  # 优化列显示（可根据实际表头调整）
+                    "姓名": st.column_config.TextColumn(width="medium"),
+                    "学号": st.column_config.TextColumn(width="small"),
+                    "学分": st.column_config.NumberColumn(width="small"),
+                    "更新时间": st.column_config.DatetimeColumn(width="medium")
+                }
+            )
 
-    except json.JSONDecodeError:
-        st.error("环境变量中的JSON格式错误，请检查")
-        return
-    except Exception as e:
-        st.error(f"读取认证信息失败: {str(e)}")
-        return
-
-    # 2. 创建认证对象
-    try:
-        credentials = Credentials.from_service_account_info(creds_dict)
-    except Exception as e:
-        st.error(f"认证对象创建失败: {str(e)}")
-        return
-
-    # 3. 连接Google Sheets并读取credits工作表
-    try:
-        client = gspread.authorize(credentials)
-        # 替换为你的表格ID和工作表名称
-        spreadsheet = client.open_by_key("你的表格ID").worksheet("credits")
-        data = spreadsheet.get_all_records()
-
-        if not data:
-            st.warning("工作表中暂无数据")
-            return
+        # 5. 显示统计信息
+        st.markdown(f"### 统计信息")
+        st.markdown(f"- 总记录数：**{len(credit_data)}** 条")
+        # 如需其他统计（如总学分），可在此添加：
+        # total_credits = sum(item.get("学分", 0) for item in credit_data)
+        # st.markdown(f"- 总学分：**{total_credits}** 分")
 
     except Exception as e:
-        st.error(f"读取工作表失败: {str(e)}")
-        return
+        # 捕获异常但不影响其他模块
+        st.error(f"数据加载失败：{str(e)}")
+        st.info("请检查Google SheetsID、工作表名称是否正确，或联系管理员")
 
-    # 4. 带滚动条显示数据
-    st.subheader("当前学分信息")
-    with st.container(height=400):
-        st.dataframe(data, use_container_width=True, hide_index=True)
-
-    st.markdown(f"**共 {len(data)} 条记录**")
-
+# 测试运行（本地调试用）
 if __name__ == "__main__":
     render_credit_rewards()
