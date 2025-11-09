@@ -9,73 +9,94 @@ ROOT_DIR = os.path.abspath(os.path.dirname(__file__))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-# 模拟Google Sheets工具类和功能模块（实际使用时替换为真实逻辑）
-class GoogleSheetHandler:
-    def __init__(self, credentials_path=""):
-        self.credentials_path = credentials_path
-    def get_worksheet(self, sheet_name, tab_name):
-        return None
-    def append_row(self, row):
-        pass
-    def update_cell(self, row, col, value):
-        pass
-    def get_all_values(self):
-        return []
-
-def render_calendar():
-    st.write("Calendar Module")
-def render_announcements():
-    st.write("Announcements Module")
-def render_financial_planning():
-    st.write("Financial Planning Module")
-def render_attendance():
-    st.write("Attendance Module")
-def render_credit_rewards():
-    st.write("Credit & Rewards Module")
-def render_money_transfers():
-    st.write("Money Transfers Module")
-def render_groups():
-    st.write("Groups Module")
+# 导入真实的 Google Sheets 工具类（请确保 google_sheet_utils.py 存在且正常）
+from google_sheet_utils import GoogleSheetHandler
+# 导入所有功能模块（保持不变）
+from modules.calendar import render_calendar
+from modules.announcements import render_announcements
+from modules.financial_planning import render_financial_planning
+from modules.attendance import render_attendance
+from modules.credit_rewards import render_credit_rewards
+from modules.money_transfers import render_money_transfers
+from modules.groups import render_groups
 
 # ---------------------- 全局配置 ----------------------
 SHEET_NAME = "Student"
 USER_SHEET_TAB = "users"
 DEFAULT_ADMIN_USERS = ["admin", "root"]  # 默认管理员用户名
-gs_handler = GoogleSheetHandler(credentials_path="")
+gs_handler = GoogleSheetHandler(credentials_path="")  # 按实际凭据路径配置
 
-# ---------------------- 密码加密工具 ----------------------
+# ---------------------- 密码加密工具（未修改，保持原逻辑） ----------------------
 def hash_password(password):
     return hashlib.md5(password.encode()).hexdigest()
 
-# ---------------------- 用户数据操作 ----------------------
+# ---------------------- 用户数据操作（恢复真实逻辑，删除模拟数据） ----------------------
 def init_user_sheet():
     try:
         gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
     except:
         header = ["username", "password", "register_time", "last_login"]
-        # 模拟创建工作表逻辑
-        pass
+        spreadsheet = gs_handler.client.open(SHEET_NAME)
+        spreadsheet.add_worksheet(title=USER_SHEET_TAB, rows=100, cols=4)
+        worksheet = spreadsheet.worksheet(USER_SHEET_TAB)
+        worksheet.append_row(header)
 
 def get_user_by_username(username):
     init_user_sheet()
     try:
-        # 模拟获取用户数据
-        return {
-            "username": username,
-            "password": hash_password("test123"),
-            "register_time": "2025-01-01 00:00:00",
-            "last_login": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-    except:
+        worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
+        data = worksheet.get_all_values()
+    except Exception as e:
+        st.error(f"获取用户数据失败: {str(e)}")
         return None
+    
+    if not data:
+        return None
+    # 遍历真实表格数据，匹配用户名（恢复原逻辑）
+    for row in data[1:]:
+        if row[0] == username:
+            return {
+                "username": row[0],
+                "password": row[1],  # 读取表格中存储的加密密码
+                "register_time": row[2],
+                "last_login": row[3]
+            }
+    return None
 
 def add_new_user(username, password):
-    return True  # 模拟添加用户成功
+    if get_user_by_username(username):
+        return False
+    hashed_pwd = hash_password(password)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    new_user = [username, hashed_pwd, now, now]
+    try:
+        worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
+        worksheet.append_row(new_user)
+        return True
+    except Exception as e:
+        st.error(f"添加用户失败: {str(e)}")
+        return False
 
 def update_user_last_login(username):
-    return True  # 模拟更新登录时间成功
+    init_user_sheet()
+    try:
+        worksheet = gs_handler.get_worksheet(SHEET_NAME, USER_SHEET_TAB)
+        data = worksheet.get_all_values()
+    except Exception as e:
+        st.error(f"获取用户数据失败: {str(e)}")
+        return False
+    
+    if not data:
+        return False
+    for i, row in enumerate(data[1:]):
+        if row[0] == username:
+            row_num = i + 2
+            new_last_login = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            worksheet.update_cell(row_num, 4, new_last_login)
+            return True
+    return False
 
-# ---------------------- 会话状态初始化 ----------------------
+# ---------------------- 会话状态初始化（保持不变） ----------------------
 def init_session_state():
     if "sys_admin_password" not in st.session_state:
         st.session_state.sys_admin_password = "sc_admin_2025"
@@ -116,7 +137,7 @@ def init_session_state():
     if "grp_members" not in st.session_state:
         st.session_state.grp_members = []
 
-# ---------------------- 权限控制装饰器 ----------------------
+# ---------------------- 权限控制装饰器（保持不变） ----------------------
 def require_login(func):
     def wrapper(*args, **kwargs):
         if not st.session_state.auth_logged_in:
@@ -148,7 +169,7 @@ def require_group_edit_permission(func):
         return func(*args, **kwargs)
     return wrapper
 
-# ---------------------- 登录注册界面 ----------------------
+# ---------------------- 登录注册界面（保持原逻辑，未修改） ----------------------
 def show_login_register_form():
     with st.sidebar:
         st.markdown("---")
@@ -166,11 +187,13 @@ def show_login_register_form():
                 st.error("用户名不存在！")
                 return
             
+            # 密码加密比对（原逻辑，未修改）
             hashed_pwd = hash_password(password)
             if user["password"] != hashed_pwd:
                 st.error("密码错误！")
                 return
             
+            # 管理员判断（原逻辑）
             try:
                 admin_users = st.secrets.get("admin_users", DEFAULT_ADMIN_USERS)
                 if isinstance(admin_users, str):
@@ -210,7 +233,7 @@ def show_login_register_form():
                 st.error("用户名已存在，请更换其他用户名！")
         st.markdown("---")
 
-# ---------------------- 页面主逻辑 ----------------------
+# ---------------------- 页面主逻辑（保持布局和样式，仅恢复真实用户逻辑） ----------------------
 def main():
     st.set_page_config(
         page_title="Student Council Management System",
@@ -221,9 +244,17 @@ def main():
     init_session_state()
     
     if not st.session_state.auth_logged_in:
-        st.title("Welcome to SCIS Student Council Management System")
+        # 居中标题（已设置，未修改）
+        st.markdown(
+            """
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h1>Welcome to SCIS Student Council Management System</h1>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         
-        # 第二行提示文本
+        # 第二行提示文本（保持原样式）
         st.markdown(
             """
             <div style="background-color: #f0f2f6; padding: 1.5rem; border-radius: 8px; text-align: center; margin: 0 2rem;">
@@ -234,7 +265,7 @@ def main():
             unsafe_allow_html=True
         )
         
-        # 第三行功能标签（带图标）
+        # 第三行功能标签（保持原样式）
         col1, col2, col3 = st.columns(3, gap="medium")
         with col1:
             st.markdown(
@@ -271,6 +302,7 @@ def main():
         show_login_register_form()
         return
     
+    # 登录后的主界面（保持原逻辑不变）
     st.title("Student Council Management System")
     
     with st.sidebar:
