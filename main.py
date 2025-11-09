@@ -160,74 +160,83 @@ def require_group_edit_permission(func):
     return wrapper
 # ---------------------- 登录注册界面 ----------------------
 def show_login_register_form():
-    tab1, tab2 = st.tabs(["登录", "注册"])
-    
-    with tab1:
-        st.subheader("用户登录")
-        username = st.text_input("用户名", key="login_username")
-        password = st.text_input("密码", type="password", key="login_password")
+    # 左侧登录注册对话框（灰底，占比1）
+    with left_col:
+        st.markdown(
+            """
+            <div style="background-color: #f0f2f6; border-radius: 8px; padding: 2rem; height: 100%;">
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        tab1, tab2 = st.tabs(["登录", "注册"])
         
-        if st.button("登录"):
-            if not username or not password:
-                st.error("用户名和密码不能为空！")
-                return
+        with tab1:
+            st.subheader("用户登录")
+            username = st.text_input("用户名", key="login_username")
+            password = st.text_input("密码", type="password", key="login_password")
             
-            user = get_user_by_username(username)
-            if not user:
-                st.error("用户名不存在！")
-                return
-            
-            hashed_pwd = hash_password(password)
-            if user["password"] != hashed_pwd:
-                st.error("密码错误！")
-                return
-            
-            # 修复管理员识别逻辑：优先使用secrets，缺失则使用默认列表
-            try:
-                # 从secrets获取管理员列表
-                admin_users = st.secrets.get("admin_users", [])
-                if isinstance(admin_users, str):
-                    admin_users = [user.strip() for user in admin_users.split(",")]
-            except:
-                # 当secrets配置错误时使用默认管理员列表
-                admin_users = DEFAULT_ADMIN_USERS
-            
-            # 明确的布尔值判断
-            is_admin = username.strip() in admin_users
-            st.session_state.auth_is_admin = is_admin  # 确保设置为布尔值
-            
-            st.session_state.auth_logged_in = True
-            st.session_state.auth_username = username
-            
-            update_user_last_login(username)
-            
-            st.success(f"登录成功！欢迎回来，{'管理员' if is_admin else '用户'} {username}！")
-            st.rerun()
-    
-    with tab2:
-        st.subheader("用户注册")
-        new_username = st.text_input("用户名", key="reg_username")
-        new_password = st.text_input("密码", type="password", key="reg_password")
-        confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_pwd")
+            if st.button("登录"):
+                if not username or not password:
+                    st.error("用户名和密码不能为空！")
+                    return
+                
+                user = get_user_by_username(username)
+                if not user:
+                    st.error("用户名不存在！")
+                    return
+                
+                hashed_pwd = hash_password(password)
+                if user["password"] != hashed_pwd:
+                    st.error("密码错误！")
+                    return
+                
+                # 修复管理员识别逻辑：优先使用secrets，缺失则使用默认列表
+                try:
+                    # 从secrets获取管理员列表
+                    admin_users = st.secrets.get("admin_users", [])
+                    if isinstance(admin_users, str):
+                        admin_users = [user.strip() for user in admin_users.split(",")]
+                except:
+                    # 当secrets配置错误时使用默认管理员列表
+                    admin_users = DEFAULT_ADMIN_USERS
+                
+                # 明确的布尔值判断
+                is_admin = username.strip() in admin_users
+                st.session_state.auth_is_admin = is_admin  # 确保设置为布尔值
+                
+                st.session_state.auth_logged_in = True
+                st.session_state.auth_username = username
+                
+                update_user_last_login(username)
+                
+                st.success(f"登录成功！欢迎回来，{'管理员' if is_admin else '用户'} {username}！")
+                st.rerun()
         
-        if st.button("注册"):
-            if not new_username or not new_password or not confirm_password:
-                st.error("所有字段不能为空！")
-                return
+        with tab2:
+            st.subheader("用户注册")
+            new_username = st.text_input("用户名", key="reg_username")
+            new_password = st.text_input("密码", type="password", key="reg_password")
+            confirm_password = st.text_input("确认密码", type="password", key="reg_confirm_pwd")
             
-            if new_password != confirm_password:
-                st.error("两次输入的密码不一致！")
-                return
-            
-            if len(new_password) < 6:
-                st.error("密码长度不能少于6位！")
-                return
-            
-            success = add_new_user(new_username, new_password)
-            if success:
-                st.success("注册成功！请前往登录界面登录～")
-            else:
-                st.error("用户名已存在，请更换其他用户名！")
+            if st.button("注册"):
+                if not new_username or not new_password or not confirm_password:
+                    st.error("所有字段不能为空！")
+                    return
+                
+                if new_password != confirm_password:
+                    st.error("两次输入的密码不一致！")
+                    return
+                
+                if len(new_password) < 6:
+                    st.error("密码长度不能少于6位！")
+                    return
+                
+                success = add_new_user(new_username, new_password)
+                if success:
+                    st.success("注册成功！请前往登录界面登录～")
+                else:
+                    st.error("用户名已存在，请更换其他用户名！")
 # ---------------------- 页面主逻辑 ----------------------
 def main():
     st.set_page_config(
@@ -239,43 +248,48 @@ def main():
     init_session_state()
     
     if not st.session_state.auth_logged_in:
-        # 登录页面布局：1:7分栏
-        col1, col2 = st.columns([1, 7])
+        st.title("📝 学生理事会管理系统 - 登录")
+        # 全局定义左右列布局（1:7比例）
+        global left_col, right_col
+        left_col, right_col = st.columns([1, 7])
         
-        with col1:
-            st.markdown("### 📝 账户登录")
-            show_login_register_form()
-        
-        with col2:
-            # 右侧背景和内容样式
-            st.markdown("""
-            <div style="background-color: #f0f2f6; height: 100%; width: 100%; padding: 50px; border-radius: 8px;">
-                <h1 style="color: #2d3748; font-size: 2.5rem; margin-bottom: 30px;">Welcome to SCIS Student Council Management System</h1>
-                <p style="color: #4a5568; font-size: 1.2rem; margin-bottom: 40px;">
-                    Please log in using the form in the sidebar to access the Student Council management tools.
-                </p>
-                <p style="color: #718096; font-size: 1rem; margin-bottom: 60px;">
-                    If you don't have an account, please contact an administrator to create one for you.
-                </p>
-                
-                <div style="display: flex; flex-direction: column; gap: 20px;">
-                    <div style="background-color: #ffffff; padding: 20px; border-radius: 6px; width: 300px;">
-                        <h3 style="color: #2d3748; margin: 0 0 10px 0;">Event Planning</h3>
-                        <p style="color: #718096; margin: 0;">Organize and manage student council events</p>
+        # 右侧内容区域（白底，占比7）
+        with right_col:
+            st.markdown(
+                """
+                <div style="background-color: #ffffff; height: 100%; border-radius: 8px; padding: 3rem;">
+                    <!-- 第一行：大字标题 -->
+                    <div style="font-size: 2.5rem; font-weight: bold; color: #333333; margin-bottom: 2rem;">
+                        Welcome to SCIS Student Council Management System
                     </div>
                     
-                    <div style="background-color: #ffffff; padding: 20px; border-radius: 6px; width: 300px;">
-                        <h3 style="color: #2d3748; margin: 0 0 10px 0;">Financial Management</h3>
-                        <p style="color: #718096; margin: 0;">Track and manage council funds</p>
+                    <!-- 第二行：灰底提示文本 -->
+                    <div style="background-color: #f0f2f6; padding: 1.5rem; border-radius: 6px; margin-bottom: 2rem;">
+                        <div style="font-size: 1rem; color: #666666; line-height: 1.6;">
+                            Please log in using the form in the sidebar to access the Student Council management tools.<br>
+                            If you don't have an account, please contact an administrator to create one for you.
+                        </div>
                     </div>
                     
-                    <div style="background-color: #ffffff; padding: 20px; border-radius: 6px; width: 300px;">
-                        <h3 style="color: #2d3748; margin: 0 0 10px 0;">Student Recognition</h3>
-                        <p style="color: #718096; margin: 0;">Recognize and reward student contributions</p>
+                    <!-- 第三行：功能标签（模仿图片样式） -->
+                    <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+                        <div style="background-color: #e8f4f8; color: #2d3748; padding: 0.8rem 1.5rem; border-radius: 4px; font-size: 0.9rem; border-left: 3px solid #4299e1;">
+                            ■ Event Planning
+                        </div>
+                        <div style="background-color: #f0f8fb; color: #2d3748; padding: 0.8rem 1.5rem; border-radius: 4px; font-size: 0.9rem; border-left: 3px solid #38b2ac;">
+                            ■ Financial Management
+                        </div>
+                        <div style="background-color: #fdf2f8; color: #2d3748; padding: 0.8rem 1.5rem; border-radius: 4px; font-size: 0.9rem; border-left: 3px solid #9f7aea;">
+                            ■ Student Recognition
+                        </div>
                     </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """,
+                unsafe_allow_html=True
+            )
+        
+        # 显示登录注册表单（会渲染到左侧列）
+        show_login_register_form()
         return
     
     st.title("Student Council Management System")
