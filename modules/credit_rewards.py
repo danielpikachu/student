@@ -15,14 +15,19 @@ def render_credit_rewards():
     """直接从Google Sheets读取并显示credits工作表内容（带滚动条）"""
     st.header("🎓 Credits List")
     st.markdown("---")
-    st.info("数据实时同步自 Google Sheets，更新表格后刷新页面即可查看最新内容")
+    st.info("数据实时同步自 Google Sheets，更新表格后刷新页面页面即可即可查看最新内容")
 
-    # 1. 从Streamlit Secrets获取Google认证信息
+    # 1. 从Streamlit Secrets获取Google认证信息（修复AttrDict序列化问题）
     try:
         if 'google_credentials' in st.secrets:
-            # 处理认证信息格式（兼容AttrDict）
-            creds_json = json.dumps(st.secrets['google_credentials'])
-            creds_dict = json.loads(creds_json)
+            # 关键修复：提取AttrDict的原始字典数据
+            creds_data = st.secrets['google_credentials']
+            # 判断是否为AttrDict类型，是的话通过__dict__转换
+            if hasattr(creds_data, '__dict__'):
+                creds_dict = creds_data.__dict__
+            else:
+                creds_dict = dict(creds_data)
+            # 创建认证对象
             credentials = Credentials.from_service_account_info(creds_dict)
         else:
             st.error("请在Streamlit Secrets中配置google_credentials")
@@ -35,11 +40,11 @@ def render_credit_rewards():
     try:
         # 连接到Google Sheets
         client = gspread.authorize(credentials)
-        # 替换为你的表格名称（或表格ID）和工作表名称
-        spreadsheet = client.open("你的表格名称").worksheet("credits")  # 核心：直接读取credits工作表
+        # 替换为你的表格ID和工作表名称
+        spreadsheet = client.open_by_key("你的表格ID").worksheet("credits")
         
         # 获取所有数据（包含表头）
-        data = spreadsheet.get_all_records()  # 自动将表头作为字典键，行数据作为值
+        data = spreadsheet.get_all_records()
         if not data:
             st.warning("工作表中暂无数据")
             return
@@ -48,17 +53,15 @@ def render_credit_rewards():
         st.error(f"读取工作表失败: {str(e)}")
         return
 
-    # 3. 带滚动条显示数据（固定高度，超出自动滚动）
+    # 3. 带滚动条显示数据
     st.subheader("当前学分信息")
-    with st.container(height=400):  # 高度可调整，适配46条数据
-        # 以表格形式展示（自动适配列宽）
+    with st.container(height=400):
         st.dataframe(
             data,
-            use_container_width=True,  # 适应容器宽度
-            hide_index=True  # 隐藏默认索引列
+            use_container_width=True,
+            hide_index=True
         )
 
-    # 显示数据统计
     st.markdown(f"**共 {len(data)} 条记录**")
 
 if __name__ == "__main__":
