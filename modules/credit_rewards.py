@@ -18,6 +18,15 @@ def render_credit_rewards():
     st.markdown("---")
     st.caption("数据实时同步自Google Sheets（表格：Student，工作表：credits 和 information）")
 
+    # 新增CSS样式：设置表格内容左对齐
+    st.markdown("""
+    <style>
+    .dataframe th, .dataframe td {
+        text-align: left !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     try:
         # 1. 初始化工具类
         credentials_path = ""
@@ -79,18 +88,7 @@ def render_credit_rewards():
         with col2:
             st.markdown("### Information（信息表）")
             if info_data:
-                # 配置列对齐方式为靠左
-                column_config = {
-                    "奖励内容": st.column_config.Column(align="left"),
-                    "所需学分": st.column_config.Column(align="left")
-                }
-                # 应用列配置并显示表格
-                st.dataframe(
-                    info_data,
-                    use_container_width=True,
-                    column_config=column_config,  # 关键配置：设置列对齐
-                    hide_index=True
-                )
+                st.dataframe(info_data, use_container_width=True)  # 这里会应用上面的CSS样式左对齐
             else:
                 st.info("信息表无数据")
 
