@@ -233,7 +233,7 @@ def show_login_register_form():
                 st.error("用户名已存在，请更换其他用户名！")
         st.markdown("---")
 
-# ---------------------- 页面主逻辑（保持布局和样式，仅恢复真实用户逻辑） ----------------------
+# ---------------------- 页面主逻辑（包含所有样式修改） ----------------------
 def main():
     st.set_page_config(
         page_title="Student Council Management System",
@@ -244,20 +244,20 @@ def main():
     init_session_state()
     
     if not st.session_state.auth_logged_in:
-        # 居中标题（已设置，未修改）
+        # 1. 居中标题（已设置）
         st.markdown(
             """
-            <div style="text-align: center; margin-bottom: 0.8rem;">
+            <div style="text-align: center; margin-bottom: 2rem;">
                 <h1>Welcome to SCIS Student Council Management System</h1>
             </div>
             """,
             unsafe_allow_html=True
         )
         
-        # 第二行提示文本（保持原样式）
+        # 2. 灰底提示文本（优化内边距，避免底部拥挤）
         st.markdown(
             """
-            <div style="background-color: #f0f2f6; padding: 1rem; border-radius: 8px; text-align: center; margin: 0 2rem;">
+            <div style="background-color: #f0f2f6; padding: 1.5rem; border-radius: 8px; text-align: center; margin: 0 2rem;">
                 <p style="margin-bottom: 0.5rem;">Please log in using the form in the sidebar to access the Student Council management tools.</p>
                 <p>If you don't have an account, please contact an administrator to create one for you.</p>
             </div>
@@ -265,12 +265,12 @@ def main():
             unsafe_allow_html=True
         )
         
-        # 第三行功能标签（保持原样式）
+        # 3. 功能标签行（添加顶部间距，与上面彻底分开）
         col1, col2, col3 = st.columns(3, gap="medium")
         with col1:
             st.markdown(
                 """
-                <div style="background-color: #e8f4f8; padding: 0.8rem; border-radius: 4px; display: flex; align-items: center; gap: 0.5rem;">
+                <div style="background-color: #e8f4f8; padding: 0.8rem; border-radius: 4px; display: flex; align-items: center; gap: 0.5rem; margin-top: 2rem;">
                     <span style="font-size: 1.2rem;">📅</span>
                     <span>Event Planning</span>
                 </div>
@@ -280,7 +280,7 @@ def main():
         with col2:
             st.markdown(
                 """
-                <div style="background-color: #e8f4f8; padding: 0.8rem; border-radius: 4px; display: flex; align-items: center; gap: 0.5rem;">
+                <div style="background-color: #e8f4f8; padding: 0.8rem; border-radius: 4px; display: flex; align-items: center; gap: 0.5rem; margin-top: 2rem;">
                     <span style="font-size: 1.2rem;">💰</span>
                     <span>Financial Management</span>
                 </div>
@@ -290,7 +290,7 @@ def main():
         with col3:
             st.markdown(
                 """
-                <div style="background-color: #e8f4f8; padding: 0.8rem; border-radius: 4px; display: flex; align-items: center; gap: 0.5rem;">
+                <div style="background-color: #e8f4f8; padding: 0.8rem; border-radius: 4px; display: flex; align-items: center; gap: 0.5rem; margin-top: 2rem;">
                     <span style="font-size: 1.2rem;">🏆</span>
                     <span>Student Recognition</span>
                 </div>
