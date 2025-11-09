@@ -247,7 +247,7 @@ def main():
         # 居中标题（已设置，未修改）
         st.markdown(
             """
-            <div style="text-align: center; margin-bottom: 2rem;">
+            <div style="text-align: center; margin-bottom: 0.8rem;">
                 <h1>Welcome to SCIS Student Council Management System</h1>
             </div>
             """,
