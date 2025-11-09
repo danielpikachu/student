@@ -77,7 +77,7 @@ def render_credit_rewards():
             # st.markdown(f"- Total Credits: **{total_credits}**")
 
         with col2:
-            st.markdown("### Information Table")
+            st.markdown("### Rewards Information")
             if info_data:
                 st.dataframe(info_data, use_container_width=True)
             else:
