@@ -293,7 +293,7 @@ def render_attendance():
                     
                     # Add default records for each member
                     for member in st.session_state.att_members:
-                        st.session_state.att_records[(member["id"], new_meeting_id)] = False
+                        st.session_state.att_records[(member["id"], new_meeting_id)] = True
                     
                     st.success(f"Added meeting: {meeting_name}")
                     if not full_update_sheets():
