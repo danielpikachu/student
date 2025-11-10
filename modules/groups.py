@@ -8,7 +8,7 @@ from datetime import datetime
 from google.oauth2.service_account import Credentials
 from googleapiclient.errors import HttpError
 import time
-from ..google_drive_utils import GoogleDriveHandler
+from google_drive_utils import GoogleDriveHandler
 
 # Solve root directory module import issue
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
