@@ -4,7 +4,7 @@ import streamlit as st
 import os
 import time
 from datetime import datetime, timedelta
-from googleapiclient.errors import HttpError  # 新增：处理API错误
+from googleapiclient.errors import HttpError  # New: Handle API errors
 
 class GoogleSheetHandler:
     """Google Sheets operation utility class with quota optimization"""
@@ -15,8 +15,8 @@ class GoogleSheetHandler:
             "https://www.googleapis.com/auth/drive"
         ]
         self.client = self._authorize()
-        # 新增：缓存机制（默认5分钟有效期）
-        self.cache = {}  # 格式: {(spreadsheet_name, worksheet_name): (data, expire_time)}
+        # New: Caching mechanism (5-minute default validity)
+        self.cache = {}  # Format: {(spreadsheet_name, worksheet_name): (data, expire_time)}
         self.cache_ttl = timedelta(minutes=5)
 
     def _authorize(self):
@@ -36,44 +36,44 @@ class GoogleSheetHandler:
             st.error(f"Credential error: {str(e)}")
             raise
 
-    # 新增：请求重试装饰器（核心优化）
+    # New: Request retry decorator (core optimization)
     def _retry_with_backoff(self, func, *args, **kwargs):
-        """带指数退避的重试机制，处理429配额超额错误"""
+        """Retry mechanism with exponential backoff for handling 429 quota exceeded errors"""
         max_retries = 3
-        retry_delay = 5  # 初始延迟5秒
+        retry_delay = 5  # Initial delay of 5 seconds
         for attempt in range(max_retries):
             try:
                 return func(*args, **kwargs)
             except HttpError as e:
-                if e.resp.status == 429:  # 配额超限
+                if e.resp.status == 429:  # Quota exceeded
                     if attempt < max_retries - 1:
-                        st.warning(f"请求频繁，{retry_delay}秒后重试...")
+                        st.warning(f"Requests too frequent, retrying in {retry_delay} seconds...")
                         time.sleep(retry_delay)
-                        retry_delay *= 2  # 指数退避（5→10→20秒）
+                        retry_delay *= 2  # Exponential backoff (5→10→20 seconds)
                         continue
                     else:
-                        raise Exception(f"超过最大重试次数：{str(e)}")
+                        raise Exception(f"Exceeded maximum retry attempts: {str(e)}")
                 else:
-                    raise  # 其他HTTP错误直接抛出
+                    raise  # Directly raise other HTTP errors
             except gspread.exceptions.APIError as e:
-                # 兼容gspread封装的API错误
+                # Compatible with gspread-wrapped API errors
                 if "429" in str(e):
                     if attempt < max_retries - 1:
-                        st.warning(f"请求频繁，{retry_delay}秒后重试...")
+                        st.warning(f"Requests too frequent, retrying in {retry_delay} seconds...")
                         time.sleep(retry_delay)
                         retry_delay *= 2
                         continue
                     else:
-                        raise Exception(f"超过最大重试次数：{str(e)}")
+                        raise Exception(f"Exceeded maximum retry attempts: {str(e)}")
                 else:
                     raise
             except Exception as e:
-                raise  # 非API错误直接抛出
+                raise  # Directly raise non-API errors
 
     def get_worksheet(self, spreadsheet_name, worksheet_name):
-        """获取指定工作表（添加重试）"""
+        """Get specified worksheet (with retry)"""
         try:
-            # 用重试机制包装核心调用
+            # Wrap core calls with retry mechanism
             spreadsheet = self._retry_with_backoff(self.client.open, spreadsheet_name)
             return self._retry_with_backoff(spreadsheet.worksheet, worksheet_name)
         except gspread.SpreadsheetNotFound:
@@ -84,22 +84,22 @@ class GoogleSheetHandler:
             raise Exception(f"Failed to get worksheet: {str(e)}")
 
     def get_all_records(self, worksheet):
-        """获取所有记录（添加重试）"""
+        """Get all records (with retry)"""
         return self._retry_with_backoff(worksheet.get_all_records)
 
     def append_record(self, worksheet, data):
-        """追加单行数据（添加重试）"""
+        """Append single row of data (with retry)"""
         self._retry_with_backoff(worksheet.append_row, data)
 
-    # 新增：批量追加多行（供未来模块优化使用，当前模块无需改动）
+    # New: Batch append multiple rows (for future module optimization, no changes needed in current module)
     def append_records(self, worksheet, data_list):
-        """批量追加多行数据"""
+        """Batch append multiple rows of data"""
         if not data_list:
             return
         self._retry_with_backoff(worksheet.append_rows, data_list)
 
     def delete_record_by_value(self, worksheet, value):
-        """根据值删除行（添加重试）"""
+        """Delete row by value (with retry)"""
         try:
             cell = self._retry_with_backoff(worksheet.find, value)
             if cell:
@@ -112,7 +112,7 @@ class GoogleSheetHandler:
             raise Exception(f"Failed to delete record: {str(e)}")
 
     def write_sheet(self, spreadsheet_name, worksheet_name, data):
-        """创建/写入工作表（添加重试）"""
+        """Create/write to worksheet (with retry)"""
         try:
             spreadsheet = self._retry_with_backoff(self.client.open, spreadsheet_name)
             try:
@@ -133,24 +133,24 @@ class GoogleSheetHandler:
             raise Exception(f"Failed to write to worksheet: {str(e)}")
 
     def get_sheet_data(self, spreadsheet_name, worksheet_name):
-        """获取工作表数据（添加缓存和重试）"""
+        """Get worksheet data (with caching and retry)"""
         cache_key = (spreadsheet_name, worksheet_name)
         now = datetime.now()
         
-        # 检查缓存是否有效
+        # Check if cache is valid
         if cache_key in self.cache:
             cached_data, expire_time = self.cache[cache_key]
             if now < expire_time:
                 return cached_data
         
-        # 缓存无效时重新获取
+        # Fetch new data when cache is invalid
         worksheet = self.get_worksheet(spreadsheet_name, worksheet_name)
         data = self._retry_with_backoff(worksheet.get_all_values)
-        # 更新缓存
+        # Update cache
         self.cache[cache_key] = (data, now + self.cache_ttl)
         return data
 
-    # 新增：手动清除缓存（可选，供特殊场景使用）
+    # New: Manually clear cache (optional, for special scenarios)
     def clear_cache(self, spreadsheet_name=None, worksheet_name=None):
         if spreadsheet_name and worksheet_name:
             key = (spreadsheet_name, worksheet_name)
