@@ -9,24 +9,24 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-# 解决导入路径问题（与原项目一致）
+# 解决导入路径问题
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 from google_sheet_utils import GoogleSheetHandler  # 原项目的Sheets工具类
 
-# 访问码配置（不变）
+# 访问码配置
 ACCESS_CODES = {
     "GROUP001": "Group 1", "GROUP002": "Group 2", "GROUP003": "Group 3", "GROUP004": "Group 4",
     "GROUP005": "Group 5", "GROUP006": "Group 6", "GROUP007": "Group 7", "GROUP008": "Group 8"
 }
 
-# 图片上传工具类（独立逻辑）
+# 图片上传工具类（复用原项目的凭证路径逻辑）
 class DriveUploader:
-    def __init__(self):
-        # 使用原项目的凭证配置方式
-        self.creds = Credentials.from_service_account_info(
-            st.secrets["google_credentials"],
+    def __init__(self, credentials_path):
+        # 使用原项目的凭证文件路径初始化
+        self.creds = Credentials.from_service_account_file(
+            credentials_path,
             scopes=["https://www.googleapis.com/auth/drive"]
         )
         self.service = build('drive', 'v3', credentials=self.creds)
@@ -56,7 +56,7 @@ class DriveUploader:
             return None
 
 def render_groups():
-    # 初始化会话状态（与原项目一致）
+    # 初始化会话状态
     if "group_logged_in" not in st.session_state:
         st.session_state.group_logged_in = False
     if "current_group" not in st.session_state:
@@ -67,7 +67,7 @@ def render_groups():
         if key not in st.session_state:
             st.session_state[key] = []
 
-    # 登录逻辑（修复重运行）
+    # 登录逻辑
     if not st.session_state.group_logged_in:
         st.title("Group Management")
         access_code = st.text_input("Access Code", type="password")
@@ -77,7 +77,7 @@ def render_groups():
                 st.session_state.current_group = ACCESS_CODES[access_code]
                 st.session_state.current_group_code = access_code
                 st.success("Logged in successfully")
-                st.rerun()  # 正确的重运行方法
+                st.rerun()
             else:
                 st.error("Invalid access code")
         return
@@ -88,29 +88,27 @@ def render_groups():
         st.session_state.group_logged_in = False
         st.rerun()
 
-    # 修复核心错误：按原项目方式初始化GoogleSheetHandler
-    # 原项目中GoogleSheetHandler可能需要凭证路径或无参初始化
+    # 核心修复：按原项目要求传入credentials_path初始化GoogleSheetHandler
+    # 原项目中凭证文件路径（例如："credentials.json"，需与原项目保持一致）
+    CREDENTIALS_PATH = os.path.join(ROOT_DIR, "credentials.json")  # 原项目的凭证路径
     try:
-        # 尝试原项目的初始化方式（无参数）
-        sheet_handler = GoogleSheetHandler()
-        # 按原项目方法获取工作表（可能是get_worksheet而非get_sheet）
-        sheet = sheet_handler.get_worksheet("Student", "AllGroupsData")
+        # 传入凭证路径，匹配原项目的初始化方式
+        sheet_handler = GoogleSheetHandler(credentials_path=CREDENTIALS_PATH)
+        sheet = sheet_handler.get_worksheet("Student", "AllGroupsData")  # 原项目的方法名
     except Exception as e:
         st.error(f"无法连接Google Sheets：{str(e)}")
         sheet = None
 
-    # 加载数据（与原项目逻辑一致）
+    # 加载数据（按原项目格式）
     current_code = st.session_state.current_group_code
     if sheet:
         try:
-            # 原项目可能使用get_all_values()而非get_all_records()
-            all_values = sheet.get_all_values()
-            if len(all_values) < 2:  # 表头+至少一行数据
+            all_values = sheet.get_all_values()  # 原项目读取方式
+            if len(all_values) < 2:
                 st.session_state.members = []
                 st.session_state.incomes = []
                 st.session_state.expenses = []
             else:
-                # 解析表头和数据（原项目的字段顺序）
                 headers = all_values[0]
                 data = [dict(zip(headers, row)) for row in all_values[1:]]
                 st.session_state.members = [d for d in data if d["group_code"] == current_code and d["data_type"] == "member"]
@@ -119,10 +117,10 @@ def render_groups():
         except Exception as e:
             st.warning(f"数据加载失败：{str(e)}")
 
-    # 标签页（与原项目一致）
+    # 标签页
     tab1, tab2, tab3 = st.tabs(["Members", "Income", "Reimbursement"])
 
-    # 1. 成员管理（完全保留原功能）
+    # 1. 成员管理（原功能不变）
     with tab1:
         st.subheader("Members")
         with st.form("add_member"):
@@ -132,14 +130,10 @@ def render_groups():
                 if name and student_id:
                     member_uuid = str(uuid.uuid4())
                     member_data = [
-                        current_code, "member", member_uuid,
-                        name, student_id, "", "", "",
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
+                        current_code, "member", member_uuid, name, student_id,
+                        "", "", "", datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                     ]
-                    st.session_state.members.append({
-                        "group_code": current_code, "data_type": "member", "uuid": member_uuid,
-                        "name": name, "student_id": student_id
-                    })
+                    st.session_state.members.append({"uuid": member_uuid, "name": name, "student_id": student_id})
                     if sheet:
                         sheet.append_row(member_data)
                     st.success("Member added")
@@ -155,7 +149,7 @@ def render_groups():
                     st.success("Member deleted")
                     st.rerun()
 
-    # 2. 收入管理（完全保留原功能）
+    # 2. 收入管理（原功能不变）
     with tab2:
         st.subheader("Income")
         with st.form("add_income"):
@@ -166,15 +160,11 @@ def render_groups():
                 if date and amount and desc:
                     income_uuid = str(uuid.uuid4())
                     income_data = [
-                        current_code, "income", income_uuid,
-                        "", "", date.strftime("%Y-%m-%d"),
-                        str(amount), desc,
+                        current_code, "income", income_uuid, "", "",
+                        date.strftime("%Y-%m-%d"), str(amount), desc,
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                     ]
-                    st.session_state.incomes.append({
-                        "group_code": current_code, "data_type": "income", "uuid": income_uuid,
-                        "date": date.strftime("%Y-%m-%d"), "amount": str(amount), "description": desc
-                    })
+                    st.session_state.incomes.append({"uuid": income_uuid, "date": date.strftime("%Y-%m-%d"), "amount": str(amount), "description": desc})
                     if sheet:
                         sheet.append_row(income_data)
                     st.success("Income added")
@@ -207,8 +197,8 @@ def render_groups():
                     st.error("Please upload receipt image")
                     st.stop()
                 if date and amount and desc:
-                    # 上传图片
-                    drive = DriveUploader()
+                    # 使用原项目的凭证路径初始化Drive上传工具
+                    drive = DriveUploader(credentials_path=CREDENTIALS_PATH)
                     receipt_url = drive.upload(receipt, current_code)
                     if not receipt_url:
                         st.error("Failed to upload receipt")
@@ -217,16 +207,13 @@ def render_groups():
                     # 保存报销记录
                     exp_uuid = str(uuid.uuid4())
                     exp_data = [
-                        current_code, "expense", exp_uuid,
-                        "", "", date.strftime("%Y-%m-%d"),
-                        str(amount), desc,
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        receipt_url  # 新增图片链接
+                        current_code, "expense", exp_uuid, "", "",
+                        date.strftime("%Y-%m-%d"), str(amount), desc,
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), receipt_url
                     ]
                     st.session_state.expenses.append({
-                        "group_code": current_code, "data_type": "expense", "uuid": exp_uuid,
-                        "date": date.strftime("%Y-%m-%d"), "amount": str(amount),
-                        "description": desc, "receipt_url": receipt_url
+                        "uuid": exp_uuid, "date": date.strftime("%Y-%m-%d"),
+                        "amount": str(amount), "description": desc, "receipt_url": receipt_url
                     })
                     if sheet:
                         sheet.append_row(exp_data)
