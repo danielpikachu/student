@@ -10,7 +10,7 @@ class GoogleDriveHandler:
         self.creds = credentials
         self.service = build('drive', 'v3', credentials=self.creds)
         # 替换为你的Google Drive文件夹ID（手动创建文件夹后获取）
-        self.folder_id = "你的文件夹ID"  # 例如："1AbC2dEfG3hIjK4lMnOpQrStUvWxYz"
+        self.folder_id = "1NDgg27Q_XIn0p7XVBKg_uxaGwqRgdpqY"  # 例如："1AbC2dEfG3hIjK4lMnOpQrStUvWxYz"
 
     def upload_image(self, image_file, group_code):
         """上传图片到指定文件夹并返回可访问链接"""
