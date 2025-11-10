@@ -87,8 +87,10 @@ def render_groups():
     # Initialize Google Sheets connection (single sheet AllGroupsData)
     sheet_handler = None
     main_sheet = None
+    drive_handler = None  # 初始化Google Drive处理器用于图片上传
     try:
         sheet_handler = GoogleSheetHandler(credentials_path="")  # Ensure credentials are configured correctly
+        drive_handler = GoogleDriveHandler(credentials_path="")  # 初始化Drive处理器
         # Connect to the AllGroupsData worksheet in the existing Group file
         main_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",  # Your Google Sheet file name
@@ -104,13 +106,13 @@ def render_groups():
                         spreadsheet_name="Student",
                         worksheet_name="AllGroupsData",
                         rows=1000,
-                        cols=20
+                        cols=21  # 增加一列用于存储图片URL
                     )
-                    # Initialize header row
+                    # Initialize header row (增加receipt_url字段)
                     headers = ["group_code", "data_type", "uuid", 
                                "name", "student_id",  # Member-specific fields
                                "date", "amount", "description",  # Income/reimbursement specific fields
-                               "created_at", "receipt_url"]  # Add receipt_url column
+                               "created_at", "receipt_url"]  # 新增receipt_url字段
                     main_sheet.append_row(headers)
                     st.success("Worksheet AllGroupsData created successfully!")
                 except Exception as e2:
@@ -162,13 +164,14 @@ def render_groups():
             ]
 
             # Filter current group's reimbursement data (data_type=expense)
+            # 增加receipt_url字段的同步
             st.session_state.expenses = [
                 {
                     "uuid": row[col_indices["uuid"]],
                     "date": row[col_indices["date"]],
                     "amount": row[col_indices["amount"]],
                     "description": row[col_indices["description"]],
-                    "receipt_url": row[col_indices.get("receipt_url", "")]  # Add receipt_url
+                    "receipt_url": row[col_indices.get("receipt_url", "")] if "receipt_url" in col_indices else ""
                 }
                 for row in all_rows[1:]
                 if row[col_indices["group_code"]] == current_code 
@@ -224,7 +227,7 @@ def render_groups():
                             student_id.strip(),  # student_id
                             "", "", "",    # Leave income/reimbursement fields empty
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # created_at
-                            ""  # receipt_url (empty for member)
+                            ""  # receipt_url (留空)
                         ])
                         st.success(f"Successfully added member: {name}")
                     except Exception as e:
@@ -309,7 +312,7 @@ def render_groups():
                             new_income["amount"],
                             new_income["description"],
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            ""  # receipt_url (empty for income)
+                            ""  # receipt_url (留空)
                         ])
                         st.success(f"Successfully added income: ¥{income_amount:.2f}")
                     except Exception as e:
@@ -351,7 +354,7 @@ def render_groups():
     # ---------------------- Reimbursement Management Module (Tab 3) ----------------------
     with tab3:
         st.markdown("<h3 style='font-size: 16px'>Reimbursement Management</h3>", unsafe_allow_html=True)
-        st.write("Record and manage various reimbursement information")
+        st.write("Record and manage various reimbursement information (including receipt upload)")
         st.divider()
 
         # Add new reimbursement
@@ -359,33 +362,36 @@ def render_groups():
             st.markdown("**Add New Reimbursement**", unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
-                exp_date = st.date_input("Reimbursement Date*",datetime.now(), key="reimbursement_date")
-            
+                exp_date = st.date_input("Reimbursement Date*", datetime.now(), key="reimbursement_date")
                 exp_amount = st.number_input("Reimbursement Amount*", min_value=10.0, value=10.0, step=1.0, format="%.2f", key="reimbursement_amount")
             with col2:
                 exp_desc = st.text_input("Reimbursement Description*", placeholder="Please enter reimbursement reason", key="reimbursement_description")
-                exp_receipt = st.file_uploader("Upload Receipt (Image)",type=["png", "jpg", "jpeg"],key="reimbursement_receipt")
+                exp_receipt = st.file_uploader("Upload Receipt (Image)", type=["png", "jpg", "jpeg"], key="reimbursement_receipt")
                 
             if st.button("Confirm Add Reimbursement", use_container_width=True, key="add_expense"):
                 if not exp_desc:
                     st.error("Reimbursement description cannot be empty")
                     return
                 if not exp_receipt:
-                   st.error("Please upload receipt image as proof")
-                   return
+                    st.error("Please upload receipt image as proof")
+                    return
 
-                # Handle receipt upload (simplified example - actual implementation depends on GoogleDriveHandler)
+                # 上传图片到Google Drive并获取URL
                 receipt_url = ""
-                if exp_receipt:
+                if drive_handler and exp_receipt:
                     try:
-                        drive_handler = GoogleDriveHandler()
-                        receipt_url = drive_handler.upload_file(
-                            file=exp_receipt,
-                            folder_id="your_receipt_folder_id",  # Replace with actual folder ID
-                            file_name=f"receipt_{exp_uuid}_{exp_receipt.name}"
-                        )
+                        with st.spinner("Uploading receipt..."):
+                            # 生成唯一的文件名
+                            file_name = f"receipt_{current_code}_{str(uuid.uuid4())}.{exp_receipt.name.split('.')[-1]}"
+                            # 上传到Drive
+                            receipt_url = drive_handler.upload_file(
+                                file_content=exp_receipt.getvalue(),
+                                file_name=file_name,
+                                mime_type=exp_receipt.type
+                            )
+                            st.success("Receipt uploaded successfully")
                     except Exception as e:
-                        st.warning(f"Failed to upload receipt: {str(e)}")
+                        st.error(f"Failed to upload receipt: {str(e)}")
                         return
 
                 exp_uuid = str(uuid.uuid4())
@@ -398,7 +404,7 @@ def render_groups():
                 }
                 st.session_state.expenses.append(new_exp)
 
-                # Write to Google Sheet
+                # Write to Google Sheet (包含receipt_url)
                 if main_sheet:
                     try:
                         main_sheet.append_row([
@@ -410,61 +416,53 @@ def render_groups():
                             new_exp["amount"],
                             new_exp["description"],
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            new_exp["receipt_url"]  # Fix variable name from new_expense to new_exp
+                            new_exp["receipt_url"]  # 存储图片URL
                         ])
                         st.success(f"Successfully added reimbursement: ¥{exp_amount:.2f}")
                     except Exception as e:
                         st.warning(f"Failed to sync to sheet: {str(e)}")
 
-        # Display reimbursement list
+        # Display reimbursement list with receipt preview
         st.divider()
         st.markdown("**Reimbursement List**", unsafe_allow_html=True)
         if not st.session_state.expenses:
             st.info("No reimbursement records yet, please add")
         else:
-            # Create DataFrame with receipt URL (but hide it in main table)
-            exp_data = []
-            for i, m in enumerate(st.session_state.expenses):
-                exp_data.append({
-                    "Serial No.": i+1,
-                    "Date": m["date"],
-                    "Amount (¥)": m["amount"],
-                    "Description": m["description"],
-                    "Receipt URL": m.get("receipt_url", "")  # Include receipt URL for internal use
-                })
-            exp_df = pd.DataFrame(exp_data)
-            
-            # Show main table without URL
-            st.dataframe(exp_df.drop(columns=["Receipt URL"]), use_container_width=True)
-            
-            # Add receipt image display section
-            st.subheader("Receipt Images")
-            for exp in st.session_state.expenses:
-                with st.expander(f"{exp['date']} - ¥{exp['amount']}: {exp['description']}"):
-                    if "receipt_url" in exp and exp["receipt_url"]:
-                        st.image(exp["receipt_url"], caption="Receipt", use_column_width=True)
-                    else:
-                        st.warning("No receipt image available")
-
-            # Add reimbursement deletion function (same logic as income deletion)
-            with st.expander("Delete Reimbursement", expanded=False):
-                for exp in st.session_state.expenses:
-                    col1, col2 = st.columns([4, 1])
+            # 显示包含图片预览的报销列表
+            for i, exp in enumerate(st.session_state.expenses):
+                with st.expander(f"Reimbursement {i+1}: {exp['date']} - ¥{exp['amount']}", expanded=False):
+                    col1, col2 = st.columns(2)
                     with col1:
-                        st.write(f"{exp['date']} - ¥{exp['amount']}: {exp['description']}")
+                        st.write(f"**Description:** {exp['description']}")
+                        st.write(f"**Date:** {exp['date']}")
+                        st.write(f"**Amount:** ¥{exp['amount']}")
                     with col2:
-                        if st.button("Delete", key=f"del_expense_{exp['uuid']}"):
-                            st.session_state.expenses = [x for x in st.session_state.expenses if x["uuid"] != exp["uuid"]]
-                            if main_sheet:
-                                try:
-                                    cell = main_sheet.find(exp["uuid"])
-                                    if cell:
-                                        row = main_sheet.row_values(cell.row)
-                                        if row[0] == current_code and row[1] == "expense":
-                                            main_sheet.delete_rows(cell.row)
-                                            st.success("Reimbursement record deleted")
-                                            st.rerun()
-                                except Exception as e:
-                                    st.warning(f"Deletion sync failed: {str(e)}")
+                        if exp.get("receipt_url"):
+                            st.markdown("**Receipt Preview:**")
+                            st.image(exp["receipt_url"], use_column_width=True)
+                        else:
+                            st.warning("No receipt available")
+                
+                # 删除按钮
+                if st.button("Delete", key=f"del_expense_{exp['uuid']}", use_container_width=True):
+                    st.session_state.expenses = [x for x in st.session_state.expenses if x["uuid"] != exp["uuid"]]
+                    if main_sheet:
+                        try:
+                            cell = main_sheet.find(exp["uuid"])
+                            if cell:
+                                row = main_sheet.row_values(cell.row)
+                                if row[0] == current_code and row[1] == "expense":
+                                    main_sheet.delete_rows(cell.row)
+                                    # 如果有图片，同时从Drive删除
+                                    if drive_handler and exp.get("receipt_url"):
+                                        try:
+                                            file_id = exp["receipt_url"].split("id=")[-1]
+                                            drive_handler.delete_file(file_id)
+                                        except Exception as e:
+                                            st.warning(f"Receipt deleted from sheet but failed to delete from Drive: {str(e)}")
+                                    st.success("Reimbursement record deleted")
+                                    st.rerun()
+                        except Exception as e:
+                            st.warning(f"Deletion sync failed: {str(e)}")
 
     st.divider()
