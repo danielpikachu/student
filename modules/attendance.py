@@ -177,7 +177,7 @@ def render_attendance():
                 member_name = kwargs["member_name"]
                 for meeting in st.session_state.att_meetings:
                     key = (member_id, meeting["id"])
-                    # 新增成员默认状态为缺席（保持原有逻辑）
+                    # 新增成员默认状态为缺席
                     new_row = [
                         str(member_id), member_name,
                         str(meeting["id"]), meeting["name"],
@@ -189,21 +189,49 @@ def render_attendance():
                     st.session_state.row_mapping[key] = row_idx
 
             elif update_type == "new_meeting":
-                # 新增会议（为每个现有成员创建一行）
+                # 新增会议（为每个现有成员创建一行，紧跟在该成员的其他会议记录后）
                 meeting_id = kwargs["meeting_id"]
                 meeting_name = kwargs["meeting_name"]
+                
+                # 跟踪插入行后行号的偏移量（因为插入行会影响后续行的索引）
+                row_offset = 0
+                
                 for member in st.session_state.att_members:
                     key = (member["id"], meeting_id)
-                    # 重点修改：新增会议默认状态为出席（将FALSE改为TRUE）
+                    member_id = member["id"]
+                    
+                    # 查找该成员最后一条会议记录的行号，新记录将插入到其后
+                    member_rows = [
+                        row_idx for (mid, mtid), row_idx in st.session_state.row_mapping.items()
+                        if mid == member_id
+                    ]
+                    
+                    # 计算插入位置：如果有现有记录则插在最后一条之后，否则插在表格末尾
+                    if member_rows:
+                        # 加上偏移量（之前的插入操作会影响行号）
+                        insert_after_row = max(member_rows) + row_offset
+                    else:
+                        # 获取当前表格总行数（+1是因为表头占1行）
+                        total_rows = len(attendance_sheet.get_all_values())
+                        insert_after_row = total_rows + row_offset
+                    
+                    # 准备新行数据（默认出席）
                     new_row = [
-                        str(member["id"]), member["name"],
+                        str(member_id), member["name"],
                         str(meeting_id), meeting_name,
                         "TRUE",  # 新增会议默认出席
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     ]
-                    result = attendance_sheet.append_rows([new_row], value_input_option="RAW")
-                    row_idx = int(result['updates']['updatedRange'].split('!')[1].split(':')[0][1:])
-                    st.session_state.row_mapping[key] = row_idx
+                    
+                    # 插入新行（insert_rows在指定行号后插入）
+                    attendance_sheet.insert_rows(new_row, row=insert_after_row + 1)  # +1因为insert_rows是在row参数后插入
+                    
+                    # 记录新行的行号（插入位置+1，因为是插入在其后）
+                    new_row_idx = insert_after_row + 1
+                    st.session_state.row_mapping[key] = new_row_idx
+                    
+                    # 更新偏移量（后续插入需要考虑本次插入的行）
+                    row_offset += 1
 
             elif update_type == "delete_meeting":
                 # 删除会议（删除所有相关行）
@@ -302,7 +330,7 @@ def render_attendance():
                             if not any(m["name"] == name for m in st.session_state.att_members):
                                 new_id = len(st.session_state.att_members) + 1
                                 st.session_state.att_members.append({"id": new_id, "name": name})
-                                # 为每个现有会议初始化考勤记录（默认缺席，保持原有逻辑）
+                                # 为每个现有会议初始化考勤记录（默认缺席）
                                 for meeting in st.session_state.att_meetings:
                                     st.session_state.att_records[(new_id, meeting["id"])] = False
                                 # 同步到Sheet
@@ -339,7 +367,7 @@ def render_attendance():
                     new_meeting_id = len(st.session_state.att_meetings) + 1
                     st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
                     
-                    # 重点修改：新增会议时默认状态为出席（将False改为True）
+                    # 新增会议时默认状态为出席
                     for member in st.session_state.att_members:
                         st.session_state.att_records[(member["id"], new_meeting_id)] = True
                     
