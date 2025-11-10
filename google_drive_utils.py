@@ -8,8 +8,8 @@ from googleapiclient.errors import HttpError
 class GoogleDriveHandler:
     def __init__(self, credentials):
         self.creds = credentials
-        # 1. 关键修改：添加supportsAllDrives=True参数（兼容个人驱动器）
-        self.service = build('drive', 'v3', credentials=self.creds, supportsAllDrives=True)
+        # 移除build方法中的supportsAllDrives参数（该参数不属于build方法）
+        self.service = build('drive', 'v3', credentials=self.creds)
         # 你的个人驱动器文件夹ID（保持不变）
         self.folder_id = "1NDgg27Q_XIn0p7XVBKg_uxaGwqRgdpqY"
 
@@ -23,19 +23,19 @@ class GoogleDriveHandler:
         }
         media = MediaIoBaseUpload(image_file, mimetype=image_file.type, resumable=True)
         try:
-            # 2. 关键修改：添加supportsAllDrives=True参数
+            # 仅在具体API调用中添加supportsAllDrives参数
             file = self.service.files().create(
                 body=file_metadata,
                 media_body=media,
                 fields='id',
-                supportsAllDrives=True  # 允许操作个人驱动器
+                supportsAllDrives=True  # 关键：在create方法中添加
             ).execute()
             
-            # 设置权限时同样添加该参数
+            # 权限设置也添加该参数
             self.service.permissions().create(
                 fileId=file['id'],
                 body={'type': 'anyone', 'role': 'reader'},
-                supportsAllDrives=True
+                supportsAllDrives=True  # 关键：在permissions.create中添加
             ).execute()
             
             return f"https://drive.google.com/uc?export=view&id={file['id']}"
