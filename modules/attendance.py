@@ -42,7 +42,7 @@ def render_attendance():
     except Exception as e:
         st.error(f"Google Sheets initialization failed: {str(e)}")
 
-    # Initialize session state (ensure basic structure exists)
+    # Initialize session state
     if "att_members" not in st.session_state:
         st.session_state.att_members = []
     if "att_meetings" not in st.session_state:
@@ -51,17 +51,14 @@ def render_attendance():
         st.session_state.att_records = {}
     if "att_needs_refresh" not in st.session_state:
         st.session_state.att_needs_refresh = False
-    # New: Record last sync time for conflict detection
     if "last_sync_time" not in st.session_state:
         st.session_state.last_sync_time = None
-    # New: Batch update buffer
     if "att_batch_updates" not in st.session_state:
         st.session_state.att_batch_updates = []
-    # New: Track pending updates
     if "has_pending_updates" not in st.session_state:
         st.session_state.has_pending_updates = False
 
-    # Full update Google Sheets data (overwrite mode) - used for initial sync and batch updates
+    # Full update Google Sheets data (overwrite mode)
     def full_update_sheets(max_retries=3):
         if not attendance_sheet or not sheet_handler:
             return True
@@ -72,7 +69,7 @@ def render_attendance():
                 # Prepare header
                 rows = [["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]]
                 
-                # Prepare all attendance records (exactly matching interface display)
+                # Prepare all attendance records
                 for member in st.session_state.att_members:
                     if st.session_state.att_meetings:
                         for meeting in st.session_state.att_meetings:
@@ -86,7 +83,6 @@ def render_attendance():
                                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             ])
                     else:
-                        # Only keep basic member info when there are no meetings
                         rows.append([
                             str(member["id"]),
                             member["name"],
@@ -94,15 +90,12 @@ def render_attendance():
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         ])
                 
-                # Clear all content before writing to ensure complete consistency
+                # Clear all content before writing
                 attendance_sheet.clear()
-                # Ensure all rows are written (including header in empty state)
                 if rows:
                     attendance_sheet.append_rows(rows, value_input_option='RAW')
                 
-                # Update last sync time
                 st.session_state.last_sync_time = datetime.now()
-                # Clear batch updates after successful full update
                 st.session_state.att_batch_updates = []
                 st.session_state.has_pending_updates = False
                 return True
@@ -122,7 +115,7 @@ def render_attendance():
         st.error("Maximum retries reached, synchronization failed")
         return False
 
-    # Apply batch updates to Google Sheets
+    # Apply batch updates to Google Sheets - 修复核心部分
     def apply_batch_updates(max_retries=3):
         if not attendance_sheet or not sheet_handler or not st.session_state.att_batch_updates:
             return True
@@ -130,28 +123,24 @@ def render_attendance():
         retry_count = 0
         while retry_count < max_retries:
             try:
-                # Get current sheet data for row mapping
+                # 获取当前表格所有数据用于定位行
                 all_data = attendance_sheet.get_all_values()
                 if not all_data or all_data[0] != ["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]:
                     st.warning("Sheet format changed, performing full sync instead")
                     return full_update_sheets()
 
-                # Create ID to row index mapping
+                # 创建ID到行号的映射 (1-based索引)
                 id_to_row = {}
-                for row_idx, row in enumerate(all_data[1:], start=2):  # Sheets uses 1-based indexing
+                for row_idx, row in enumerate(all_data[1:], start=2):  # 从第二行开始(索引1)对应表格的行号2
                     if len(row) >= 4:
                         try:
-                            member_id = int(row[0])
-                            meeting_id = int(row[2])
+                            member_id = int(row[0]) if row[0] else None
+                            meeting_id = int(row[2]) if row[2] else None
                             id_to_row[(member_id, meeting_id)] = row_idx
-
-                            # Handle member-only rows (no meeting)
-                            if not row[2] and not row[3]:
-                                id_to_row[(member_id, None)] = row_idx
                         except (ValueError, IndexError):
                             continue
 
-                # Prepare batch update requests
+                # 准备批量更新请求
                 requests = []
                 for update in st.session_state.att_batch_updates:
                     member_id = update["member_id"]
@@ -160,58 +149,74 @@ def render_attendance():
                     new_value = update["value"]
 
                     if update_type == "attendance":
+                        # 查找对应的行
                         key = (member_id, meeting_id)
                         if key in id_to_row:
                             row_idx = id_to_row[key]
-                            # Update is_present (column 5, 1-based) and updated_at (column 6)
+                            # 添加更新请求
                             requests.append({
-                                "range": f"E{row_idx}:F{row_idx}",
-                                "values": [["TRUE" if new_value else "FALSE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]]
+                                "range": f"E{row_idx}",  # is_present列
+                                "values": [["TRUE" if new_value else "FALSE"]]
                             })
+                            requests.append({
+                                "range": f"F{row_idx}",  # updated_at列
+                                "values": [[datetime.now().strftime("%Y-%m-%d %H:%M:%S")]]
+                            })
+                        else:
+                            # 如果找不到对应行，添加新行
+                            new_row = [
+                                str(member_id),
+                                next(m["name"] for m in st.session_state.att_members if m["id"] == member_id),
+                                str(meeting_id),
+                                next(m["name"] for m in st.session_state.att_meetings if m["id"] == meeting_id),
+                                "TRUE" if new_value else "FALSE",
+                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            ]
+                            attendance_sheet.append_rows([new_row], value_input_option='RAW')
 
                     elif update_type == "new_member":
-                        # Append new member row
-                        new_row = [
-                            str(member_id),
-                            new_value,
-                            "", "", "FALSE",
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        ]
-                        attendance_sheet.append_rows([new_row], value_input_option='RAW')
+                        # 检查是否已存在
+                        member_exists = any((m_id, None) in id_to_row for m_id in [member_id])
+                        if not member_exists:
+                            new_row = [
+                                str(member_id), new_value, "", "", "FALSE",
+                                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            ]
+                            attendance_sheet.append_rows([new_row], value_input_option='RAW')
 
                     elif update_type == "new_meeting":
-                        # Add new meeting columns by updating existing member rows
-                        for member in st.session_state.att_members:
-                            key = (member["id"], None)
-                            if key in id_to_row:
-                                row_idx = id_to_row[key]
-                                # Update meeting columns and is_present
-                                requests.append({
-                                    "range": f"C{row_idx}:F{row_idx}",
-                                    "values": [[str(meeting_id), new_value, "FALSE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]]
-                                })
-
-                    elif update_type == "delete_meeting":
-                        # For simplicity, we'll just mark these as empty for now
+                        # 为每个成员添加会议记录
                         for member in st.session_state.att_members:
                             key = (member["id"], meeting_id)
-                            if key in id_to_row:
-                                row_idx = id_to_row[key]
-                                requests.append({
-                                    "range": f"C{row_idx}:F{row_idx}",
-                                    "values": ["", "", "FALSE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
-                                })
+                            if key not in id_to_row:
+                                new_row = [
+                                    str(member["id"]), member["name"],
+                                    str(meeting_id), new_value,
+                                    "FALSE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                ]
+                                attendance_sheet.append_rows([new_row], value_input_option='RAW')
 
-                # Execute batch update if there are requests
+                    elif update_type == "delete_meeting":
+                        # 删除会议相关记录
+                        rows_to_delete = [id_to_row[key] for key in id_to_row if key[1] == meeting_id]
+                        # 按行号倒序删除，避免索引混乱
+                        for row_idx in sorted(rows_to_delete, reverse=True):
+                            attendance_sheet.delete_rows(row_idx)
+
+                # 执行批量更新
                 if requests:
-                    # Split into chunks of 100 requests (Google Sheets API limit)
+                    # 分割为100个请求一组(Google API限制)
                     for i in range(0, len(requests), 100):
                         chunk = requests[i:i+100]
-                        attendance_sheet.update(range_name=None, values=None, requests=chunk)
+                        # 使用正确的批量更新方法
+                        body = {"valueInputOption": "RAW", "data": chunk}
+                        sheet_handler.service.spreadsheets().values().batchUpdate(
+                            spreadsheetId=attendance_sheet.spreadsheet.id,
+                            body=body
+                        ).execute()
 
-                # Update last sync time
+                # 更新同步状态
                 st.session_state.last_sync_time = datetime.now()
-                # Clear batch updates
                 st.session_state.att_batch_updates = []
                 st.session_state.has_pending_updates = False
                 return True
@@ -219,7 +224,7 @@ def render_attendance():
             except HttpError as e:
                 if e.resp.status == 429:
                     retry_after = int(e.resp.get('retry-after', 5))
-                    st.warning(f"Request rate limit exceeded, retrying in {retry_after} seconds...")
+                    st.warning(f"Rate limit exceeded, retrying in {retry_after}s...")
                     time.sleep(retry_after)
                     retry_count += 1
                 else:
@@ -229,19 +234,17 @@ def render_attendance():
                 st.error(f"Batch update failed: {str(e)}")
                 return False
         
-        st.error("Maximum retries reached, batch synchronization failed")
+        st.error("Maximum retries reached, synchronization failed")
         return False
 
-    # Sync data from Google Sheets (ensure consistency with interface structure)
+    # Sync data from Google Sheets
     def sync_from_sheets(force=False):
-        """Sync data from Google Sheet to local, force=True will overwrite local state"""
         if not attendance_sheet or not sheet_handler:
             return
         
         try:
             all_data = attendance_sheet.get_all_values()
             if not all_data:
-                # Clear local state when worksheet is empty
                 if force:
                     st.session_state.att_members = []
                     st.session_state.att_meetings = []
@@ -253,7 +256,7 @@ def render_attendance():
                 st.warning("Google Sheet format is incorrect, using local data")
                 return
 
-            # Extract meeting data (deduplicated)
+            # Extract meeting data
             meetings = []
             meeting_ids = set()
             for row in all_data[1:]:
@@ -262,9 +265,9 @@ def render_attendance():
                     try:
                         meetings.append({"id": int(row[2]), "name": row[3]})
                     except (ValueError, IndexError):
-                        continue  # Skip rows with format errors
+                        continue
             
-            # Extract member data (deduplicated)
+            # Extract member data
             members = []
             member_ids = set()
             for row in all_data[1:]:
@@ -273,7 +276,7 @@ def render_attendance():
                     try:
                         members.append({"id": int(row[0]), "name": row[1]})
                     except (ValueError, IndexError):
-                        continue  # Skip rows with format errors
+                        continue
             
             # Extract attendance records
             records = {}
@@ -282,13 +285,12 @@ def render_attendance():
                     try:
                         member_id = int(row[0])
                         meeting_id = int(row[2])
-                        # Ensure records only come from existing members and meetings
                         if any(m["id"] == member_id for m in members) and any(mt["id"] == meeting_id for mt in meetings):
                             records[(member_id, meeting_id)] = row[4].lower() == "true"
                     except (ValueError, IndexError):
-                        continue  # Skip rows with format errors
+                        continue
             
-            # Force update local state
+            # Update local state
             st.session_state.att_meetings = meetings
             st.session_state.att_members = members
             st.session_state.att_records = records
@@ -297,12 +299,11 @@ def render_attendance():
         except Exception as e:
             st.warning(f"Synchronization failed: {str(e)}")
 
-    # Initial sync (force sync to ensure consistency with Sheet)
+    # Initial sync
     sync_from_sheets(force=True)
 
-    # Render attendance table (strictly corresponding to Sheet data)
+    # Render attendance table
     def render_attendance_table():
-        # Build table data consistent with Sheet structure
         data = []
         members_to_render = st.session_state.att_members if st.session_state.att_members else [{"id": 0, "name": "No members"}]
         
@@ -310,10 +311,8 @@ def render_attendance():
             row = {"Member Name": member["name"]}
             if st.session_state.att_meetings:
                 for meeting in st.session_state.att_meetings:
-                    # Strictly use values from records, default to False if not exists
                     row[meeting["name"]] = "✓" if st.session_state.att_records.get((member["id"], meeting["id"]), False) else "✗"
                 
-                # Calculate attendance rate (corresponding to Sheet data)
                 attended_count = sum(1 for m in st.session_state.att_meetings 
                                    if st.session_state.att_records.get((member["id"], m["id"]), False))
                 total_meetings = len(st.session_state.att_meetings)
@@ -324,12 +323,10 @@ def render_attendance():
             
             data.append(row)
         
-        # Display table
         with st.container():
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True)
 
-    # Render table (ensure it's always executed)
     render_attendance_table()
 
     # Add manual sync button
@@ -337,7 +334,6 @@ def render_attendance():
     with col_sync:
         if st.button("🔄 Sync Data", key="sync_button"):
             with st.spinner("Synchronizing with Google Sheet..."):
-                # Apply any pending updates first
                 if st.session_state.has_pending_updates:
                     apply_batch_updates()
                 sync_from_sheets(force=True)
@@ -349,13 +345,13 @@ def render_attendance():
         if datetime.now() - st.session_state.last_sync_time > timedelta(seconds=30):
             with st.spinner("Syncing pending updates..."):
                 apply_batch_updates()
+                sync_from_sheets(force=True)  # 同步后重新获取数据
                 st.success("Pending updates synchronized with Google Sheet")
                 st.session_state.att_needs_refresh = True
 
     st.markdown("---")
 
-    # Get user permissions from session state, using the same criteria as calendar module
-    # Fix: Use auth_is_admin as permission criteria (consistent with other modules)
+    # Get user permissions
     is_admin = st.session_state.get('auth_is_admin', False)
 
     # Only display edit area for admins
@@ -368,7 +364,6 @@ def render_attendance():
             # 1. Import members
             with st.container(border=True):
                 st.subheader("Import Members")
-                # Allow Excel file upload
                 uploaded_file = st.file_uploader("Upload members.xlsx", type=["xlsx"], key="member_uploader")
                 import_btn = st.button("Import Members", key="att_import_members")
                 
@@ -386,17 +381,14 @@ def render_attendance():
                             if not any(m["name"] == name for m in st.session_state.att_members):
                                 new_id = len(st.session_state.att_members) + 1
                                 st.session_state.att_members.append({"id": new_id, "name": name})
-                                # Add default records for existing meetings
                                 for meeting in st.session_state.att_meetings:
                                     st.session_state.att_records[(new_id, meeting["id"])] = False
-                                    # Add to batch updates
                                     st.session_state.att_batch_updates.append({
                                         "type": "attendance",
                                         "member_id": new_id,
                                         "meeting_id": meeting["id"],
                                         "value": False
                                     })
-                                # Add new member record
                                 st.session_state.att_batch_updates.append({
                                     "type": "new_member",
                                     "member_id": new_id,
@@ -413,7 +405,6 @@ def render_attendance():
             # 2. Meeting management
             with st.container(border=True):
                 st.subheader("Manage Meetings")
-                # Add meeting
                 meeting_name = st.text_input(
                     "Enter meeting name", 
                     placeholder="e.g., Weekly Sync",
@@ -432,11 +423,9 @@ def render_attendance():
                     new_meeting_id = len(st.session_state.att_meetings) + 1
                     st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
                     
-                    # Add default records for each member
                     for member in st.session_state.att_members:
                         st.session_state.att_records[(member["id"], new_meeting_id)] = False
                     
-                    # Add to batch updates
                     st.session_state.att_batch_updates.append({
                         "type": "new_meeting",
                         "meeting_id": new_meeting_id,
@@ -447,7 +436,6 @@ def render_attendance():
                     st.session_state.has_pending_updates = True
                     st.session_state.att_needs_refresh = True
 
-                # Delete meeting
                 if st.session_state.att_meetings:
                     selected_meeting = st.selectbox(
                         "Select meeting to delete",
@@ -457,14 +445,11 @@ def render_attendance():
                     )
                     
                     if st.button("Delete Meeting", key="att_delete_meeting", type="secondary"):
-                        # Update local state
                         st.session_state.att_meetings = [m for m in st.session_state.att_meetings if m["id"] != selected_meeting["id"]]
-                        # Remove records for this meeting
                         meeting_records = [(m_id, mt_id) for (m_id, mt_id), v in st.session_state.att_records.items() if mt_id == selected_meeting["id"]]
                         for key in meeting_records:
                             del st.session_state.att_records[key]
                         
-                        # Add to batch updates
                         st.session_state.att_batch_updates.append({
                             "type": "delete_meeting",
                             "meeting_id": selected_meeting["id"],
@@ -487,11 +472,9 @@ def render_attendance():
                     key="att_update_meeting"
                 )
                 
-                # One-click set all present
                 if st.button("Set All Present", key="att_set_all"):
                     for member in st.session_state.att_members:
                         st.session_state.att_records[(member["id"], selected_meeting["id"])] = True
-                        # Add to batch updates
                         st.session_state.att_batch_updates.append({
                             "type": "attendance",
                             "member_id": member["id"],
@@ -503,7 +486,6 @@ def render_attendance():
                     st.session_state.has_pending_updates = True
                     st.session_state.att_needs_refresh = True
 
-            # Update member status individually
             if st.session_state.att_members and st.session_state.att_meetings:
                 selected_member = st.selectbox(
                     "Select Member",
@@ -512,16 +494,13 @@ def render_attendance():
                     key="att_update_member"
                 )
                 
-                # Get current attendance status
                 current_present = st.session_state.att_records.get((selected_member["id"], selected_meeting["id"]), False)
                 is_absent = st.checkbox("Absent", value=not current_present, key="att_is_absent")
                 
                 if st.button("Save Attendance", key="att_save_attendance"):
-                    # Checking Absent means absent (present is False)
                     new_status = not is_absent
                     st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = new_status
                     
-                    # Add to batch updates
                     st.session_state.att_batch_updates.append({
                         "type": "attendance",
                         "member_id": selected_member["id"],
@@ -534,14 +513,11 @@ def render_attendance():
                     st.session_state.has_pending_updates = True
                     st.session_state.att_needs_refresh = True
 
-        # Show pending updates indicator
         if st.session_state.has_pending_updates:
             st.info("There are pending updates that will be synchronized automatically within 30 seconds. You can also click the Sync Data button to sync immediately.")
     else:
-        # Regular users see prompt
         st.info("You have view-only access. Please contact an administrator for changes.")
 
-    # Refresh page to ensure state synchronization
     if st.session_state.att_needs_refresh:
         st.session_state.att_needs_refresh = False
         st.rerun()
