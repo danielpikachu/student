@@ -110,7 +110,7 @@ def render_groups():
                     headers = ["group_code", "data_type", "uuid", 
                                "name", "student_id",  # Member-specific fields
                                "date", "amount", "description",  # Income/reimbursement specific fields
-                               "created_at"]  # Data creation time
+                               "created_at", "receipt_url"]  # Add receipt_url column
                     main_sheet.append_row(headers)
                     st.success("Worksheet AllGroupsData created successfully!")
                 except Exception as e2:
@@ -124,7 +124,7 @@ def render_groups():
             if len(all_rows) < 1:
                 st.warning("Worksheet is empty, initializing header...")
                 headers = ["group_code", "data_type", "uuid", "name", "student_id", 
-                           "date", "amount", "description", "created_at"]
+                           "date", "amount", "description", "created_at", "receipt_url"]
                 main_sheet.append_row(headers)
                 all_rows = [headers]
             
@@ -167,7 +167,8 @@ def render_groups():
                     "uuid": row[col_indices["uuid"]],
                     "date": row[col_indices["date"]],
                     "amount": row[col_indices["amount"]],
-                    "description": row[col_indices["description"]]
+                    "description": row[col_indices["description"]],
+                    "receipt_url": row[col_indices.get("receipt_url", "")]  # Add receipt_url
                 }
                 for row in all_rows[1:]
                 if row[col_indices["group_code"]] == current_code 
@@ -222,7 +223,8 @@ def render_groups():
                             name.strip(),  # name
                             student_id.strip(),  # student_id
                             "", "", "",    # Leave income/reimbursement fields empty
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # created_at
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # created_at
+                            ""  # receipt_url (empty for member)
                         ])
                         st.success(f"Successfully added member: {name}")
                     except Exception as e:
@@ -306,7 +308,8 @@ def render_groups():
                             new_income["date"],
                             new_income["amount"],
                             new_income["description"],
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            ""  # receipt_url (empty for income)
                         ])
                         st.success(f"Successfully added income: ¥{income_amount:.2f}")
                     except Exception as e:
@@ -371,6 +374,20 @@ def render_groups():
                    st.error("Please upload receipt image as proof")
                    return
 
+                # Handle receipt upload (simplified example - actual implementation depends on GoogleDriveHandler)
+                receipt_url = ""
+                if exp_receipt:
+                    try:
+                        drive_handler = GoogleDriveHandler()
+                        receipt_url = drive_handler.upload_file(
+                            file=exp_receipt,
+                            folder_id="your_receipt_folder_id",  # Replace with actual folder ID
+                            file_name=f"receipt_{exp_uuid}_{exp_receipt.name}"
+                        )
+                    except Exception as e:
+                        st.warning(f"Failed to upload receipt: {str(e)}")
+                        return
+
                 exp_uuid = str(uuid.uuid4())
                 new_exp = {
                     "uuid": exp_uuid,
@@ -393,7 +410,7 @@ def render_groups():
                             new_exp["amount"],
                             new_exp["description"],
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            new_expense["receipt_url"]
+                            new_exp["receipt_url"]  # Fix variable name from new_expense to new_exp
                         ])
                         st.success(f"Successfully added reimbursement: ¥{exp_amount:.2f}")
                     except Exception as e:
@@ -405,11 +422,29 @@ def render_groups():
         if not st.session_state.expenses:
             st.info("No reimbursement records yet, please add")
         else:
-            exp_df = pd.DataFrame([
-                {"Serial No.": i+1, "Date": m["date"], "Amount (¥)": m["amount"], "Description": m["description"]}
-                for i, m in enumerate(st.session_state.expenses)
-            ])
-            st.dataframe(exp_df, use_container_width=True)
+            # Create DataFrame with receipt URL (but hide it in main table)
+            exp_data = []
+            for i, m in enumerate(st.session_state.expenses):
+                exp_data.append({
+                    "Serial No.": i+1,
+                    "Date": m["date"],
+                    "Amount (¥)": m["amount"],
+                    "Description": m["description"],
+                    "Receipt URL": m.get("receipt_url", "")  # Include receipt URL for internal use
+                })
+            exp_df = pd.DataFrame(exp_data)
+            
+            # Show main table without URL
+            st.dataframe(exp_df.drop(columns=["Receipt URL"]), use_container_width=True)
+            
+            # Add receipt image display section
+            st.subheader("Receipt Images")
+            for exp in st.session_state.expenses:
+                with st.expander(f"{exp['date']} - ¥{exp['amount']}: {exp['description']}"):
+                    if "receipt_url" in exp and exp["receipt_url"]:
+                        st.image(exp["receipt_url"], caption="Receipt", use_column_width=True)
+                    else:
+                        st.warning("No receipt image available")
 
             # Add reimbursement deletion function (same logic as income deletion)
             with st.expander("Delete Reimbursement", expanded=False):
