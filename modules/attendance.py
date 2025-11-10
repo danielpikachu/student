@@ -1,7 +1,7 @@
 # modules/attendance.py
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import sys
 import os
 import time
@@ -54,8 +54,14 @@ def render_attendance():
     # New: Record last sync time for conflict detection
     if "last_sync_time" not in st.session_state:
         st.session_state.last_sync_time = None
+    # New: Batch update buffer
+    if "att_batch_updates" not in st.session_state:
+        st.session_state.att_batch_updates = []
+    # New: Track pending updates
+    if "has_pending_updates" not in st.session_state:
+        st.session_state.has_pending_updates = False
 
-    # Full update Google Sheets data (overwrite mode)
+    # Full update Google Sheets data (overwrite mode) - used for initial sync and batch updates
     def full_update_sheets(max_retries=3):
         if not attendance_sheet or not sheet_handler:
             return True
@@ -96,6 +102,9 @@ def render_attendance():
                 
                 # Update last sync time
                 st.session_state.last_sync_time = datetime.now()
+                # Clear batch updates after successful full update
+                st.session_state.att_batch_updates = []
+                st.session_state.has_pending_updates = False
                 return True
             except HttpError as e:
                 if e.resp.status == 429:
@@ -111,6 +120,116 @@ def render_attendance():
                 return False
         
         st.error("Maximum retries reached, synchronization failed")
+        return False
+
+    # Apply batch updates to Google Sheets
+    def apply_batch_updates(max_retries=3):
+        if not attendance_sheet or not sheet_handler or not st.session_state.att_batch_updates:
+            return True
+            
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                # Get current sheet data for row mapping
+                all_data = attendance_sheet.get_all_values()
+                if not all_data or all_data[0] != ["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]:
+                    st.warning("Sheet format changed, performing full sync instead")
+                    return full_update_sheets()
+
+                # Create ID to row index mapping
+                id_to_row = {}
+                for row_idx, row in enumerate(all_data[1:], start=2):  # Sheets uses 1-based indexing
+                    if len(row) >= 4:
+                        try:
+                            member_id = int(row[0])
+                            meeting_id = int(row[2])
+                            id_to_row[(member_id, meeting_id)] = row_idx
+
+                            # Handle member-only rows (no meeting)
+                            if not row[2] and not row[3]:
+                                id_to_row[(member_id, None)] = row_idx
+                        except (ValueError, IndexError):
+                            continue
+
+                # Prepare batch update requests
+                requests = []
+                for update in st.session_state.att_batch_updates:
+                    member_id = update["member_id"]
+                    meeting_id = update.get("meeting_id")
+                    update_type = update["type"]
+                    new_value = update["value"]
+
+                    if update_type == "attendance":
+                        key = (member_id, meeting_id)
+                        if key in id_to_row:
+                            row_idx = id_to_row[key]
+                            # Update is_present (column 5, 1-based) and updated_at (column 6)
+                            requests.append({
+                                "range": f"E{row_idx}:F{row_idx}",
+                                "values": [["TRUE" if new_value else "FALSE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]]
+                            })
+
+                    elif update_type == "new_member":
+                        # Append new member row
+                        new_row = [
+                            str(member_id),
+                            new_value,
+                            "", "", "FALSE",
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        ]
+                        attendance_sheet.append_rows([new_row], value_input_option='RAW')
+
+                    elif update_type == "new_meeting":
+                        # Add new meeting columns by updating existing member rows
+                        for member in st.session_state.att_members:
+                            key = (member["id"], None)
+                            if key in id_to_row:
+                                row_idx = id_to_row[key]
+                                # Update meeting columns and is_present
+                                requests.append({
+                                    "range": f"C{row_idx}:F{row_idx}",
+                                    "values": [[str(meeting_id), new_value, "FALSE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]]
+                                })
+
+                    elif update_type == "delete_meeting":
+                        # For simplicity, we'll just mark these as empty for now
+                        for member in st.session_state.att_members:
+                            key = (member["id"], meeting_id)
+                            if key in id_to_row:
+                                row_idx = id_to_row[key]
+                                requests.append({
+                                    "range": f"C{row_idx}:F{row_idx}",
+                                    "values": ["", "", "FALSE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+                                })
+
+                # Execute batch update if there are requests
+                if requests:
+                    # Split into chunks of 100 requests (Google Sheets API limit)
+                    for i in range(0, len(requests), 100):
+                        chunk = requests[i:i+100]
+                        attendance_sheet.update(range_name=None, values=None, requests=chunk)
+
+                # Update last sync time
+                st.session_state.last_sync_time = datetime.now()
+                # Clear batch updates
+                st.session_state.att_batch_updates = []
+                st.session_state.has_pending_updates = False
+                return True
+
+            except HttpError as e:
+                if e.resp.status == 429:
+                    retry_after = int(e.resp.get('retry-after', 5))
+                    st.warning(f"Request rate limit exceeded, retrying in {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    retry_count += 1
+                else:
+                    st.error(f"Batch update failed: {str(e)}")
+                    return False
+            except Exception as e:
+                st.error(f"Batch update failed: {str(e)}")
+                return False
+        
+        st.error("Maximum retries reached, batch synchronization failed")
         return False
 
     # Sync data from Google Sheets (ensure consistency with interface structure)
@@ -218,8 +337,19 @@ def render_attendance():
     with col_sync:
         if st.button("🔄 Sync Data", key="sync_button"):
             with st.spinner("Synchronizing with Google Sheet..."):
+                # Apply any pending updates first
+                if st.session_state.has_pending_updates:
+                    apply_batch_updates()
                 sync_from_sheets(force=True)
                 st.success("Successfully synchronized with Google Sheet")
+                st.session_state.att_needs_refresh = True
+
+    # Auto-sync pending updates every 30 seconds
+    if st.session_state.has_pending_updates and st.session_state.last_sync_time:
+        if datetime.now() - st.session_state.last_sync_time > timedelta(seconds=30):
+            with st.spinner("Syncing pending updates..."):
+                apply_batch_updates()
+                st.success("Pending updates synchronized with Google Sheet")
                 st.session_state.att_needs_refresh = True
 
     st.markdown("---")
@@ -259,12 +389,23 @@ def render_attendance():
                                 # Add default records for existing meetings
                                 for meeting in st.session_state.att_meetings:
                                     st.session_state.att_records[(new_id, meeting["id"])] = False
+                                    # Add to batch updates
+                                    st.session_state.att_batch_updates.append({
+                                        "type": "attendance",
+                                        "member_id": new_id,
+                                        "meeting_id": meeting["id"],
+                                        "value": False
+                                    })
+                                # Add new member record
+                                st.session_state.att_batch_updates.append({
+                                    "type": "new_member",
+                                    "member_id": new_id,
+                                    "value": name
+                                })
                                 added += 1
                         
-                        st.success(f"Added {added} new members")
-                        # Sync to Sheet immediately
-                        if not full_update_sheets():
-                            st.warning("Data synchronization failed, please try again later")
+                        st.success(f"Added {added} new members (will sync shortly)")
+                        st.session_state.has_pending_updates = True
                         st.session_state.att_needs_refresh = True
                     except Exception as e:
                         st.error(f"Import failed: {str(e)}")
@@ -295,9 +436,15 @@ def render_attendance():
                     for member in st.session_state.att_members:
                         st.session_state.att_records[(member["id"], new_meeting_id)] = False
                     
-                    st.success(f"Added meeting: {meeting_name}")
-                    if not full_update_sheets():
-                        st.warning("Data synchronization failed, please try again later")
+                    # Add to batch updates
+                    st.session_state.att_batch_updates.append({
+                        "type": "new_meeting",
+                        "meeting_id": new_meeting_id,
+                        "value": meeting_name
+                    })
+                    
+                    st.success(f"Added meeting: {meeting_name} (will sync shortly)")
+                    st.session_state.has_pending_updates = True
                     st.session_state.att_needs_refresh = True
 
                 # Delete meeting
@@ -312,11 +459,20 @@ def render_attendance():
                     if st.button("Delete Meeting", key="att_delete_meeting", type="secondary"):
                         # Update local state
                         st.session_state.att_meetings = [m for m in st.session_state.att_meetings if m["id"] != selected_meeting["id"]]
-                        st.session_state.att_records = {(m_id, mt_id): v for (m_id, mt_id), v in st.session_state.att_records.items() if mt_id != selected_meeting["id"]}
+                        # Remove records for this meeting
+                        meeting_records = [(m_id, mt_id) for (m_id, mt_id), v in st.session_state.att_records.items() if mt_id == selected_meeting["id"]]
+                        for key in meeting_records:
+                            del st.session_state.att_records[key]
                         
-                        st.success(f"Deleted meeting: {selected_meeting['name']}")
-                        if not full_update_sheets():
-                            st.warning("Data synchronization failed, please try again later")
+                        # Add to batch updates
+                        st.session_state.att_batch_updates.append({
+                            "type": "delete_meeting",
+                            "meeting_id": selected_meeting["id"],
+                            "value": None
+                        })
+                        
+                        st.success(f"Deleted meeting: {selected_meeting['name']} (will sync shortly)")
+                        st.session_state.has_pending_updates = True
                         st.session_state.att_needs_refresh = True
 
         # Right column: Update attendance
@@ -335,10 +491,16 @@ def render_attendance():
                 if st.button("Set All Present", key="att_set_all"):
                     for member in st.session_state.att_members:
                         st.session_state.att_records[(member["id"], selected_meeting["id"])] = True
+                        # Add to batch updates
+                        st.session_state.att_batch_updates.append({
+                            "type": "attendance",
+                            "member_id": member["id"],
+                            "meeting_id": selected_meeting["id"],
+                            "value": True
+                        })
                     
-                    st.success(f"All present for {selected_meeting['name']}")
-                    if not full_update_sheets():
-                        st.warning("Data synchronization failed, please try again later")
+                    st.success(f"All present for {selected_meeting['name']} (will sync shortly)")
+                    st.session_state.has_pending_updates = True
                     st.session_state.att_needs_refresh = True
 
             # Update member status individually
@@ -356,13 +518,25 @@ def render_attendance():
                 
                 if st.button("Save Attendance", key="att_save_attendance"):
                     # Checking Absent means absent (present is False)
-                    st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = not is_absent
+                    new_status = not is_absent
+                    st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = new_status
+                    
+                    # Add to batch updates
+                    st.session_state.att_batch_updates.append({
+                        "type": "attendance",
+                        "member_id": selected_member["id"],
+                        "meeting_id": selected_meeting["id"],
+                        "value": new_status
+                    })
                     
                     status = "absent" if is_absent else "present"
-                    st.success(f"Updated {selected_member['name']}'s status to {status}")
-                    if not full_update_sheets():
-                        st.warning("Data synchronization failed, please try again later")
+                    st.success(f"Updated {selected_member['name']}'s status to {status} (will sync shortly)")
+                    st.session_state.has_pending_updates = True
                     st.session_state.att_needs_refresh = True
+
+        # Show pending updates indicator
+        if st.session_state.has_pending_updates:
+            st.info("There are pending updates that will be synchronized automatically within 30 seconds. You can also click the Sync Data button to sync immediately.")
     else:
         # Regular users see prompt
         st.info("You have view-only access. Please contact an administrator for changes.")
