@@ -89,8 +89,12 @@ def render_groups():
     main_sheet = None
     drive_handler = None  # 初始化Google Drive处理器用于图片上传
     try:
-        sheet_handler = GoogleSheetHandler(credentials_path="")  # Ensure credentials are configured correctly
-        drive_handler = GoogleDriveHandler(credentials_path="")  # 初始化Drive处理器
+        creds = Credentials.from_service_account_info(
+            st.secrets["google_credentials"],
+            scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        )
+        sheet_handler = GoogleSheetHandler(credentials=creds)  # Ensure credentials are configured correctly
+        drive_handler = GoogleDriveHandler(credentials=creds)  # 初始化Drive处理器
         # Connect to the AllGroupsData worksheet in the existing Group file
         main_sheet = sheet_handler.get_worksheet(
             spreadsheet_name="Student",  # Your Google Sheet file name
