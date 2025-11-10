@@ -54,8 +54,11 @@ def render_attendance():
     # New: Record last sync time for conflict detection
     if "last_sync_time" not in st.session_state:
         st.session_state.last_sync_time = None
+    # New: Store row index mapping for incremental updates
+    if "row_index_map" not in st.session_state:
+        st.session_state.row_index_map = {}  # {(member_id, meeting_id): row_number}
 
-    # Full update Google Sheets data (overwrite mode)
+    # Full update Google Sheets data (overwrite mode) - used for initial sync and when structure changes
     def full_update_sheets(max_retries=3):
         if not attendance_sheet or not sheet_handler:
             return True
@@ -65,28 +68,33 @@ def render_attendance():
             try:
                 # Prepare header
                 rows = [["member_id", "member_name", "meeting_id", "meeting_name", "is_present", "updated_at"]]
+                row_index_map = {}  # Reset index map
                 
-                # Prepare all attendance records (exactly matching interface display)
+                # Prepare all attendance records
                 for member in st.session_state.att_members:
                     if st.session_state.att_meetings:
                         for meeting in st.session_state.att_meetings:
                             is_present = st.session_state.att_records.get((member["id"], meeting["id"]), False)
-                            rows.append([
+                            row_data = [
                                 str(member["id"]),
                                 member["name"],
                                 str(meeting["id"]),
                                 meeting["name"],
                                 "TRUE" if is_present else "FALSE",
                                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            ])
+                            ]
+                            rows.append(row_data)
+                            row_index_map[(member["id"], meeting["id"])] = len(rows)  # Store 1-based index
                     else:
                         # Only keep basic member info when there are no meetings
-                        rows.append([
+                        row_data = [
                             str(member["id"]),
                             member["name"],
                             "", "", "FALSE",
                             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        ])
+                        ]
+                        rows.append(row_data)
+                        row_index_map[(member["id"], None)] = len(rows)
                 
                 # Clear all content before writing to ensure complete consistency
                 attendance_sheet.clear()
@@ -94,7 +102,8 @@ def render_attendance():
                 if rows:
                     attendance_sheet.append_rows(rows, value_input_option='RAW')
                 
-                # Update last sync time
+                # Update row index map and last sync time
+                st.session_state.row_index_map = row_index_map
                 st.session_state.last_sync_time = datetime.now()
                 return True
             except HttpError as e:
@@ -113,6 +122,52 @@ def render_attendance():
         st.error("Maximum retries reached, synchronization failed")
         return False
 
+    # Incremental update - only update changed data
+    def incremental_update(member_id, meeting_id, is_present):
+        if not attendance_sheet or not sheet_handler:
+            return True
+            
+        try:
+            # Check if we have the row index for this record
+            row_key = (member_id, meeting_id)
+            row_number = st.session_state.row_index_map.get(row_key)
+            
+            if not row_number:
+                # If we don't have the index, fall back to full update
+                st.warning("Could not find record index, performing full update")
+                return full_update_sheets()
+            
+            # Prepare updated data
+            member = next(m for m in st.session_state.att_members if m["id"] == member_id)
+            meeting = next(m for m in st.session_state.att_meetings if m["id"] == meeting_id) if meeting_id else None
+            
+            updated_data = [
+                str(member_id),
+                member["name"],
+                str(meeting_id) if meeting_id else "",
+                meeting["name"] if meeting else "",
+                "TRUE" if is_present else "FALSE",
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ]
+            
+            # Update only this row (1-based index)
+            range_name = f"A{row_number}:F{row_number}"
+            attendance_sheet.update(range_name, [updated_data], value_input_option='RAW')
+            
+            # Update last sync time
+            st.session_state.last_sync_time = datetime.now()
+            return True
+            
+        except HttpError as e:
+            if e.resp.status == 429:
+                st.error(f"Request rate limit exceeded: {str(e)}")
+            else:
+                st.error(f"Update failed: {str(e)}")
+            return False
+        except Exception as e:
+            st.error(f"Update failed: {str(e)}")
+            return False
+
     # Sync data from Google Sheets (ensure consistency with interface structure)
     def sync_from_sheets(force=False):
         """Sync data from Google Sheet to local, force=True will overwrite local state"""
@@ -127,6 +182,7 @@ def render_attendance():
                     st.session_state.att_members = []
                     st.session_state.att_meetings = []
                     st.session_state.att_records = {}
+                    st.session_state.row_index_map = {}
                 return
                 
             headers = all_data[0] if len(all_data) > 0 else []
@@ -156,9 +212,10 @@ def render_attendance():
                     except (ValueError, IndexError):
                         continue  # Skip rows with format errors
             
-            # Extract attendance records
+            # Extract attendance records and build row index map
             records = {}
-            for row in all_data[1:]:
+            row_index_map = {}
+            for row_idx, row in enumerate(all_data[1:], start=2):  # Rows are 1-based in Sheets, header is row 1
                 if len(row) >= 5 and row[0] and row[2]:
                     try:
                         member_id = int(row[0])
@@ -166,6 +223,7 @@ def render_attendance():
                         # Ensure records only come from existing members and meetings
                         if any(m["id"] == member_id for m in members) and any(mt["id"] == meeting_id for mt in meetings):
                             records[(member_id, meeting_id)] = row[4].lower() == "true"
+                            row_index_map[(member_id, meeting_id)] = row_idx
                     except (ValueError, IndexError):
                         continue  # Skip rows with format errors
             
@@ -173,6 +231,7 @@ def render_attendance():
             st.session_state.att_meetings = meetings
             st.session_state.att_members = members
             st.session_state.att_records = records
+            st.session_state.row_index_map = row_index_map
             st.session_state.last_sync_time = datetime.now()
                 
         except Exception as e:
@@ -224,8 +283,7 @@ def render_attendance():
 
     st.markdown("---")
 
-    # Get user permissions from session state, using the same criteria as calendar module
-    # Fix: Use auth_is_admin as permission criteria (consistent with other modules)
+    # Get user permissions from session state
     is_admin = st.session_state.get('auth_is_admin', False)
 
     # Only display edit area for admins
@@ -262,7 +320,7 @@ def render_attendance():
                                 added += 1
                         
                         st.success(f"Added {added} new members")
-                        # Sync to Sheet immediately
+                        # Since structure changed, do full update
                         if not full_update_sheets():
                             st.warning("Data synchronization failed, please try again later")
                         st.session_state.att_needs_refresh = True
@@ -296,6 +354,7 @@ def render_attendance():
                         st.session_state.att_records[(member["id"], new_meeting_id)] = True
                     
                     st.success(f"Added meeting: {meeting_name}")
+                    # Since structure changed, do full update
                     if not full_update_sheets():
                         st.warning("Data synchronization failed, please try again later")
                     st.session_state.att_needs_refresh = True
@@ -315,6 +374,7 @@ def render_attendance():
                         st.session_state.att_records = {(m_id, mt_id): v for (m_id, mt_id), v in st.session_state.att_records.items() if mt_id != selected_meeting["id"]}
                         
                         st.success(f"Deleted meeting: {selected_meeting['name']}")
+                        # Since structure changed, do full update
                         if not full_update_sheets():
                             st.warning("Data synchronization failed, please try again later")
                         st.session_state.att_needs_refresh = True
@@ -333,12 +393,16 @@ def render_attendance():
                 
                 # One-click set all present
                 if st.button("Set All Present", key="att_set_all"):
+                    success = True
                     for member in st.session_state.att_members:
                         st.session_state.att_records[(member["id"], selected_meeting["id"])] = True
+                        # Incremental update for each member
+                        if not incremental_update(member["id"], selected_meeting["id"], True):
+                            success = False
                     
                     st.success(f"All present for {selected_meeting['name']}")
-                    if not full_update_sheets():
-                        st.warning("Data synchronization failed, please try again later")
+                    if not success:
+                        st.warning("Some updates failed, please try syncing again")
                     st.session_state.att_needs_refresh = True
 
             # Update member status individually
@@ -355,13 +419,18 @@ def render_attendance():
                 is_absent = st.checkbox("Absent", value=not current_present, key="att_is_absent")
                 
                 if st.button("Save Attendance", key="att_save_attendance"):
-                    # Checking Absent means absent (present is False)
-                    st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = not is_absent
+                    new_status = not is_absent
+                    st.session_state.att_records[(selected_member["id"], selected_meeting["id"])] = new_status
                     
+                    # Use incremental update for single record change
                     status = "absent" if is_absent else "present"
                     st.success(f"Updated {selected_member['name']}'s status to {status}")
-                    if not full_update_sheets():
-                        st.warning("Data synchronization failed, please try again later")
+                    
+                    if not incremental_update(selected_member["id"], selected_meeting["id"], new_status):
+                        st.warning("Update failed, falling back to full sync...")
+                        if not full_update_sheets():
+                            st.warning("Full synchronization also failed")
+                    
                     st.session_state.att_needs_refresh = True
     else:
         # Regular users see prompt
