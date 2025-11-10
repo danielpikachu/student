@@ -386,12 +386,11 @@ def render_groups():
                     try:
                         with st.spinner("Uploading receipt..."):
                             # 生成唯一的文件名
-                            file_name = f"receipt_{current_code}_{str(uuid.uuid4())}.{exp_receipt.name.split('.')[-1]}"
+                            
                             # 上传到Drive
-                            receipt_url = drive_handler.upload_file(
-                                file_content=exp_receipt.getvalue(),
-                                file_name=file_name,
-                                mime_type=exp_receipt.type
+                            receipt_url = drive_handler.upload_image(                           
+                                image_file=exp_receipt,
+                                roup_code=current_code
                             )
                             st.success("Receipt uploaded successfully")
                     except Exception as e:
