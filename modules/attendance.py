@@ -177,10 +177,11 @@ def render_attendance():
                 member_name = kwargs["member_name"]
                 for meeting in st.session_state.att_meetings:
                     key = (member_id, meeting["id"])
+                    # 新增成员默认状态为缺席（保持原有逻辑）
                     new_row = [
                         str(member_id), member_name,
                         str(meeting["id"]), meeting["name"],
-                        "FALSE",  # 默认缺席
+                        "FALSE",  # 新增成员默认缺席
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     ]
                     result = attendance_sheet.append_rows([new_row], value_input_option="RAW")
@@ -193,10 +194,11 @@ def render_attendance():
                 meeting_name = kwargs["meeting_name"]
                 for member in st.session_state.att_members:
                     key = (member["id"], meeting_id)
+                    # 重点修改：新增会议默认状态为出席（将FALSE改为TRUE）
                     new_row = [
                         str(member["id"]), member["name"],
                         str(meeting_id), meeting_name,
-                        "FALSE",  # 默认缺席
+                        "TRUE",  # 新增会议默认出席
                         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     ]
                     result = attendance_sheet.append_rows([new_row], value_input_option="RAW")
@@ -300,7 +302,7 @@ def render_attendance():
                             if not any(m["name"] == name for m in st.session_state.att_members):
                                 new_id = len(st.session_state.att_members) + 1
                                 st.session_state.att_members.append({"id": new_id, "name": name})
-                                # 为每个现有会议初始化考勤记录
+                                # 为每个现有会议初始化考勤记录（默认缺席，保持原有逻辑）
                                 for meeting in st.session_state.att_meetings:
                                     st.session_state.att_records[(new_id, meeting["id"])] = False
                                 # 同步到Sheet
@@ -337,9 +339,9 @@ def render_attendance():
                     new_meeting_id = len(st.session_state.att_meetings) + 1
                     st.session_state.att_meetings.append({"id": new_meeting_id, "name": meeting_name})
                     
-                    # 为每个现有成员初始化考勤记录
+                    # 重点修改：新增会议时默认状态为出席（将False改为True）
                     for member in st.session_state.att_members:
-                        st.session_state.att_records[(member["id"], new_meeting_id)] = False
+                        st.session_state.att_records[(member["id"], new_meeting_id)] = True
                     
                     # 同步到Sheet
                     sync_single_operation(
