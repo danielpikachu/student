@@ -322,12 +322,12 @@ def main():
         st.info("© 2025 SCIS Student Council Management System")
     
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "📅 Calendar", "📢 Announcements", "💰 Financial Planning",
-        "📋 Attendance","🎁 Credit & Rewards","💸 Money Transfers", "👥 Groups"
+        "👥 Groups", "📢 Announcements", "💰 Financial Planning",
+        "📋 Attendance","🎁 Credit & Rewards","💸 Money Transfers", "📅 Calendar"
     ])
     
     with tab1:
-        require_login(require_edit_permission(render_calendar))()
+        require_login(require_edit_permission(render_groups))()
     with tab2:
         require_login(require_edit_permission(render_announcements))()
     with tab3:
@@ -339,7 +339,7 @@ def main():
     with tab6:   
         require_login(require_edit_permission(render_money_transfers))()
     with tab7:
-        require_login(require_group_edit_permission(render_groups))()
+        require_login(require_group_edit_permission(render_calendar))()
 
 if __name__ == "__main__":
     main()
