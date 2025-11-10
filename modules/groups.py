@@ -273,7 +273,7 @@ def render_groups():
             with col1:
                 income_date = st.date_input("Date*", datetime.now())
             with col2:
-                income_amount = st.number_input("Amount*", min_value=10.0, step=10.0, format="%.2f")
+                income_amount = st.number_input("Amount*", min_value=10.0, value=10.0, step=1.0, format="%.2f")
             with col3:
                 income_desc = st.text_input("Description*", placeholder="Please enter income source")
             
@@ -354,7 +354,7 @@ def render_groups():
             with col1:
                 exp_date = st.date_input("Reimbursement Date*", datetime.now(), key="exp_date")
             with col2:
-                exp_amount = st.number_input("Reimbursement Amount*", min_value=10.0, step=10.0, format="%.2f", key="exp_amount")
+                exp_amount = st.number_input("Reimbursement Amount*", min_value=10.0, value=10.0, step=1.0, format="%.2f", key="exp_amount")
             with col3:
                 exp_desc = st.text_input("Reimbursement Description*", placeholder="Please enter reimbursement reason", key="exp_desc")
             
