@@ -390,7 +390,7 @@ def render_groups():
                             # 上传到Drive
                             receipt_url = drive_handler.upload_image(                           
                                 image_file=exp_receipt,
-                                roup_code=current_code
+                                group_code=current_code
                             )
                             st.success("Receipt uploaded successfully")
                     except Exception as e:
