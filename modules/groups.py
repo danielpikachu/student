@@ -93,7 +93,7 @@ def render_groups():
             st.secrets["google_credentials"],
             scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         )
-        sheet_handler = GoogleSheetHandler(credentials=creds)  # Ensure credentials are configured correctly
+        sheet_handler = GoogleSheetHandler(credentials_path=None)  # Ensure credentials are configured correctly
         drive_handler = GoogleDriveHandler(credentials=creds)  # 初始化Drive处理器
         # Connect to the AllGroupsData worksheet in the existing Group file
         main_sheet = sheet_handler.get_worksheet(
