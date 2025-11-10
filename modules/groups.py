@@ -5,6 +5,10 @@ import uuid
 import sys
 import os
 from datetime import datetime
+from google.oauth2.service_account import Credentials
+from googleapiclient.errors import HttpError
+import time
+from ..google_drive_utils import GoogleDriveHandler
 
 # Solve root directory module import issue
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -350,25 +354,30 @@ def render_groups():
         # Add new reimbursement
         with st.container():
             st.markdown("**Add New Reimbursement**", unsafe_allow_html=True)
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
-                exp_date = st.date_input("Reimbursement Date*", datetime.now(), key="exp_date")
-            with col2:
-                exp_amount = st.number_input("Reimbursement Amount*", min_value=10.0, value=10.0, step=1.0, format="%.2f", key="exp_amount")
-            with col3:
-                exp_desc = st.text_input("Reimbursement Description*", placeholder="Please enter reimbursement reason", key="exp_desc")
+                exp_date = st.date_input("Reimbursement Date*",datetime.now(), key="reimbursement_date")
             
+                exp_amount = st.number_input("Reimbursement Amount*", min_value=10.0, value=10.0, step=1.0, format="%.2f", key="reimbursement_amount")
+            with col2:
+                exp_desc = st.text_input("Reimbursement Description*", placeholder="Please enter reimbursement reason", key="reimbursement_description")
+                exp_receipt = st.file_uploader("Upload Receipt (Image)",type=["png", "jpg", "jpeg"],key="reimbursement_receipt")
+                
             if st.button("Confirm Add Reimbursement", use_container_width=True, key="add_expense"):
                 if not exp_desc:
                     st.error("Reimbursement description cannot be empty")
                     return
+                if not exp_receipt:
+                   st.error("Please upload receipt image as proof")
+                   return
 
                 exp_uuid = str(uuid.uuid4())
                 new_exp = {
                     "uuid": exp_uuid,
                     "date": exp_date.strftime("%Y-%m-%d"),
                     "amount": f"{exp_amount:.2f}",
-                    "description": exp_desc.strip()
+                    "description": exp_desc.strip(),
+                    "receipt_url": receipt_url
                 }
                 st.session_state.expenses.append(new_exp)
 
@@ -383,7 +392,8 @@ def render_groups():
                             new_exp["date"],
                             new_exp["amount"],
                             new_exp["description"],
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            new_expense["receipt_url"]
                         ])
                         st.success(f"Successfully added reimbursement: ¥{exp_amount:.2f}")
                     except Exception as e:
