@@ -16,7 +16,7 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 from google_sheet_utils import GoogleSheetHandler
 
-# 定义允许的访问码及对应群组名称（8个群组）
+# 定义允许的访问码及对应群组名称
 ACCESS_CODES = {
     "GROUP001": "Group 1",
     "GROUP002": "Group 2",
@@ -64,14 +64,13 @@ class GoogleDriveHandler:
 def render_groups():
     st.set_page_config(page_title="Student Affairs Management", layout="wide")
     
-    # 初始化会话状态（记录登录状态、当前群组信息）
+    # 初始化会话状态
     if "group_logged_in" not in st.session_state:
         st.session_state.group_logged_in = False
     if "current_group" not in st.session_state:
         st.session_state.current_group = None
-    if "current_group_code" not in st.session_state:  # 存储当前群组的访问码（如 GROUP001）
+    if "current_group_code" not in st.session_state:
         st.session_state.current_group_code = None
-    # 初始化数据存储（成员、收入、支出）
     for key in ["members", "incomes", "expenses"]:
         if key not in st.session_state:
             st.session_state[key] = []
@@ -82,10 +81,10 @@ def render_groups():
         st.caption("Please enter the access code to enter the corresponding group management")
         st.divider()
         
-        access_code = st.text_input("Access Code", placeholder="e.g., GROUP001", type="password")
+        access_code = st.text_input("Access Code", placeholder="e.g., GROUP001", type="password", key="login_access_code")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Login", use_container_width=True):
+            if st.button("Login", use_container_width=True, key="login_btn"):
                 if access_code in ACCESS_CODES:
                     st.session_state.group_logged_in = True
                     st.session_state.current_group = ACCESS_CODES[access_code]
@@ -95,7 +94,7 @@ def render_groups():
                 else:
                     st.error("Invalid access code, please try again")
         with col2:
-            if st.button("Clear", use_container_width=True):
+            if st.button("Clear", use_container_width=True, key="clear_login_btn"):
                 st.session_state.group_logged_in = False
                 st.session_state.current_group = None
                 st.session_state.current_group_code = None
@@ -117,19 +116,17 @@ def render_groups():
         st.session_state.expenses = []
         st.rerun()
 
-    # 初始化 Google Sheets 连接（单工作表 AllGroupsData）
+    # 初始化 Google Sheets 连接
     sheet_handler = None
     main_sheet = None
     try:
-        sheet_handler = GoogleSheetHandler(credentials_path="")  # 确保凭证配置正确
-        # 连接到现有 Group 文件中的 AllGroupsData 工作表
+        sheet_handler = GoogleSheetHandler(credentials_path="")
         main_sheet = sheet_handler.get_worksheet(
-            spreadsheet_name="Student",  # Google Sheet 文件名
-            worksheet_name="AllGroupsData"  # 工作表名
+            spreadsheet_name="Student",
+            worksheet_name="AllGroupsData"
         )
     except Exception as e:
         st.error(f"Google Sheets 初始化失败: {str(e)}")
-        # 如果工作表不存在，尝试自动创建（确保有权限）
         if "Worksheet not found" in str(e) and sheet_handler:
             with st.spinner("尝试创建 AllGroupsData 工作表..."):
                 try:
@@ -139,17 +136,16 @@ def render_groups():
                         rows=1000,
                         cols=20
                     )
-                    # 初始化表头行
                     headers = ["group_code", "data_type", "uuid", 
-                               "name", "student_id",  # 成员特定字段
-                               "date", "amount", "description",  # 收入/报销特定字段
-                               "created_at", "receipt_url"]  # 新增：图片链接字段
+                               "name", "student_id", 
+                               "date", "amount", "description", 
+                               "created_at", "receipt_url"]
                     main_sheet.append_row(headers)
                     st.success("AllGroupsData 工作表创建成功！")
                 except Exception as e2:
                     st.error(f"创建工作表失败: {str(e2)}")
 
-    # 从单工作表同步当前群组的数据（成员、收入、报销）
+    # 同步当前群组数据
     current_code = st.session_state.current_group_code
     if main_sheet and sheet_handler:
         try:
@@ -161,7 +157,6 @@ def render_groups():
                 main_sheet.append_row(headers)
                 all_rows = [headers]
             
-            # 解析表头行确定字段索引（避免字段顺序变更导致错误）
             header = all_rows[0]
             col_indices = {col: idx for idx, col in enumerate(header)}
             required_cols = ["group_code", "data_type", "uuid", "created_at"]
@@ -169,19 +164,19 @@ def render_groups():
                 st.error("工作表表头格式不正确，请检查字段是否完整")
                 return
 
-            # 筛选当前群组的成员数据（data_type=member）
+            # 同步成员数据
             st.session_state.members = [
                 {
                     "uuid": row[col_indices["uuid"]],
                     "name": row[col_indices["name"]],
                     "student_id": row[col_indices["student_id"]]
                 }
-                for row in all_rows[1:]  # 跳过表头行
+                for row in all_rows[1:]
                 if row[col_indices["group_code"]] == current_code 
                 and row[col_indices["data_type"]] == "member"
             ]
 
-            # 筛选当前群组的收入数据（data_type=income）
+            # 同步收入数据
             st.session_state.incomes = [
                 {
                     "uuid": row[col_indices["uuid"]],
@@ -194,7 +189,7 @@ def render_groups():
                 and row[col_indices["data_type"]] == "income"
             ]
 
-            # 筛选当前群组的报销数据（data_type=expense）
+            # 同步报销数据
             st.session_state.expenses = [
                 {
                     "uuid": row[col_indices["uuid"]],
@@ -225,11 +220,11 @@ def render_groups():
             st.markdown("**Add New Member**", unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
-                name = st.text_input("Member Name*", placeholder="Please enter name")
+                name = st.text_input("Member Name*", placeholder="Please enter name", key="member_name")
             with col2:
-                student_id = st.text_input("Student ID*", placeholder="Please enter unique ID")
+                student_id = st.text_input("Student ID*", placeholder="Please enter unique ID", key="student_id")
             
-            if st.button("Confirm Add Member", use_container_width=True, key="add_member"):
+            if st.button("Confirm Add Member", use_container_width=True, key="add_member_btn"):
                 if not name or not student_id:
                     st.error("Name and Student ID cannot be empty")
                     return
@@ -237,7 +232,6 @@ def render_groups():
                     st.error(f"Student ID {student_id} already exists")
                     return
 
-                # 生成唯一ID
                 member_uuid = str(uuid.uuid4())
                 new_member = {
                     "uuid": member_uuid,
@@ -246,18 +240,13 @@ def render_groups():
                 }
                 st.session_state.members.append(new_member)
 
-                # 写入Google Sheet（单工作表）
                 if main_sheet:
                     try:
                         main_sheet.append_row([
-                            current_code,  # group_code
-                            "member",      # data_type
-                            member_uuid,   # uuid
-                            name.strip(),  # name
-                            student_id.strip(),  # student_id
-                            "", "", "",    # 收入/报销字段留空
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # created_at
-                            ""  # receipt_url留空
+                            current_code, "member", member_uuid,
+                            name.strip(), student_id.strip(),
+                            "", "", "",
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                         ])
                         st.success("Member added successfully")
                     except Exception as e:
@@ -284,17 +273,16 @@ def render_groups():
             st.markdown("**Add New Income**", unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
-                income_date = st.date_input("Income Date*")
-                income_amount = st.number_input("Amount*", min_value=0.01, step=0.01)
+                income_date = st.date_input("Income Date*", key="income_date")
+                income_amount = st.number_input("Amount*", min_value=0.01, step=0.01, key="income_amount")
             with col2:
-                income_desc = st.text_input("Description*", placeholder="Source of income")
+                income_desc = st.text_input("Description*", placeholder="Source of income", key="income_desc")
             
-            if st.button("Confirm Add Income", use_container_width=True, key="add_income"):
+            if st.button("Confirm Add Income", use_container_width=True, key="add_income_btn"):
                 if not income_date or not income_amount or not income_desc:
                     st.error("Date, Amount, and Description cannot be empty")
                     return
 
-                # 生成唯一ID
                 income_uuid = str(uuid.uuid4())
                 new_income = {
                     "uuid": income_uuid,
@@ -304,19 +292,13 @@ def render_groups():
                 }
                 st.session_state.incomes.append(new_income)
 
-                # 写入Google Sheet
                 if main_sheet:
                     try:
                         main_sheet.append_row([
-                            current_code,  # group_code
-                            "income",      # data_type
-                            income_uuid,   # uuid
-                            "", "",        # 成员字段留空
-                            new_income["date"],
-                            new_income["amount"],
-                            new_income["description"],
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # created_at
-                            ""  # receipt_url留空
+                            current_code, "income", income_uuid,
+                            "", "",
+                            new_income["date"], new_income["amount"], new_income["description"],
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ""
                         ])
                         st.success("Income added successfully")
                     except Exception as e:
@@ -327,7 +309,6 @@ def render_groups():
         # 显示收入记录
         st.markdown("**Income Records**", unsafe_allow_html=True)
         if st.session_state.incomes:
-            # 计算总收入
             total_income = sum(float(inc["amount"]) for inc in st.session_state.incomes)
             st.markdown(f"**Total Income: ${total_income:.2f}**")
             
@@ -347,15 +328,13 @@ def render_groups():
             st.markdown("**Add New Reimbursement**", unsafe_allow_html=True)
             col1, col2 = st.columns(2)
             with col1:
-                exp_date = st.date_input("Reimbursement Date*")
-                exp_amount = st.number_input("Amount*", min_value=0.01, step=0.01)
+                exp_date = st.date_input("Reimbursement Date*", key="exp_date")
+                exp_amount = st.number_input("Amount*", min_value=0.01, step=0.01, key="exp_amount")
             with col2:
-                exp_desc = st.text_input("Description*", placeholder="Reason for reimbursement")
-                # 图片上传
-                exp_receipt = st.file_uploader("Upload Receipt (Image)", type=["png", "jpg", "jpeg"])
+                exp_desc = st.text_input("Description*", placeholder="Reason for reimbursement", key="exp_desc")
+                exp_receipt = st.file_uploader("Upload Receipt (Image)", type=["png", "jpg", "jpeg"], key="exp_receipt")
             
-            if st.button("Confirm Add Reimbursement", use_container_width=True, key="add_expense"):
-                # 验证图片和必填项
+            if st.button("Confirm Add Reimbursement", use_container_width=True, key="add_expense_btn"):
                 if not exp_receipt:
                     st.error("Please upload receipt image as proof")
                     return
@@ -365,7 +344,6 @@ def render_groups():
 
                 # 上传图片到Google Drive
                 try:
-                    # 使用Streamlit Secrets中的凭证
                     creds = Credentials.from_service_account_info(
                         st.secrets["google_credentials"],
                         scopes=["https://www.googleapis.com/auth/drive"]
@@ -373,7 +351,7 @@ def render_groups():
                     drive_handler = GoogleDriveHandler(creds)
                     receipt_url = drive_handler.upload_image(
                         exp_receipt, 
-                        st.session_state.current_group_code  # 用群组代码命名，避免重复
+                        st.session_state.current_group_code
                     )
                     if not receipt_url:
                         st.error("Image upload failed")
@@ -382,30 +360,25 @@ def render_groups():
                     st.error(f"Image upload error: {str(e)}")
                     return
 
-                # 生成报销记录（包含图片链接）
+                # 生成报销记录
                 exp_uuid = str(uuid.uuid4())
                 new_expense = {
                     "uuid": exp_uuid,
                     "date": exp_date.strftime("%Y-%m-%d"),
                     "amount": str(exp_amount),
                     "description": exp_desc.strip(),
-                    "receipt_url": receipt_url  # 存储图片链接
+                    "receipt_url": receipt_url
                 }
                 st.session_state.expenses.append(new_expense)
 
-                # 同步到Google Sheet（包含receipt_url列）
+                # 同步到Google Sheet
                 if main_sheet:
                     try:
                         main_sheet.append_row([
-                            current_code,  # group_code
-                            "expense",     # data_type
-                            exp_uuid,      # uuid
-                            "", "",        # 成员字段留空
-                            new_expense["date"],
-                            new_expense["amount"],
-                            new_expense["description"],
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # created_at
-                            new_expense["receipt_url"]  # 图片链接
+                            current_code, "expense", exp_uuid,
+                            "", "",
+                            new_expense["date"], new_expense["amount"], new_expense["description"],
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), new_expense["receipt_url"]
                         ])
                         st.success("Reimbursement added successfully")
                     except Exception as e:
@@ -416,14 +389,12 @@ def render_groups():
         # 展示报销记录（含图片）
         st.markdown("**Reimbursement Records**", unsafe_allow_html=True)
         if st.session_state.expenses:
-            # 计算总报销金额
             total_expense = sum(float(exp["amount"]) for exp in st.session_state.expenses)
             st.markdown(f"**Total Reimbursement: ${total_expense:.2f}**")
             
             for idx, exp in enumerate(st.session_state.expenses, 1):
                 with st.expander(f"Reimbursement {idx}: {exp['date']} - ${exp['amount']}"):
                     st.write(f"Description: {exp['description']}")
-                    # 显示图片凭证
                     if "receipt_url" in exp and exp["receipt_url"]:
                         st.image(exp["receipt_url"], caption="Receipt Proof", use_column_width=True)
                 st.divider()
