@@ -41,7 +41,7 @@ def render_groups():
 
     # Login interface
     if not st.session_state.group_logged_in:
-        st.markdown("<h2>📋 Student Affairs Management System</h2>", unsafe_allow_html=True)
+        st.markdown("<h2>📋 Group Management System</h2>", unsafe_allow_html=True)
         st.caption("Please enter the access code to enter the corresponding group management")
         st.divider()
         
