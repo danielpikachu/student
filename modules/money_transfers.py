@@ -143,7 +143,7 @@ def render_money_transfers():
             <strong>Summary:</strong><br>
             Total Income: ¥{total_income:.2f} | 
             Total Expense: ¥{total_expense:.2f} | 
-            Net Balance: ¥{net_balance:.2f}
+            <span style='font-weight: bold; font-size: 1.2em;'>Net Balance: ¥{net_balance:.2f}
         </div>
         """, unsafe_allow_html=True)
     st.write("=" * 50)
