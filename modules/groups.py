@@ -14,14 +14,14 @@ from google_sheet_utils import GoogleSheetHandler
 
 # Define allowed access codes and corresponding group names (8 groups)
 ACCESS_CODES = {
-    "GROUP001": "Group 1",
-    "GROUP002": "Group 2",
-    "GROUP003": "Group 3",
-    "GROUP004": "Group 4",
-    "GROUP005": "Group 5",
-    "GROUP006": "Group 6",
-    "GROUP007": "Group 7",
-    "GROUP008": "Group 8"
+    "AY3KP9MQ": "Group 1",
+    "FT7DR2SW": "Group 2",
+    "GH5JK8LZ": "Group 3",
+    "BN4VC6XL": "Group 4",
+    "ES2WF3RG": "Group 5",
+    "ZX9CV7BN": "Group 6",
+    "QR8TY6UI": "Group 7",
+    "PO5IU3YT": "Group 8"
 }
 
 def render_groups():
@@ -66,7 +66,7 @@ def render_groups():
         return
 
     # Logged in state - display group name
-    st.markdown(f"<h2>📋 Student Affairs Management System - {st.session_state.current_group}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2>📋 Group Management System - {st.session_state.current_group}</h2>", unsafe_allow_html=True)
     st.caption("Includes three functional modules: member management, income management, and reimbursement management")
     st.divider()
 
