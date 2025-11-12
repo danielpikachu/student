@@ -73,7 +73,7 @@ def render_money_transfers():
         with header_cols[1]:
             st.write("**Date**")
         with header_cols[2]:
-            st.write("**Amount ($)**")
+            st.write("**Amount (¥)**")
         with header_cols[3]:
             st.write("**Type**")
         with header_cols[4]:
@@ -100,7 +100,7 @@ def render_money_transfers():
                 with cols[1]:
                     st.write(trans["date"].strftime("%Y-%m-%d"))
                 with cols[2]:
-                    st.write(f"${trans['amount']:.2f}")
+                    st.write(f"¥{trans['amount']:.2f}")
                 with cols[3]:
                     st.write(trans["type"])
                 with cols[4]:
@@ -141,9 +141,9 @@ def render_money_transfers():
         st.markdown(f"""
         <div style='margin-top: 1rem; padding: 1rem; background-color: #f8f9fa; border-radius: 8px;'>
             <strong>Summary:</strong><br>
-            Total Income: ${total_income:.2f} | 
-            Total Expense: ${total_expense:.2f} | 
-            Net Balance: ${net_balance:.2f}
+            Total Income: ¥{total_income:.2f} | 
+            Total Expense: ¥{total_expense:.2f} | 
+            Net Balance: ¥{net_balance:.2f}
         </div>
         """, unsafe_allow_html=True)
     st.write("=" * 50)
@@ -160,7 +160,7 @@ def render_money_transfers():
             )
             
             amount = st.number_input(
-                "Amount ($)", 
+                "Amount (¥)", 
                 min_value=0.01, 
                 step=10.00, 
                 value=100.00,
