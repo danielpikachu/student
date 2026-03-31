@@ -322,7 +322,7 @@ def main():
         st.info("© 2025 SCIS Student Council Management System")
     
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-        "👥 Groups", "📢 Announcements", "💰 Financial Planning",
+        "👥 Groups", "📢 Announcements", "📜 Constitution",
         "📋 Attendance","🎁 Credit & Rewards","💸 Money Transfers", "📅 Calendar"
     ])
     
