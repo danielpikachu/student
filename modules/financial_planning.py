@@ -3,7 +3,7 @@ import streamlit as st
 
 def render_financial_planning():
     """still in the process of construction"""
-    st.subheader("💰 Financial Dashboard")
+    st.subheader("📜 STUCO Constitution")
     st.markdown("---")
     
     # show 
